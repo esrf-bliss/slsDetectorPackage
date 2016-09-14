@@ -441,7 +441,7 @@ TF1* energyCalibration::fitFunction(TF1 *fun, TH1 *h1, Double_t *mypar, Double_t
   strcpy(fname, fun->GetName());
 
   if (plot_flag) {
-    h1->Fit(fname,"R0Q");
+    h1->Fit(fname,"R");
   } else
     h1->Fit(fname,"R0Q");
 
