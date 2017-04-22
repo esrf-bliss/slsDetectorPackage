@@ -62,8 +62,7 @@ class sockaddr_in;
 using namespace std;
 
 #define DEFAULT_PACKET_SIZE 1286
-/*#define SOCKET_BUFFER_SIZE (100*1024*1024) //100MB*/
-#define SOCKET_BUFFER_SIZE (2000*1024*1024) //100MB
+#define SOCKET_BUFFER_SIZE (100*1024*1024) //100MB
 #define DEFAULT_BACKLOG 5
 
 
@@ -121,7 +120,7 @@ enum communicationProtocol{
        return SOCK_DGRAM;
        
      default: 
-       cerr << "unknown protocol " << p << endl;
+       cprintf(RED, "unknown protocol %d\n", p);
        return -1;
      }
    }
@@ -140,7 +139,7 @@ enum communicationProtocol{
 
   */
   
-   genericSocket(unsigned short int const port_number, communicationProtocol p, int ps = DEFAULT_PACKET_SIZE, const char *eth=NULL, int hsize=0):
+   genericSocket(unsigned short int const port_number, communicationProtocol p, int ps = DEFAULT_PACKET_SIZE, const char *eth=NULL, int hsize=0, int buf_size=SOCKET_BUFFER_SIZE):
      portno(port_number),
      protocol(p),
      is_a_server(1),
@@ -188,7 +187,7 @@ enum communicationProtocol{
      socketDescriptor = socket(AF_INET, getProtocol(),0); //tcp
 
      if (socketDescriptor < 0) {
-       cerr << "Can not create socket "<<endl;
+       cprintf(RED, "Can not create socket\n");
        return;
      } 
      
@@ -208,25 +207,39 @@ enum communicationProtocol{
      // reuse port
      int val=1;
      if (setsockopt(socketDescriptor,SOL_SOCKET,SO_REUSEADDR,&val,sizeof(int)) == -1) {
-    	 cerr << "setsockopt" << endl;
+	 cprintf(RED, "setsockopt REUSEADDR failed\n");
     	 socketDescriptor=-1;
          return;
      }
 
 
      //increase buffer size if its udp
-     val = SOCKET_BUFFER_SIZE;
-     if((p == UDP) && (setsockopt(socketDescriptor, SOL_SOCKET, SO_RCVBUF, &val, sizeof(int)) == -1))
-     {
-       cerr << "WARNING:Could not set socket receive buffer size" << endl;
-       //socketDescriptor=-1;
-       //return;
+     if (p == UDP) {
+	 val = buf_size;
+	 int real_val = -1;
+	 socklen_t optlen = sizeof(int);
+         if (setsockopt(socketDescriptor, SOL_SOCKET, SO_RCVBUF, &val, optlen) == -1) {
+	     cprintf(RED, "WARNING:Could not set socket receive buffer size: %d\n", val);
+	 } else if (getsockopt(socketDescriptor, SOL_SOCKET, SO_RCVBUF, &real_val, &optlen) == -1) {
+	     cprintf(RED, "WARNING:Could not get socket receive buffer size\n");
+	 } else if (real_val == val * 2) {
+	     cprintf(GREEN, "UDP socket buffer size=%d\n", real_val);
+	 } else {
+	     int ret = setsockopt(socketDescriptor, SOL_SOCKET, SO_RCVBUFFORCE, &val, optlen);
+	     getsockopt(socketDescriptor, SOL_SOCKET, SO_RCVBUF, &real_val, &optlen);
+	     if (ret == -1) {
+
+		 cprintf(RED, "WARNING:Could not force socket receive buffer size to %d, real size is %d\n", val, real_val);
+	     } else {
+		 cprintf(GREEN, "UDP socket buffer size=%d\n", real_val);
+	     }
+	 }
      }
 
 
 
      if(bind(socketDescriptor,(struct sockaddr *) &serverAddress,sizeof(serverAddress))<0){
-       cerr << "Can not bind socket "<< endl;
+       cprintf(RED, "Can not bind socket\n");
        socketDescriptor=-1;
        return;
      }
@@ -313,7 +326,7 @@ enum communicationProtocol{
      if(is_a_server && protocol==TCP){ //server tcp; the server will wait for the clients connection
     	 if (socketDescriptor>0) {
     		 if ((file_des = accept(socketDescriptor,(struct sockaddr *) &clientAddress, &clientAddress_length)) < 0) {
-    			 cerr << "Error: with server accept, connection refused"<<endl;
+    			 cprintf(RED, "Error: with server accept, connection refused\n");
     			 switch(errno) {
     			 case EWOULDBLOCK:
     				 printf("ewouldblock eagain\n");
@@ -381,11 +394,11 @@ enum communicationProtocol{
     		 socketDescriptor = socket(AF_INET, getProtocol(),0);
     	 //    SetTimeOut(10);
     	 if (socketDescriptor < 0){
-    		 cerr << "Can not create socket "<<endl;
+    		 cprintf(RED, "Can not create socket\n");
     		 file_des = socketDescriptor;
     	 } else {
     		 if(connect(socketDescriptor,(struct sockaddr *) &serverAddress,sizeof(serverAddress))<0){
-    			 cerr << "Can not connect to socket "<<endl;
+    			 cprintf(RED, "Can not connect to socket\n");
     			 file_des = -1;
     		 } else{
     			 file_des = socketDescriptor;
@@ -455,13 +468,13 @@ enum communicationProtocol{
        tout.tv_usec = 0;
        if(::setsockopt(socketDescriptor, SOL_SOCKET, SO_RCVTIMEO, &tout, sizeof(struct timeval)) <0)
 	 {
-	   cerr << "Error in setsockopt SO_RCVTIMEO "<< 0 << endl;
+	   cprintf(RED, "Error in setsockopt SO_RCVTIMEO %d\n", 0);
 	 }
        tout.tv_sec  = ts;
        tout.tv_usec = 0;
        if(::setsockopt(socketDescriptor, SOL_SOCKET, SO_SNDTIMEO, &tout, sizeof(struct timeval)) < 0)
 	 {
-	   cerr << "Error in setsockopt SO_SNDTIMEO " << ts <<  endl;
+	   cprintf(RED, "Error in setsockopt SO_SNDTIMEO %d\n", ts);
 	 }
        return 0;
        
@@ -593,7 +606,7 @@ enum communicationProtocol{
  				 return 0;
  			 }
  		 }
- 		cerr << "Error: Could not convert hostname to internet address" << endl;
+		cprintf(RED, "Error: Could not convert hostname to internet address\n");
  		 return 1;
  	};
 
@@ -611,7 +624,7 @@ enum communicationProtocol{
     		 freeaddrinfo(res);
     		 return 0;
     	 }
-    	 cerr << "Error: Could not convert internet address to ip string" << endl;
+    	 cprintf(RED, "Error: Could not convert internet address to ip string\n");
     	 return 1;
      }
 
