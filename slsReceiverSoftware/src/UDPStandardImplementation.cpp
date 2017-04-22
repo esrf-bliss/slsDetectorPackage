@@ -25,6 +25,8 @@ using namespace std;
 
 #define WRITE_HEADERS
 
+#define NETDEV_MAX_BACKLOG	250000
+
 /*************************************************************************
  * Constructor & Destructor **********************************************
  * They access local cache of configuration or detector parameters *******
@@ -41,12 +43,20 @@ UDPStandardImplementation::UDPStandardImplementation(){
 	pthread_mutex_init(&dataReadyMutex,NULL);
 	pthread_mutex_init(&progressMutex,NULL);
 
-	//to increase socket receiver buffer size and max length of input queue by changing kernel settings
-	if(myDetectorType == EIGER);
-	else if(system("echo $((100*1024*1024)) > /proc/sys/net/core/rmem_max")){
-		FILE_LOG(logDEBUG1, "Warning: No root permission to change socket receiver buffer size in file /proc/sys/net/core/rmem_max");
-	}else if(system("echo 250000 > /proc/sys/net/core/netdev_max_backlog")){
-		FILE_LOG(logDEBUG1, "Warning: No root permission to change max length of input queue in file /proc/sys/net/core/netdev_max_backlog ");
+	//to increase max length of input queue by changing kernel settings
+	int max_back_log;
+	const char *proc_file_name = "/proc/sys/net/core/netdev_max_backlog";
+	{
+		ifstream proc_file(proc_file_name);
+		proc_file >> max_back_log;
+	}
+	if (max_back_log < NETDEV_MAX_BACKLOG) {
+		ofstream proc_file(proc_file_name);
+		if (proc_file.good()) {
+			proc_file << NETDEV_MAX_BACKLOG << endl;
+		} else {
+			cprintf(RED, "WARNING:Could not change max length of input queue\n");
+		}
 	}
 
 	/** permanent setting by heiner

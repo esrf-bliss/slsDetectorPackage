@@ -75,8 +75,7 @@ class sockaddr_in;
 using namespace std;
 
 #define DEFAULT_PACKET_SIZE 1286
-/*#define SOCKET_BUFFER_SIZE (100*1024*1024) //100MB*/
-#define SOCKET_BUFFER_SIZE (2000*1024*1024) //100MB
+#define SOCKET_BUFFER_SIZE (100*1024*1024) //100MB
 #define DEFAULT_PORTNO    1952
 #define DEFAULT_BACKLOG 5
 #define DEFAULT_UDP_PORTNO 50001
@@ -122,7 +121,7 @@ enum communicationProtocol{
 
      struct hostent *hostInfo = gethostbyname(host_ip_or_name);
      if (hostInfo == NULL){
-       cerr << "Exiting: Problem interpreting host: " << host_ip_or_name << "\n";
+       cprintf(RED, "Exiting: Problem interpreting host: %s\n",host_ip_or_name);
      } else {
        // Set some fields in the serverAddress structure.  
        serverAddress.sin_family = hostInfo->h_addrtype;
@@ -144,7 +143,7 @@ enum communicationProtocol{
        return SOCK_DGRAM;
        
      default: 
-       cerr << "unknow protocol " << p << endl;
+       cprintf(RED, "unknown protocol %d\n", p);
        return -1;
      }
    }
@@ -163,7 +162,7 @@ enum communicationProtocol{
 
   */
   
-   genericSocket(unsigned short int const port_number, communicationProtocol p, int ps = DEFAULT_PACKET_SIZE, const char *eth=NULL, int hsize=0):
+   genericSocket(unsigned short int const port_number, communicationProtocol p, int ps = DEFAULT_PACKET_SIZE, const char *eth=NULL, int hsize=0, int buf_size=SOCKET_BUFFER_SIZE):
      //portno(port_number),
      protocol(p),
      is_a_server(1),
@@ -209,7 +208,7 @@ enum communicationProtocol{
      socketDescriptor = socket(AF_INET, getProtocol(),0); //tcp
 
      if (socketDescriptor < 0) {
-       cerr << "Can not create socket "<<endl;
+       cprintf(RED, "Can not create socket\n");
        return;
      } 
      
@@ -230,19 +229,33 @@ enum communicationProtocol{
      // reuse port
      int val=1;
      if (setsockopt(socketDescriptor,SOL_SOCKET,SO_REUSEADDR,&val,sizeof(int)) == -1) {
-    	 cerr << "setsockopt" << endl;
+	 cprintf(RED, "setsockopt REUSEADDR failed\n");
     	 socketDescriptor=-1;
          return;
      }
 
 
      //increase buffer size if its udp
-     val = SOCKET_BUFFER_SIZE;
-     if((p == UDP) && (setsockopt(socketDescriptor, SOL_SOCKET, SO_RCVBUF, &val, sizeof(int)) == -1))
-     {
-       cerr << "WARNING:Could not set socket receive buffer size" << endl;
-       //socketDescriptor=-1;
-       //return;
+     if (p == UDP) {
+	 val = buf_size;
+	 int real_val = -1;
+	 socklen_t optlen = sizeof(int);
+         if (setsockopt(socketDescriptor, SOL_SOCKET, SO_RCVBUF, &val, optlen) == -1) {
+	     cprintf(RED, "WARNING:Could not set socket receive buffer size: %d\n", val);
+	 } else if (getsockopt(socketDescriptor, SOL_SOCKET, SO_RCVBUF, &real_val, &optlen) == -1) {
+	     cprintf(RED, "WARNING:Could not get socket receive buffer size\n");
+	 } else if (real_val == val * 2) {
+	     cprintf(GREEN, "UDP socket buffer size=%d\n", real_val);
+	 } else {
+	     int ret = setsockopt(socketDescriptor, SOL_SOCKET, SO_RCVBUFFORCE, &val, optlen);
+	     getsockopt(socketDescriptor, SOL_SOCKET, SO_RCVBUF, &real_val, &optlen);
+	     if (ret == -1) {
+
+		 cprintf(RED, "WARNING:Could not force socket receive buffer size to %d, real size is %d\n", val, real_val);
+	     } else {
+		 cprintf(GREEN, "UDP socket buffer size=%d\n", real_val);
+	     }
+	 }
      }
 
 
