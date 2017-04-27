@@ -2934,7 +2934,7 @@ dacs_t multiSlsDetector::setDAC(dacs_t val, dacIndex idac, int mV, int imod) {
   
   if (decodeNMod(imod, id, im)>=0) {
     dmi=id;
-    dma=dma+1;
+    dma=dmi+1;
   }
 
   for (int idet=dmi; idet<dma; idet++) {
@@ -2959,7 +2959,7 @@ dacs_t multiSlsDetector::getADC(dacIndex idac, int imod) {
   
   if (decodeNMod(imod, id, im)>=0) {
     dmi=id;
-    dma=dma+1;
+    dma=dmi+1;
   }
 
   for (int idet=dmi; idet<dma; idet++) {
@@ -2983,7 +2983,7 @@ int multiSlsDetector::setChannel(int64_t reg, int ichan, int ichip, int imod) {
   
   if (decodeNMod(imod, id, im)>=0) {
     dmi=id;
-    dma=dma+1;
+    dma=dmi+1;
   }
   for (int idet=dmi; idet<dma; idet++) {
     if (detectors[idet]) {
@@ -3881,11 +3881,11 @@ int multiSlsDetector::setFlippedData(dimension d, int value){
 
 int multiSlsDetector::decodeNMod(int i, int &id, int &im) {
 #ifdef VERBOSE
-  cout << " Module " << i << " belongs to detector " << id << endl;;
+  cout << " Module " << i << " belongs to detector ?" << endl;;
   cout << getMaxMods();
 #endif
 
-  if (i<0 || i>=getMaxMods()) {
+  if (i<0) {
     id=-1;
     im=-1;
 #ifdef VERBOSE
