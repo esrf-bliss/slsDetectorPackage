@@ -3024,6 +3024,7 @@ void UDPStandardImplementation::handleCompleteFramesOnly(int ithread, char* wbuf
 
 	//progress
 	if(tempframenumber &&  (tempframenumber%(maxFramesPerFile/progressFrequency)) == 0){
+#if 0
 		if(numberofWriterThreads>1){
 			printf("Thread:%d"
 					"\tLost:%lld"
@@ -3051,6 +3052,7 @@ void UDPStandardImplementation::handleCompleteFramesOnly(int ithread, char* wbuf
 							 (long long int)frameNumberInPreviousCheck[ithread]
 			);
 		}
+#endif
 		//reset counters for each new file
 		frameNumberInPreviousCheck[ithread] = currentFrameNumber[ithread];
 		totalWritingPacketCountFromLastCheck[ithread] = 0;
