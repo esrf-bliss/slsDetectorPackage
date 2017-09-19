@@ -25,6 +25,8 @@
 #include <stdio.h>
 #include <semaphore.h>
 
+#include <sched.h>
+
 
 /**
  * @short does all the functions for a receiver, set/get parameters, start/stop etc.
@@ -248,6 +250,13 @@ class UDPStandardImplementation: private virtual slsReceiverDefs, public UDPBase
 	 * (as it will receive nothing from detector)
 	 */
 	int setActivate(int enable = -1);
+
+	/**
+	 * Set receiver threads CPU affinity mask
+	 */
+	int setThreadCPUAffinity(size_t cpusetsize,
+				 cpu_set_t *listeners_cpu_mask,
+				 cpu_set_t *writers_cpu_mask);
 
 private:
 	/*************************************************************************
@@ -780,6 +789,9 @@ private:
 	/** Set to self-terminate listening threads waiting for semaphores */
 	bool killAllListeningThreads;
 
+	/** Listening Threads ID, as returned by gettid */
+	pid_t listeningThreadsID[MAX_NUMBER_OF_LISTENING_THREADS];
+
 
 
 	//***writer thread parameters***
@@ -800,6 +812,9 @@ private:
 
 	/** Set to self-terminate writer threads waiting for semaphores */
 	bool killAllWritingThreads;
+
+	/** Writing Threads ID, as returned by gettid */
+	pid_t writingThreadsID[MAX_NUMBER_OF_WRITER_THREADS];
 
 
 	//***filter parameters***

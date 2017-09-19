@@ -20,12 +20,25 @@
 #include <zmq.h>	//zmq
 #include <sstream>
 #include <inttypes.h>		//printf of uint64_t etc
+#include <sys/syscall.h>
 
 using namespace std;
 
 #define WRITE_HEADERS
 
 #define NETDEV_MAX_BACKLOG	250000
+
+
+
+/*************************************************************************
+ * Get Thread ID Linux system call
+ *************************************************************************/
+
+pid_t gettid() {
+	return syscall(SYS_gettid);
+}
+
+
 
 /*************************************************************************
  * Constructor & Destructor **********************************************
@@ -1345,6 +1358,36 @@ int UDPStandardImplementation::setActivate(int enable){
 }
 
 
+int UDPStandardImplementation::setThreadCPUAffinity(size_t cpusetsize,
+					    cpu_set_t *listeners_cpu_mask,
+					    cpu_set_t *writers_cpu_mask) {
+
+	int global_ret = 0;
+
+	for (int t = 0; t < 2; ++t) {
+		int n = !t ? numberofListeningThreads : numberofWriterThreads;
+		pid_t *tid = !t ? listeningThreadsID : writingThreadsID;
+		const char *desc = !t ? "listening" : "writing";
+		cpu_set_t * mask = !t ? listeners_cpu_mask : writers_cpu_mask;
+
+		for (int i = 0; i < n; ++i, ++tid) {
+			cprintf(YELLOW, "%s CPU affinity: tid=%d\n", desc, 
+				*tid);
+			int ret = sched_setaffinity(*tid, cpusetsize, mask);
+			if (ret != 0) {
+				cprintf(RED, "Error setting %s thread %d (%d) "
+					"CPU affinity: %s\n", desc, i, *tid, 
+					strerror(errno));
+				if (global_ret == 0)
+					global_ret = errno;
+			}
+		}
+	}
+
+	return global_ret;
+}
+
+
 
 /*************************************************************************
  * Listening and Writing Threads *****************************************
@@ -2079,6 +2122,11 @@ void UDPStandardImplementation::startListening(){
 
 	//set current thread value  index
 	int ithread = currentThreadIndex;
+
+	//store the thread ID for later use
+	listeningThreadsID[ithread] = gettid();
+	cprintf(YELLOW, "listeningThread TID#%d=%d\n", ithread, listeningThreadsID[ithread]);
+
 	//let calling function know thread started and obtained current
 	threadStarted = 1;
 
@@ -2582,6 +2630,11 @@ void UDPStandardImplementation::startWriting(){
 
 
 	int ithread = currentThreadIndex;				//set current thread value  index
+
+	//store the thread ID for later use
+	writingThreadsID[ithread] = gettid();
+	cprintf(YELLOW, "writingThread TID#%d=%d\n", ithread, writingThreadsID[ithread]);
+
 	threadStarted = 1;								//let calling function know thread started and obtained current
 
 	char* wbuf = NULL;								//buffer popped from FIFO

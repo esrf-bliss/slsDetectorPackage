@@ -12,6 +12,7 @@
 #include "UDPInterface.h"
 
 
+class slsReceiverUsers;
 
 /**
  *@short interface between receiver and client
@@ -100,6 +101,7 @@ class slsReceiverTCPIPInterface : public Logger, private virtual slsReceiverDefs
 	void registerCallBackRawDataReady(void (*func)(uint64_t, uint32_t, uint32_t, uint64_t, uint64_t, uint16_t, uint16_t, uint16_t, uint16_t, uint32_t, uint16_t, uint8_t, uint8_t,
 			char*, uint32_t, void*),void *arg);
 private:
+	friend class slsReceiverUsers;
 
 	/**
 	 * Static function - Thread started which is a TCP server
