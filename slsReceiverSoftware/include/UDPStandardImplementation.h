@@ -3,6 +3,9 @@
  * @file UDPBaseImplementation.h
  * @short does all the functions for a receiver, set/get parameters, start/stop etc.
  ***********************************************/
+
+#include <sched.h>
+
 /**
  * @short does all the functions for a receiver, set/get parameters, start/stop etc.
  */
@@ -175,6 +178,14 @@ class UDPStandardImplementation: private virtual slsReceiverDefs, public UDPBase
 	 * @return OK or FAIL
 	 */
 	int restreamStop();
+
+	/**
+	 * Set receiver threads CPU affinity mask
+	 */
+	int setThreadCPUAffinity(size_t cpusetsize,
+				 cpu_set_t *listeners_cpu_mask,
+				 cpu_set_t *processors_cpu_mask);
+
 
 
 private:

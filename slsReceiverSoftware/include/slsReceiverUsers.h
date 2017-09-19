@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#include <sched.h>
 
 class slsReceiver;
 
@@ -71,6 +72,13 @@ public:
 			uint16_t modId, uint16_t xCoord, uint16_t yCoord, uint16_t zCoord, uint32_t debug, uint16_t roundRNumber, uint8_t detType, uint8_t version,
 			char* datapointer, uint32_t datasize, void*),void *arg);
 	
+	/**
+	 * Set receiver threads CPU affinity mask
+	 */
+	int setThreadCPUAffinity(size_t cpusetsize,
+				 cpu_set_t *listeners_cpu_mask,
+				 cpu_set_t *processors_cpu_mask);
+
 	//receiver object
 	slsReceiver* receiver;
 };

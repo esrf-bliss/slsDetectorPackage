@@ -3,7 +3,6 @@
  * @short does all the functions for a receiver, set/get parameters, start/stop etc.
  ***********************************************/
 
-
 #include "UDPStandardImplementation.h"
 #include "GeneralData.h"
 #include "Listener.h"
@@ -17,6 +16,7 @@
 #include <fstream>
 #include <errno.h>			//eperm
 using namespace std;
+
 
 
 /** cosntructor & destructor */
@@ -730,3 +730,40 @@ void UDPStandardImplementation::StartRunning() {
 		(*it)->Continue();
 	}
 }
+
+
+int UDPStandardImplementation::setThreadCPUAffinity(size_t cpusetsize,
+						    cpu_set_t *listeners_cpu_mask,
+						    cpu_set_t *processors_cpu_mask) {
+
+	typedef vector<pid_t> TIDList;
+	TIDList listener_tids, processor_tids;
+	for (vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it)
+		listener_tids.push_back((*it)->GetThreadID());
+	for (vector<DataProcessor*>::const_iterator it = dataProcessor.begin(); it != dataProcessor.end(); ++it)
+		processor_tids.push_back((*it)->GetThreadID());
+
+	int global_ret = 0;
+
+	for (int t = 0; t < 2; ++t) {
+		TIDList& tid_list = !t ? listener_tids : processor_tids;
+		const char *desc = !t ? "listening" : "writing";
+		cpu_set_t * mask = !t ? listeners_cpu_mask : processors_cpu_mask;
+
+		TIDList::const_iterator it, end = tid_list.end();
+		for (it = tid_list.begin(); it != end; ++it) {
+			cprintf(YELLOW, "%s CPU affinity: tid=%d\n", desc, *it);
+			int ret = sched_setaffinity(*it, cpusetsize, mask);
+			if (ret != 0) {
+				cprintf(RED, "Error setting %s thread %d "
+					"CPU affinity: %s\n", desc, *it, 
+					strerror(errno));
+				if (global_ret == 0)
+					global_ret = errno;
+			}
+		}
+	}
+
+	return global_ret;
+}
+

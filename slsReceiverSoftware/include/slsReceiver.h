@@ -13,6 +13,7 @@
 #include "MySocketTCP.h"
 //#include "utilities.h"
 
+class slsReceiverUsers;
 
 /**
  *@short creates the UDP and TCP class objects
@@ -99,6 +100,8 @@ class slsReceiver : private virtual slsReceiverDefs {
 
 
  private:
+	friend class slsReceiverUsers;
+
 	slsReceiverTCPIPInterface* tcpipInterface;
 	UDPInterface* udp_interface;
 };
