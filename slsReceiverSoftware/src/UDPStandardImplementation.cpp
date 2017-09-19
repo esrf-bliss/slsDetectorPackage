@@ -1417,7 +1417,7 @@ int UDPStandardImplementation::createDataCallbackThreads(bool destroy){
 
 int UDPStandardImplementation::createListeningThreads(bool destroy){
 
-	if(!destroy) cprintf(BLUE,"Listening thread created\n"); else cprintf(BLUE,"Listening thread destroyed\n");
+	if(!destroy) cprintf(BLUE,"Listening threads: creating\n"); else cprintf(BLUE,"Listening thread: destroying\n");
 	//reset masks
 	killAllListeningThreads = false;
 	pthread_mutex_lock(&statusMutex);
@@ -2419,11 +2419,15 @@ void UDPStandardImplementation::startFrameIndices(int ithread){
 		startAcquisitionIndex = startFrameIndex;
 		acqStarted = true;
 		pthread_mutex_unlock(&progressMutex);
+#ifdef DEBUG
 		cprintf(BLUE,"Listening_Thread %d: startAcquisitionIndex:%lld\n",ithread,(long long int)startAcquisitionIndex);
+#endif
 	}
 
 	//set start of scan/real time measurement
+#ifdef DEBUG
 	cprintf(BLUE,"Listening_Thread %d: startFrameIndex: %lld\n", ithread,(long long int)startFrameIndex);
+#endif
 	measurementStarted[ithread] = true;
 }
 
@@ -3024,7 +3028,7 @@ void UDPStandardImplementation::handleCompleteFramesOnly(int ithread, char* wbuf
 
 	//progress
 	if(tempframenumber &&  (tempframenumber%(maxFramesPerFile/progressFrequency)) == 0){
-#if 0
+#if DEBUG
 		if(numberofWriterThreads>1){
 			printf("Thread:%d"
 					"\tLost:%lld"
