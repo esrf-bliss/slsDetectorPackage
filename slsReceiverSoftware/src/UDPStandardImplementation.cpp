@@ -372,16 +372,18 @@ int UDPStandardImplementation::setupFifoStructure(){
 		//deleting
 		if(fifoFree[i]){
 			while(!fifoFree[i]->isEmpty()){
-				fifoFree[i]->pop(buffer[i]);
-				//cprintf(BLUE,"FifoFree[%d]: value:%d, pop 0x%x\n",i,fifoFree[i]->getSemValue(),(void*)(buffer[i]));
+				char *b;
+				fifoFree[i]->pop(b);
+				//cprintf(BLUE,"FifoFree[%d]: value:%d, pop 0x%x\n",i,fifoFree[i]->getDataValue(),(void*)(b));
 			}
 			delete fifoFree[i];
 			fifoFree[i] = 0;
 		}
 		if(fifo[i]){
 			while(!fifo[i]->isEmpty()){
-				fifo[i]->pop(buffer[i]);
-				//cprintf(CYAN,"Fifo[%d]: value:%d, pop 0x%x\n",i,fifo[i]->getSemValue(),(void*)(buffer[i]));
+				char *b;
+				fifo[i]->pop(b);
+				//cprintf(CYAN,"Fifo[%d]: value:%d, pop 0x%x\n",i,fifo[i]->getDataValue(),(void*)(b));
 			}
 			delete fifo[i];
 			fifo[i] = 0;
@@ -400,27 +402,29 @@ int UDPStandardImplementation::setupFifoStructure(){
 		fifo[i] 		= new CircularFifo<char>(fifoSize);
 
 		//allocate memory
-		mem0[i] = (char*)calloc((bufferSize * numberofJobsPerBuffer + fifoBufferHeaderSize) * fifoSize,sizeof(char));
+		mem0[i] = (char*)calloc(fifoSize, bufferSize * numberofJobsPerBuffer + fifoBufferHeaderSize);
 		if (mem0[i] == NULL){
 			cprintf(BG_RED,"Error: Could not allocate memory for listening \n");
 			return FAIL;
 		}
 
 		//push free address into fifoFree
-		buffer[i]=mem0[i];
-		while (buffer[i] < (mem0[i]+(bufferSize * numberofJobsPerBuffer + fifoBufferHeaderSize) * (fifoSize-1))) {
-			//cprintf(BLUE,"fifofree %d: push 0x%p\n",i,(void*)buffer[i]);
+		char *b=mem0[i];
+		for (int j=0;j<fifoSize;j++) {
+			//cprintf(BLUE,"fifofree %d: push 0x%p\n",i,(void*)b);
 			/*for(int k=0;k<bufferSize;k=k+10){
-				sprintf(buffer[i]+fifoBufferHeaderSize+k,"mem%d",i);
+				sprintf(b+fifoBufferHeaderSize+k,"mem%d",i);
 			}*/
-			sprintf(buffer[i],"mem%d",i);
-			while(!fifoFree[i]->push(buffer[i]));
-			//cprintf(GREEN,"Fifofree[%d]: value:%d, push 0x%x\n",i,fifoFree[i]->getSemValue(),(void*)(buffer[i]));
+			sprintf(b,"mem%d",i);
+			fifoFree[i]->push(b);
+			//cprintf(GREEN,"Fifofree[%d]: value:%d, push 0x%x\n",i,fifoFree[i]->getDataValue(),(void*)(b));
 #ifdef DEBUG5
-			cprintf(BLUE,"Info: %d fifostructure free pushed into fifofree %p\n", i, (void*)(buffer[i]));
+			cprintf(BLUE,"Info: %d fifostructure free pushed into fifofree %p\n", i, (void*)(b));
 #endif
-			buffer[i] += (bufferSize * numberofJobsPerBuffer + fifoBufferHeaderSize);
+			b += (bufferSize * numberofJobsPerBuffer + fifoBufferHeaderSize);
 		}
+		cout << "fifoFree[" << i << "]: " 
+		     << fifoFree[i]->getDataValue() << " buffers" << endl;
 	}
 	cout << "Fifo structure(s) reconstructed" << endl;
 
@@ -2186,7 +2190,7 @@ void UDPStandardImplementation::startListening(){
 				(*((uint32_t*)(buffer[ithread]))) = processListeningBuffer(ithread, carryonBufferSize, tempBuffer, rc);
 
 			//push buffer to FIFO
-			while(!fifo[ithread]->push(buffer[ithread]));
+			fifo[ithread]->push(buffer[ithread]);
 
 		}/*--end of loop for each buffer (inner loop)*/
 
@@ -2497,7 +2501,7 @@ void UDPStandardImplementation::stopListening(int ithread, int numbytes){
 		char cstreambuf[MAX_STR_LENGTH]; memset(cstreambuf, 0, MAX_STR_LENGTH);
 		sprintf(cstreambuf, "Listening %d: End of Acquisition", ithread);
 		FILE_LOG(logINFO, cstreambuf);
-		while(!fifoFree[ithread]->push(buffer[ithread]));
+		fifoFree[ithread]->push(buffer[ithread]);
 	}
 
 
@@ -2514,7 +2518,7 @@ void UDPStandardImplementation::stopListening(int ithread, int numbytes){
 		cprintf(BLUE,"Listening_Thread %d: Last Buffer numBytes:%d\n",ithread, numbytes);
 		cprintf(BLUE,"Listening_Thread %d: Last Buffer packet count:%d\n",ithread,(*((uint32_t*)(buffer[ithread]))) );
 #endif
-		while(!fifo[ithread]->push(buffer[ithread]));
+		fifo[ithread]->push(buffer[ithread]);
 	}
 
 	//push dummy-end buffer into fifo for all writer threads
@@ -2522,7 +2526,7 @@ void UDPStandardImplementation::stopListening(int ithread, int numbytes){
 
 	//creating dummy-end buffer with pc=0xFFFF
 	(*((uint32_t*)(buffer[ithread]))) = dummyPacketValue;
-	while(!fifo[ithread]->push(buffer[ithread]));
+	fifo[ithread]->push(buffer[ithread]);
 
 
 	//reset mask and exit loop
@@ -2817,7 +2821,7 @@ void UDPStandardImplementation::stopWriting(int ithread, char* wbuffer){
 	}
 
 	//free fifo
-	while(!fifoFree[ithread]->push(wbuffer));
+	fifoFree[ithread]->push(wbuffer);
 
 	if(dataStreamEnable){
 		sem_wait(&writerGuiSemaphore[ithread]);				//ensure previous frame was processed
@@ -2980,7 +2984,7 @@ void UDPStandardImplementation::handleWithoutDataCompression(int ithread, char* 
 	uint64_t bunchid;
 	if(getFrameandPacketNumber(ithread, wbuffer + fifoBufferHeaderSize,tempframenumber,pnum,snum,bunchid) == FAIL){
 		//error in frame number sent by fpga
-		while(!fifoFree[ithread]->push(wbuffer));
+		fifoFree[ithread]->push(wbuffer);
 
 		return;
 	}
@@ -3029,10 +3033,10 @@ void UDPStandardImplementation::handleWithoutDataCompression(int ithread, char* 
 	int listenfifoThread = ithread;
 	if(dataCompressionEnable)
 		listenfifoThread = 0;
-	while(!fifoFree[listenfifoThread]->push(wbuffer));
+	fifoFree[listenfifoThread]->push(wbuffer);
 #ifdef EVERYFIFODEBUG
-	if(fifoFree[listenfifoThread]->getSemValue()<100)
-		cprintf(GREEN,"FifoFree[%d]: value:%d, push 0x%x\n",listenfifoThread,fifoFree[listenfifoThread]->getSemValue(),(void*)(wbuffer));
+	if(fifoFree[listenfifoThread]->getDataValue()<100)
+		cprintf(GREEN,"FifoFree[%d]: value:%d, push 0x%x\n",listenfifoThread,fifoFree[listenfifoThread]->getDataValue(),(void*)(wbuffer));
 #endif
 #ifdef DEBUG5
 	cprintf(GREEN,"Writing_Thread %d: Freed buffer, pushed into fifofree %p for listener %d \n",listenfifoThread, (void*)(wbuffer), listenfifoThread);
@@ -3152,7 +3156,7 @@ void UDPStandardImplementation::handleCompleteFramesOnly(int ithread, char* wbuf
 
 
 	//free fifo addresses
-	while(!fifoFree[ithread]->push(wbuffer));
+	fifoFree[ithread]->push(wbuffer);
 #ifdef DEBUG5
 	cprintf(GREEN,"Writing_Thread %d: Freed buffer, pushed into fifofree %p for listener %d \n",ithread, (void*)(wbuffer), ithread);
 #endif
@@ -3183,7 +3187,7 @@ void UDPStandardImplementation::writeFileWithoutCompression(int ithread, char* w
 				//if(ithread) cout<<"getting start frame number"<<endl;
 				if(getFrameandPacketNumber(ithread, wbuffer + offset, startframe,pnum,snum,bunchid) == FAIL){
 					//error in frame number sent by fpga
-					while(!fifoFree[ithread]->push(wbuffer));
+					fifoFree[ithread]->push(wbuffer);
 					return;
 				}
 				//if(ithread) cout<<"done getting start frame number"<<endl;
@@ -3243,7 +3247,7 @@ void UDPStandardImplementation::writeFileWithoutCompression(int ithread, char* w
 			uint64_t bunchid = 0;
 			if(getFrameandPacketNumber(ithread, wbuffer + fifoBufferHeaderSize + ((numpackets - 1) * onePacketSize), finalLastFrameNumberToSave,pnum,snum,bunchid) == FAIL){
 				//error in frame number sent by fpga
-				while(!fifoFree[ithread]->push(wbuffer));
+				fifoFree[ithread]->push(wbuffer);
 				return;
 			}
 			totalPacketsInFile[ithread] += numpackets;
@@ -3384,7 +3388,7 @@ void UDPStandardImplementation::handleDataCompression(int ithread, char* wbuffer
 	uint64_t bunchid=-1;
 	if(getFrameandPacketNumber(ithread, wbuffer + fifoBufferHeaderSize, tempframenumber,pnum,snum,bunchid) == FAIL){
 		//error in frame number sent by fpga
-		while(!fifoFree[ithread]->push(wbuffer));
+		fifoFree[ithread]->push(wbuffer);
 		return;
 	}
 	currentFrameNumber[ithread] =  tempframenumber;
@@ -3500,10 +3504,10 @@ void UDPStandardImplementation::handleDataCompression(int ithread, char* wbuffer
 	}
 
 
-	while(!fifoFree[0]->push(wbuffer));
+	fifoFree[0]->push(wbuffer);
 #ifdef EVERYFIFODEBUG
-	if(fifoFree[0]->getSemValue()<100)
-		cprintf(GREEN,"FifoFree[%d]: value:%d, push 0x%x\n",0,fifoFree[0]->getSemValue(),(void*)(wbuffer));
+	if(fifoFree[0]->getDataValue()<100)
+		cprintf(GREEN,"FifoFree[%d]: value:%d, push 0x%x\n",0,fifoFree[0]->getDataValue(),(void*)(wbuffer));
 #endif
 #ifdef DEBUG5
 	cprintf(GREEN,"Writing_Thread %d: Compression free pushed into fifofree %p for listerner 0\n", ithread, (void*)(wbuffer));
@@ -3604,7 +3608,7 @@ int UDPStandardImplementation::writeUptoFrameNumber(int ithread, char* wbuffer, 
 	//get last frame number
 	if(getFrameandPacketNumber(ithread, wbuffer + (endoffset-onePacketSize), tempframenumber,pnum,snum,bunchid) == FAIL){
 		//error in frame number sent by fpga
-		while(!fifoFree[ithread]->push(wbuffer));
+		fifoFree[ithread]->push(wbuffer);
 		return FAIL;
 	}
 	//last packet's frame number < nextframenumber
@@ -3630,7 +3634,7 @@ int UDPStandardImplementation::writeUptoFrameNumber(int ithread, char* wbuffer, 
 			break;//if(ithread) cout<<"frame number at going backwards fast f#:"<<tempframenumber<< " offset:"<<offset<<endl;
 		if(getFrameandPacketNumber(ithread, wbuffer + offset, tempframenumber,pnum,snum,bunchid) == FAIL){
 			//error in frame number sent by fpga
-			while(!fifoFree[ithread]->push(wbuffer));
+			fifoFree[ithread]->push(wbuffer);
 			return FAIL;
 		}
 	}
@@ -3638,7 +3642,7 @@ int UDPStandardImplementation::writeUptoFrameNumber(int ithread, char* wbuffer, 
 		offset = startoffset;//if(ithread) cout<<"offset < start offset f#:"<<tempframenumber<< " offset:"<<offset<<endl;
 		if(getFrameandPacketNumber(ithread, wbuffer + offset, tempframenumber,pnum,snum,bunchid) == FAIL){
 			//error in frame number sent by fpga
-			while(!fifoFree[ithread]->push(wbuffer));
+			fifoFree[ithread]->push(wbuffer);
 			return FAIL;
 		}
 	}
@@ -3646,7 +3650,7 @@ int UDPStandardImplementation::writeUptoFrameNumber(int ithread, char* wbuffer, 
 		offset += onePacketSize;//if(ithread) cout<<"frame number at going forwards slow f#:"<<tempframenumber<< " offset:"<<offset<<endl;
 		if(getFrameandPacketNumber(ithread, wbuffer + offset, tempframenumber,pnum,snum,bunchid) == FAIL){
 			//error in frame number sent by fpga
-			while(!fifoFree[ithread]->push(wbuffer));
+			fifoFree[ithread]->push(wbuffer);
 			return FAIL;
 		}
 	}
