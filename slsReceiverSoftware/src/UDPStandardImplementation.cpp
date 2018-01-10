@@ -1033,7 +1033,7 @@ int UDPStandardImplementation::startReceiver(char *c){
 
 	//for every measurement
 	pthread_mutex_lock(&progressMutex);
-	startFrameIndex = 0;
+	startFrameIndex = (myDetectorType == EIGER) ? 1 : 0;
 	pthread_mutex_unlock(&progressMutex);
 	for(int i=0;i<numberofListeningThreads;i++){
 		measurementStarted[i] = false;
@@ -2363,8 +2363,6 @@ int UDPStandardImplementation::prepareAndListenBufferCompleteFrames(int ithread)
 				fi = ALL_MASK_32;
 				totalIgnoredPacketCount[ithread] += (pnum + 1);
 			}
-			else if(myDetectorType == EIGER)
-				fnum = fi;						//update currentfnum for eiger (next packets should have currentfnum value)
 #ifdef VERBOSE
 			if(!ithread) cout << "next currentpnum :" << pnum << endl;
 #endif
