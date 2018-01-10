@@ -2294,6 +2294,8 @@ int UDPStandardImplementation::prepareAndListenBufferCompleteFrames(int ithread)
 	default:break;
 	}
 
+	// buffer to receive data
+	char tempBuffer[onePacketSize];
 
 	int offset = fifoBufferHeaderSize;
 	uint32_t pnum = 0;
@@ -2310,9 +2312,9 @@ int UDPStandardImplementation::prepareAndListenBufferCompleteFrames(int ithread)
 
 	//read first packet
 	pnum = FIRSTPNUM;				//first packet number to validate
-	if(status != TRANSMITTING)	rc = udpSocket[ithread]->ReceiveDataOnly(buffer[ithread] + offset);
+	if(status != TRANSMITTING)	rc = udpSocket[ithread]->ReceiveDataOnly(tempBuffer);
 	if(rc <= 0) return 0;
-	if(getFrameandPacketNumber(ithread,buffer[ithread] + offset,fi,pi,si,bi) == FAIL){
+	if(getFrameandPacketNumber(ithread,tempBuffer,fi,pi,si,bi) == FAIL){
 		pi = ALL_MASK_32;					//got 0 from fpga
 		fi = ALL_MASK_32;
 	}
@@ -2338,7 +2340,7 @@ int UDPStandardImplementation::prepareAndListenBufferCompleteFrames(int ithread)
 			if(!ithread) cout << "correct packet" << endl;
 #endif
 			//copy only data
-			memcpy(buffer[ithread] + offset,buffer[ithread] + offset + headerlength, oneDataSize);
+			memcpy(buffer[ithread] + offset,tempBuffer + headerlength, oneDataSize);
 			offset+=oneDataSize;
 
 			//if complete frame
@@ -2349,7 +2351,7 @@ int UDPStandardImplementation::prepareAndListenBufferCompleteFrames(int ithread)
 
 			rc=0;							//listen again
 			if(status != TRANSMITTING)
-				rc = udpSocket[ithread]->ReceiveDataOnly(buffer[ithread] + offset);
+				rc = udpSocket[ithread]->ReceiveDataOnly(tempBuffer);
 			if(rc <= 0){						//end: update ignored and return
 				if(myDetectorType == JUNGFRAU)
 					totalIgnoredPacketCount[ithread] += (packetsPerFrame - pnum);
@@ -2358,7 +2360,7 @@ int UDPStandardImplementation::prepareAndListenBufferCompleteFrames(int ithread)
 				return 0;
 			}
 			totalListeningPacketCount[ithread]++;
-			if(getFrameandPacketNumber(ithread, buffer[ithread] + offset,fi,pi,si,bi) == FAIL){
+			if(getFrameandPacketNumber(ithread, tempBuffer,fi,pi,si,bi) == FAIL){
 				pi = ALL_MASK_32;			//got 0 from fpga
 				fi = ALL_MASK_32;
 				totalIgnoredPacketCount[ithread] += (pnum + 1);
@@ -2387,7 +2389,7 @@ int UDPStandardImplementation::prepareAndListenBufferCompleteFrames(int ithread)
 
 				rc=0;
 				if(status != TRANSMITTING)
-					rc = udpSocket[ithread]->ReceiveDataOnly(buffer[ithread] + offset);
+					rc = udpSocket[ithread]->ReceiveDataOnly(tempBuffer);
 				if(rc <= 0){
 					if(myDetectorType == JUNGFRAU)
 						totalIgnoredPacketCount[ithread] += (packetsPerFrame - pnum);
@@ -2396,7 +2398,7 @@ int UDPStandardImplementation::prepareAndListenBufferCompleteFrames(int ithread)
 					return 0;
 				}
 				totalListeningPacketCount[ithread]++;
-				if(getFrameandPacketNumber(ithread, buffer[ithread] + offset,fi,pi,si,bi) == FAIL){
+				if(getFrameandPacketNumber(ithread, tempBuffer,fi,pi,si,bi) == FAIL){
 					pi = ALL_MASK_32;			//got 0 from fpga
 					fi = ALL_MASK_32;
 				}
