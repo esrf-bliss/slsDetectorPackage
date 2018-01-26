@@ -1368,16 +1368,39 @@ int UDPStandardImplementation::setThreadCPUAffinity(size_t cpusetsize,
 
 	int global_ret = 0;
 
+	int count = CPU_COUNT_S(cpusetsize, listeners_cpu_mask);
+	cpu_set_t listeners_array[count];
+	bool recv_cpu = !CPU_EQUAL_S(cpusetsize, 
+				     listeners_cpu_mask, writers_cpu_mask);
+	if (recv_cpu) {
+ 		int i = 0;
+		for (int j = 0; j < count; ++j) {
+			CPU_ZERO(&listeners_array[j]);
+			while (!CPU_ISSET_S(i, cpusetsize, listeners_cpu_mask))
+				++i;
+			CPU_SET(i, &listeners_array[j]);
+			++i;
+		}
+	}
+
 	for (int t = 0; t < 2; ++t) {
-		int n = !t ? numberofListeningThreads : numberofWriterThreads;
-		pid_t *tid = !t ? listeningThreadsID : writingThreadsID;
-		const char *desc = !t ? "listening" : "writing";
-		cpu_set_t * mask = !t ? listeners_cpu_mask : writers_cpu_mask;
+		bool is_l = (t == 0);
+		int n = is_l ? numberofListeningThreads : numberofWriterThreads;
+		pid_t *tid = is_l ? listeningThreadsID : writingThreadsID;
+		const char *desc = is_l ? "listening" : "writing";
+		cpu_set_t *mask = is_l ? listeners_cpu_mask : writers_cpu_mask;
+		size_t set_size = cpusetsize;
 
 		for (int i = 0; i < n; ++i, ++tid) {
+			if (is_l && recv_cpu) {
+				int x = udpPortNum[i] % count;
+				mask = &listeners_array[x];
+				set_size = sizeof(cpu_set_t);
+			}
+
 			cprintf(YELLOW, "%s CPU affinity: tid=%d\n", desc, 
 				*tid);
-			int ret = sched_setaffinity(*tid, cpusetsize, mask);
+			int ret = sched_setaffinity(*tid, set_size, mask);
 			if (ret != 0) {
 				cprintf(RED, "Error setting %s thread %d (%d) "
 					"CPU affinity: %s\n", desc, i, *tid, 
