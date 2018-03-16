@@ -42,10 +42,11 @@ include_directories(
     include
 )
 
-add_library(zmq STATIC IMPORTED )
+add_library(zmq STATIC IMPORTED GLOBAL)
 
+set(ZMQ_STATIC_ARCHIVE ${CMAKE_CURRENT_SOURCE_DIR}/include/libzmq.a)
 set_target_properties(zmq PROPERTIES
-    IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/include/libzmq.a
+    IMPORTED_LOCATION ${ZMQ_STATIC_ARCHIVE}
 )
 
 add_library(slsReceiverStatic STATIC
@@ -54,7 +55,6 @@ add_library(slsReceiverStatic STATIC
 )
 set_target_properties(slsReceiverStatic PROPERTIES
     ARCHIVE_OUTPUT_NAME SlsReceiver
-    ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
 add_library(slsReceiverShared SHARED
@@ -74,15 +74,11 @@ set(PUBLICHEADERS
 
 set_target_properties(slsReceiverShared PROPERTIES
     LIBRARY_OUTPUT_NAME SlsReceiver
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
     PUBLIC_HEADER "${PUBLICHEADERS}"
 )
 
 add_executable(slsReceiver
     src/main.cpp
-)
-set_target_properties(slsReceiver PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 target_link_libraries(slsReceiver
     slsReceiverShared
@@ -102,3 +98,6 @@ install(TARGETS slsReceiverShared slsReceiverStatic slsReceiver
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib
         PUBLIC_HEADER DESTINATION include)
+
+install(FILES ${ZMQ_STATIC_ARCHIVE}
+	DESTINATION lib)

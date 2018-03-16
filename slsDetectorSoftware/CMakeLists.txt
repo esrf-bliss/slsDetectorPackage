@@ -39,19 +39,12 @@ add_definitions(
     -DDACS_INT
 )
 
-add_library(zmq STATIC IMPORTED )
-
-set_target_properties(zmq PROPERTIES
-    IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/../slsReceiverSoftware/include/libzmq.a
-)
-
 add_library(slsDetectorStatic STATIC
     ${SOURCES}
     ${HEADERS}
 )
 set_target_properties(slsDetectorStatic PROPERTIES
     ARCHIVE_OUTPUT_NAME SlsDetector
-    ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
 add_library(slsDetectorShared SHARED
@@ -83,7 +76,6 @@ set(PUBLICHEADERS
 )
 set_target_properties(slsDetectorShared PROPERTIES
     LIBRARY_OUTPUT_NAME SlsDetector
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
     PUBLIC_HEADER "${PUBLICHEADERS}"
 )
 

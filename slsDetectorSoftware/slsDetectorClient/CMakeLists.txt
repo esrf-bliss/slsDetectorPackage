@@ -22,7 +22,6 @@ target_link_libraries(sls_detector_get
    rt
 )
 set_target_properties(sls_detector_get PROPERTIES 
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
     COMPILE_DEFINITIONS GET=1
 )
 
@@ -36,7 +35,6 @@ target_link_libraries(sls_detector_put
    rt
 )
 set_target_properties(sls_detector_put PROPERTIES 
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
     COMPILE_DEFINITIONS PUT=1
 )
 
@@ -50,7 +48,6 @@ target_link_libraries(sls_detector_acquire
    rt
 )
 set_target_properties(sls_detector_acquire PROPERTIES 
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
     COMPILE_DEFINITIONS READOUT=1
 )
 
@@ -64,7 +61,6 @@ target_link_libraries(sls_detector_help
    rt
 )
 set_target_properties(sls_detector_help PROPERTIES 
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
     COMPILE_DEFINITIONS HELP=1
 )
 
