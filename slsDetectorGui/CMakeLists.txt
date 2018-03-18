@@ -102,13 +102,6 @@ add_executable(slsDetectorGui
 
 set_target_properties(slsDetectorGui PROPERTIES
     LINKER_LANGUAGE CXX
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
-)
-
-add_library(zmq STATIC IMPORTED )
-
-set_target_properties(zmq PROPERTIES
-    IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/../slsReceiverSoftware/include/libzmq.a
 )
 
 target_link_libraries(slsDetectorGui 
@@ -125,6 +118,7 @@ add_executable(gui_client
     client/qClient.h
     client/qClient.cpp
 )
-set_target_properties(gui_client PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+
+install(TARGETS slsDetectorGui gui_client
+	DESTINATION "${CMAKE_INSTALL_PREFIX}/bin"
 )
