@@ -7,7 +7,9 @@ option (USE_TEXTCLIENT "Text Client" OFF)
 option (USE_RECEIVER "Receiver" OFF)
 option (USE_GUI "GUI" OFF)
 
-set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -Wall -Wno-misleading-indentation")
+if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 6.0)
+	set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -Wall -Wno-misleading-indentation")
+endif ()
 
 find_package(Qt4)
 find_package(Qwt 6)
