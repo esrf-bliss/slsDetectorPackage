@@ -334,6 +334,10 @@ int slsDetectorUsers::setParallelMode(int value) {
 	return myDetector->getParallelMode();
 }
 
+int slsDetectorUsers::getNMods() {
+	return myDetector->getNMods();
+}
+
 int slsDetectorUsers::setAllTrimbits(int val, int id) {
 	return myDetector->setAllTrimbits(val, id);
 }

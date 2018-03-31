@@ -589,6 +589,12 @@ class slsDetectorUsers
    int setParallelMode(int value);
 
     /**
+      @short returns the number of detector modules
+      \returns nb of modules
+    */
+   int getNMods();
+
+    /**
       @short sets all trimbits to value (only available for eiger)
       \param val value to be set (-1 gets)
       \param id module index (-1 for all)
