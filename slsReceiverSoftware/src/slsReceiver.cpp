@@ -43,6 +43,9 @@ slsReceiver::slsReceiver(int argc, char *argv[], int &success):
 	};
 
 
+	// initialise the global optind variable
+	optind = 1;
+
 	// getopt_long stores the option index here.
 	int option_index = 0;
 	int c = 0;
