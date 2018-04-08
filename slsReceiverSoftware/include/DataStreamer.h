@@ -19,39 +19,29 @@ class DataStreamer : private virtual slsReceiverDefs, public ThreadObject {
  public:
 	/**
 	 * Constructor
-	 * Calls Base Class CreateThread(), sets ErrorMask if error and increments NumberofDataStreamers
+	 * Calls Base Class CreateThread()
+	 * @param i streamer index
 	 * @param f address of Fifo pointer
 	 * @param dr pointer to dynamic range
 	 * @param sEnable pointer to short frame enable
 	 * @param fi pointer to file index
 	 */
-	DataStreamer(Fifo*& f, uint32_t* dr, int* sEnable, uint64_t* fi);
+	DataStreamer(int i, Fifo*& f, uint32_t* dr, int* sEnable, uint64_t* fi);
 
 	/**
 	 * Destructor
-	 * Calls Base Class DestroyThread() and decrements NumberofDataStreamers
+	 * Calls Base Class DestroyThread()
 	 */
 	~DataStreamer();
 
 
+	/**
+	 * Returns if the thread is currently running
+	 * @returns true if thread is running, else false
+	 */
+	bool IsRunning();
+
 	//*** static functions ***
-	/**
-	 * Get RunningMask
-	 * @return RunningMask
-	 */
-	static uint64_t GetErrorMask();
-
-	/**
-	 * Get RunningMask
-	 * @return RunningMask
-	 */
-	static uint64_t GetRunningMask();
-
-	/**
-	 * Reset RunningMask
-	 */
-	static void ResetRunningMask();
-
 	/**
 	 * Set Silent Mode
 	 * @param mode 1 sets 0 unsets
@@ -65,12 +55,12 @@ class DataStreamer : private virtual slsReceiverDefs, public ThreadObject {
 
 	//*** setters ***
 	/**
-	 * Set bit in RunningMask to allow thread to run
+	 * Set Running to allow thread to run
 	 */
 	void StartRunning();
 
 	/**
-	 * Reset bit in RunningMask to prevent thread from running
+	 * Reset bit in Running to prevent thread from running
 	 */
 	void StopRunning();
 
@@ -130,11 +120,8 @@ class DataStreamer : private virtual slsReceiverDefs, public ThreadObject {
 	 */
 	std::string GetType();
 
-	/**
-	 * Returns if the thread is currently running
-	 * @returns true if thread is running, else false
-	 */
-	bool IsRunning();
+	/** Streamer object running */
+	bool Running;
 
 	/**
 	 * Record First Indices (firstAcquisitionIndex, firstMeasurementIndex)
@@ -150,7 +137,7 @@ class DataStreamer : private virtual slsReceiverDefs, public ThreadObject {
 
 	/**
 	 * Frees dummy buffer,
-	 * reset running mask by calling StopRunning()
+	 * reset running by calling StopRunning()
 	 * @param buf address of pointer
 	 */
 	void StopProcessing(char* buf);
@@ -172,18 +159,6 @@ class DataStreamer : private virtual slsReceiverDefs, public ThreadObject {
 
 	/** type of thread */
 	static const std::string TypeName;
-
-	/** Total Number of DataStreamer Objects */
-	static int NumberofDataStreamers;
-
-	/** Mask of errors on any object eg.thread creation */
-	static uint64_t ErrorMask;
-
-	/** Mask of all listener objects running */
-	static uint64_t RunningMask;
-
-	/** mutex to update static items among objects (threads)*/
-	static pthread_mutex_t Mutex;
 
 	/** GeneralData (Detector Data) object */
 	const GeneralData* generalData;

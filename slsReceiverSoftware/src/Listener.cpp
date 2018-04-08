@@ -18,19 +18,11 @@ using namespace std;
 
 const string Listener::TypeName = "Listener";
 
-int Listener::NumberofListeners(0);
-
-uint64_t Listener::ErrorMask(0x0);
-
-uint64_t Listener::RunningMask(0x0);
-
-pthread_mutex_t Listener::Mutex = PTHREAD_MUTEX_INITIALIZER;
-
 bool Listener::SilentMode(false);
 
 
-Listener::Listener(detectorType dtype, Fifo*& f, runStatus* s, uint32_t* portno, char* e, int* act, uint64_t* nf, uint32_t* dr) :
-		ThreadObject(NumberofListeners),
+Listener::Listener(int i, detectorType dtype, Fifo*& f, runStatus* s, uint32_t* portno, char* e, int* act, uint64_t* nf, uint32_t* dr) :
+		ThreadObject(i),
 		generalData(0),
 		fifo(f),
 		myDetectorType(dtype),
@@ -53,13 +45,10 @@ Listener::Listener(detectorType dtype, Fifo*& f, runStatus* s, uint32_t* portno,
 		listeningPacket(0),
 		udpSocketAlive(0)
 {
-	if(ThreadObject::CreateThread()){
-		pthread_mutex_lock(&Mutex);
-		ErrorMask ^= (1<<index);
-		pthread_mutex_unlock(&Mutex);
-	}
-	NumberofListeners++;
-	FILE_LOG(logDEBUG) << "Number of Listeners: " << NumberofListeners;
+	if (ThreadObject::CreateThread())
+		throw std::exception();
+
+	FILE_LOG(logDEBUG) << "Listener: " << i;
 
 	switch(myDetectorType){
 	case JUNGFRAU:
@@ -78,22 +67,9 @@ Listener::~Listener() {
 	if (carryOverPacket) delete [] carryOverPacket;
 	if (listeningPacket) delete [] listeningPacket;
 	ThreadObject::DestroyThread();
-	NumberofListeners--;
 }
 
 /** static functions */
-
-uint64_t Listener::GetErrorMask() {
-	return ErrorMask;
-}
-
-uint64_t Listener::GetRunningMask() {
-	return RunningMask;
-}
-
-void Listener::ResetRunningMask() {
-	RunningMask = 0x0;
-}
 
 void Listener::SetSilentMode(bool mode) {
 	SilentMode = mode;
@@ -106,7 +82,7 @@ string Listener::GetType(){
 }
 
 bool Listener::IsRunning() {
-	return ((1 << index) & RunningMask);
+	return Running;
 }
 
 bool Listener::GetAcquisitionStartedFlag(){
@@ -127,16 +103,12 @@ uint64_t Listener::GetLastFrameIndexCaught() {
 
 /** setters */
 void Listener::StartRunning() {
-	pthread_mutex_lock(&Mutex);
-	RunningMask |= (1<<index);
-	pthread_mutex_unlock(&Mutex);
+	Running = 1;
 }
 
 
 void Listener::StopRunning() {
-	pthread_mutex_lock(&Mutex);
-	RunningMask ^= (1<<index);
-	pthread_mutex_unlock(&Mutex);
+	Running = 0;
 }
 
 

@@ -22,24 +22,16 @@ using namespace std;
 
 const string DataProcessor::TypeName = "DataProcessor";
 
-int DataProcessor::NumberofDataProcessors(0);
-
-uint64_t DataProcessor::ErrorMask(0x0);
-
-uint64_t DataProcessor::RunningMask(0x0);
-
-pthread_mutex_t DataProcessor::Mutex = PTHREAD_MUTEX_INITIALIZER;
-
 bool DataProcessor::SilentMode(false);
 
 
-DataProcessor::DataProcessor(Fifo*& f, fileFormat* ftype, bool fwenable, bool* dsEnable,
+DataProcessor::DataProcessor(int i, Fifo*& f, fileFormat* ftype, bool fwenable, bool* dsEnable,
 		uint32_t* freq, uint32_t* timer,
 		void (*dataReadycb)(uint64_t, uint32_t, uint32_t, uint64_t, uint64_t, uint16_t, uint16_t, uint16_t, uint16_t, uint32_t, uint16_t, uint8_t, uint8_t,
 				char*, uint32_t, void*),
-		void *pDataReadycb) :
+		void *pDataReadycb, int nProc) :
 
-		ThreadObject(NumberofDataProcessors),
+		ThreadObject(i),
 		generalData(0),
 		fifo(f),
 		file(0),
@@ -58,16 +50,13 @@ DataProcessor::DataProcessor(Fifo*& f, fileFormat* ftype, bool fwenable, bool* d
 		numFramesCaught(0),
 		currentFrameIndex(0),
 		rawDataReadyCallBack(dataReadycb),
-		pRawDataReady(pDataReadycb)
+		pRawDataReady(pDataReadycb),
+		numDataProc(nProc)
 {
-	if(ThreadObject::CreateThread()){
-		pthread_mutex_lock(&Mutex);
-		ErrorMask ^= (1<<index);
-		pthread_mutex_unlock(&Mutex);
-	}
+	if (ThreadObject::CreateThread())
+		throw std::exception();
 
-	NumberofDataProcessors++;
-	FILE_LOG(logDEBUG) << "Number of DataProcessors: " << NumberofDataProcessors;
+	FILE_LOG(logDEBUG) << "DataProcessor: " << i;
 
 	memset((void*)&timerBegin, 0, sizeof(timespec));
 }
@@ -76,22 +65,9 @@ DataProcessor::DataProcessor(Fifo*& f, fileFormat* ftype, bool fwenable, bool* d
 DataProcessor::~DataProcessor() {
 	if (file) delete file;
 	ThreadObject::DestroyThread();
-	NumberofDataProcessors--;
 }
 
 /** static functions */
-
-uint64_t DataProcessor::GetErrorMask() {
-	return ErrorMask;
-}
-
-uint64_t DataProcessor::GetRunningMask() {
-	return RunningMask;
-}
-
-void DataProcessor::ResetRunningMask() {
-	RunningMask = 0x0;
-}
 
 void DataProcessor::SetSilentMode(bool mode) {
 	SilentMode = mode;
@@ -104,7 +80,7 @@ string DataProcessor::GetType(){
 }
 
 bool DataProcessor::IsRunning() {
-	return ((1 << index) & RunningMask);
+	return Running;
 }
 
 bool DataProcessor::GetAcquisitionStartedFlag(){
@@ -139,16 +115,12 @@ uint64_t DataProcessor::GetProcessedMeasurementIndex() {
 
 /** setters */
 void DataProcessor::StartRunning() {
-	pthread_mutex_lock(&Mutex);
-	RunningMask |= (1<<index);
-	pthread_mutex_unlock(&Mutex);
+	Running = 1;
 }
 
 
 void DataProcessor::StopRunning() {
-	pthread_mutex_lock(&Mutex);
-	RunningMask ^= (1<<index);
-	pthread_mutex_unlock(&Mutex);
+	Running = 0;
 }
 
 void DataProcessor::SetFifo(Fifo*& f) {
@@ -235,7 +207,7 @@ void DataProcessor::SetupFileWriter(bool fwe, int* nd, char* fname, char* fpath,
 	if (g)
 		generalData = g;
 	// fix xcoord as detector is not providing it right now
-	xcoord = ((NumberofDataProcessors > (*nunits)) ? index : ((*dindex) * (*nunits)) + index);
+	xcoord = ((numDataProc > (*nunits)) ? index : ((*dindex) * (*nunits)) + index);
 
 
 	if (file) {

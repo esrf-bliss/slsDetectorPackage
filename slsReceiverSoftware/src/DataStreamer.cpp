@@ -15,19 +15,11 @@ using namespace std;
 
 const string DataStreamer::TypeName = "DataStreamer";
 
-int DataStreamer::NumberofDataStreamers(0);
-
-uint64_t DataStreamer::ErrorMask(0x0);
-
-uint64_t DataStreamer::RunningMask(0x0);
-
-pthread_mutex_t DataStreamer::Mutex = PTHREAD_MUTEX_INITIALIZER;
-
 bool DataStreamer::SilentMode(false);
 
 
-DataStreamer::DataStreamer(Fifo*& f, uint32_t* dr, int* sEnable, uint64_t* fi) :
-		ThreadObject(NumberofDataStreamers),
+DataStreamer::DataStreamer(int i, Fifo*& f, uint32_t* dr, int* sEnable, uint64_t* fi) :
+		ThreadObject(i),
 		generalData(0),
 		fifo(f),
 		zmqSocket(0),
@@ -40,14 +32,10 @@ DataStreamer::DataStreamer(Fifo*& f, uint32_t* dr, int* sEnable, uint64_t* fi) :
 		firstMeasurementIndex(0),
 		completeBuffer(0)
 {
-	if(ThreadObject::CreateThread()){
-		pthread_mutex_lock(&Mutex);
-		ErrorMask ^= (1<<index);
-		pthread_mutex_unlock(&Mutex);
-	}
+	if (ThreadObject::CreateThread())
+		throw std::exception();
 
-	NumberofDataStreamers++;
-	FILE_LOG(logDEBUG) << "Number of DataStreamers: " << NumberofDataStreamers;
+	FILE_LOG(logDEBUG) << "DataStreamers: " << i;
 
 	strcpy(fileNametoStream, "");
 }
@@ -57,22 +45,9 @@ DataStreamer::~DataStreamer() {
 	CloseZmqSocket();
 	if (completeBuffer) delete completeBuffer;
 	ThreadObject::DestroyThread();
-	NumberofDataStreamers--;
 }
 
 /** static functions */
-
-uint64_t DataStreamer::GetErrorMask() {
-	return ErrorMask;
-}
-
-uint64_t DataStreamer::GetRunningMask() {
-	return RunningMask;
-}
-
-void DataStreamer::ResetRunningMask() {
-	RunningMask = 0x0;
-}
 
 void DataStreamer::SetSilentMode(bool mode) {
 	SilentMode = mode;
@@ -86,22 +61,18 @@ string DataStreamer::GetType(){
 }
 
 bool DataStreamer::IsRunning() {
-	return ((1 << index) & RunningMask);
+	return Running;
 }
 
 
 /** setters */
 void DataStreamer::StartRunning() {
-	pthread_mutex_lock(&Mutex);
-	RunningMask |= (1<<index);
-	pthread_mutex_unlock(&Mutex);
+	Running = 1;
 }
 
 
 void DataStreamer::StopRunning() {
-	pthread_mutex_lock(&Mutex);
-	RunningMask ^= (1<<index);
-	pthread_mutex_unlock(&Mutex);
+	Running = 0;
 }
 
 void DataStreamer::SetFifo(Fifo*& f) {

@@ -20,7 +20,8 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
  public:
 	/**
 	 * Constructor
-	 * Calls Base Class CreateThread(), sets ErrorMask if error and increments NumberofListerners
+	 * Calls Base Class CreateThread()
+	 * @param i listener index
 	 * @param dtype detector type
 	 * @param f address of Fifo pointer
 	 * @param s pointer to receiver status
@@ -30,32 +31,20 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	 * @param nf pointer to number of images to catch
 	 * @param dr pointer to dynamic range
 	 */
-	Listener(detectorType dtype, Fifo*& f, runStatus* s, uint32_t* portno, char* e, int* act, uint64_t* nf, uint32_t* dr);
+	Listener(int i, detectorType dtype, Fifo*& f, runStatus* s, uint32_t* portno, char* e, int* act, uint64_t* nf, uint32_t* dr);
 
 	/**
 	 * Destructor
-	 * Calls Base Class DestroyThread() and decrements NumberofListerners
+	 * Calls Base Class DestroyThread()
 	 */
 	~Listener();
 
 
-	//*** static functions ***
 	/**
-	 * Get ErrorMask
-	 * @return ErrorMask
+	 * Returns if the thread is currently running
+	 * @returns true if thread is running, else false
 	 */
-	static uint64_t GetErrorMask();
-
-	/**
-	 * Get RunningMask
-	 * @return RunningMask
-	 */
-	static uint64_t GetRunningMask();
-
-	/**
-	 * Reset RunningMask
-	 */
-	static void ResetRunningMask();
+	bool IsRunning();
 
 	/**
 	 * Set Silent Mode
@@ -93,12 +82,12 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 
 	//*** setters ***
 	/**
-	 * Set bit in RunningMask to allow thread to run
+	 * Set Running to allow thread to run
 	 */
 	void StartRunning();
 
 	/**
-	 * Reset bit in RunningMask to prevent thread from running
+	 * Reset Running to prevent thread from running
 	 */
 	void StopRunning();
 
@@ -154,12 +143,6 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	std::string GetType();
 
 	/**
-	 * Returns if the thread is currently running
-	 * @returns true if thread is running, else false
-	 */
-	bool IsRunning();
-
-	/**
 	 * Record First Indices (firstAcquisitionIndex, firstMeasurementIndex)
 	 * @param fnum frame index to record
 	 */
@@ -175,7 +158,7 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	/**
 	 * Pushes non empty buffers into fifo/ frees empty buffer,
 	 * pushes dummy buffer into fifo
-	 * and reset running mask by calling StopRunning()
+	 * and reset running by calling StopRunning()
 	 * @param buf address of buffer
 	 */
 	void StopListening(char* buf);
@@ -201,21 +184,11 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	void PrintFifoStatistics();
 
 
-
 	/** type of thread */
 	static const std::string TypeName;
 
-	/** Total Number of Listener Objects */
-	static int NumberofListeners;
-
-	/** Mask of errors on any object eg.thread creation */
-	static uint64_t ErrorMask;
-
-	/** Mask of all listener objects running */
-	static uint64_t RunningMask;
-
-	/** Mutex to update static items among objects (threads)*/
-	static pthread_mutex_t Mutex;
+	/** Listener object running */
+	bool Running;
 
 	/** GeneralData (Detector Data) object */
 	const GeneralData* generalData;

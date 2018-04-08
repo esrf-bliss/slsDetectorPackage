@@ -23,7 +23,8 @@ class DataProcessor : private virtual slsReceiverDefs, public ThreadObject {
  public:
 	/**
 	 * Constructor
-	 * Calls Base Class CreateThread(), sets ErrorMask if error and increments NumberofDataProcessors
+	 * Calls Base Class CreateThread() 
+	 * @param i processor index
 	 * @param f address of Fifo pointer
 	 * @param ftype pointer to file format type
 	 * @param fwenable file writer enable
@@ -32,38 +33,27 @@ class DataProcessor : private virtual slsReceiverDefs, public ThreadObject {
 	 * @param timer pointer to timer if streaming frequency is random
 	 * @param dataReadycb pointer to data ready call back function
 	 * @param pDataReadycb pointer to arguments of data ready call back function
+	 * @param nProc Number of data processors
 	 */
-	DataProcessor(Fifo*& f, fileFormat* ftype, bool fwenable, bool* dsEnable,
+	DataProcessor(int i, Fifo*& f, fileFormat* ftype, bool fwenable, bool* dsEnable,
 						uint32_t* freq, uint32_t* timer,
 						void (*dataReadycb)(uint64_t, uint32_t, uint32_t, uint64_t, uint64_t, uint16_t, uint16_t, uint16_t, uint16_t, uint32_t, uint16_t, uint8_t, uint8_t,
 								char*, uint32_t, void*),
-						void *pDataReadycb);
+				  		void *pDataReadycb, int nProc);
 
 	/**
 	 * Destructor
-	 * Calls Base Class DestroyThread() and decrements NumberofDataProcessors
+	 * Calls Base Class DestroyThread()
 	 */
 	~DataProcessor();
 
+	/**
+	 * Returns if the thread is currently running
+	 * @returns true if thread is running, else false
+	 */
+	bool IsRunning();
 
 	//*** static functions ***
-	/**
-	 * Get ErrorMask
-	 * @return ErrorMask
-	 */
-	static uint64_t GetErrorMask();
-
-	/**
-	 * Get RunningMask
-	 * @return RunningMask
-	 */
-	static uint64_t GetRunningMask();
-
-	/**
-	 * Reset RunningMask
-	 */
-	static void ResetRunningMask();
-
 	/**
 	 * Set Silent Mode
 	 * @param mode 1 sets 0 unsets
@@ -116,12 +106,12 @@ class DataProcessor : private virtual slsReceiverDefs, public ThreadObject {
 
 	//*** setters ***
 	/**
-	 * Set bit in RunningMask to allow thread to run
+	 * Set Running to allow thread to run
 	 */
 	void StartRunning();
 
 	/**
-	 * Reset bit in RunningMask to prevent thread from running
+	 * Reset Running to prevent thread from running
 	 */
 	void StopRunning();
 
@@ -212,12 +202,6 @@ class DataProcessor : private virtual slsReceiverDefs, public ThreadObject {
 	std::string GetType();
 
 	/**
-	 * Returns if the thread is currently running
-	 * @returns true if thread is running, else false
-	 */
-	bool IsRunning();
-
-	/**
 	 * Record First Indices (firstAcquisitionIndex, firstMeasurementIndex)
 	 * @param fnum frame index to record
 	 */
@@ -238,7 +222,7 @@ class DataProcessor : private virtual slsReceiverDefs, public ThreadObject {
 
 	/**
 	 * Frees dummy buffer,
-	 * reset running mask by calling StopRunning()
+	 * reset running by calling StopRunning()
 	 * @param buf address of pointer
 	 */
 	void StopProcessing(char* buf);
@@ -274,17 +258,8 @@ class DataProcessor : private virtual slsReceiverDefs, public ThreadObject {
 	/** type of thread */
 	static const std::string TypeName;
 
-	/** Total Number of DataProcessor Objects */
-	static int NumberofDataProcessors;
-
-	/** Mask of errors on any object eg.thread creation */
-	static uint64_t ErrorMask;
-
-	/** Mask of all listener objects running */
-	static uint64_t RunningMask;
-
-	/** mutex to update static items among objects (threads)*/
-	static pthread_mutex_t Mutex;
+	/** Processor object running */
+	bool Running;
 
 	/** GeneralData (Detector Data) object */
 	const GeneralData* generalData;
@@ -350,7 +325,8 @@ class DataProcessor : private virtual slsReceiverDefs, public ThreadObject {
 	/** Frame Number of latest processed frame number of an entire Acquisition (including all scans) */
 	uint64_t currentFrameIndex;
 
-
+	/** Number of data processors */
+	int numDataProc;
 
 	//call back
 	/**
