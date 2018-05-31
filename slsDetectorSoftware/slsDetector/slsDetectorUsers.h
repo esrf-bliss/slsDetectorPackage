@@ -728,6 +728,7 @@ class slsDetectorUsers
     case 2: return string("ro_trigger");				\
     case 3: return string("gating");			\
     case 4: return string("triggered_gating");	\
+    case 5: return string("burst_trigger");	\
     default:    return string( "unknown");				\
     }      };
 
@@ -743,6 +744,7 @@ class slsDetectorUsers
     if (s== "ro_trigger") return 2;					\
     if (s== "gating") return 3;						\
     if (s== "triggered_gating") return 4;				\
+    if (s== "burst_trigger") return 5;					\
     return -1;							};
 
 
