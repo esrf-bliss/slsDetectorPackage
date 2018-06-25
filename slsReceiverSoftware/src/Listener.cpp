@@ -308,6 +308,7 @@ uint32_t Listener::ListenToAnImage(char* buf) {
 	int rc = 0;
 	uint64_t fnum = 0, bid = 0;
 	uint32_t pnum = 0, snum = 0;
+	uint32_t expect_pnum = 0;
 	uint32_t numpackets = 0;
 	uint32_t dsize = generalData->dataSize;
 	uint32_t hsize = generalData->headerSizeinPacket; //(includes empty header)
@@ -315,13 +316,13 @@ uint32_t Listener::ListenToAnImage(char* buf) {
 	uint32_t fifohsize = generalData->fifoBufferHeaderSize;
 	uint32_t pperFrame = generalData->packetsPerFrame;
 	bool isHeaderEmpty = true;
+	char *buf_data, *src_data;
 	sls_detector_header* old_header = 0;
 	sls_detector_header* new_header = 0;
 
 
-	//reset to -1
 	memset(buf, 0, fifohsize);
-	memset(buf + fifohsize, 0xFF, generalData->imageSize);
+	buf_data = buf + fifohsize;
 	new_header = (sls_detector_header*) (buf + FIFO_HEADER_NUMBYTES);
 
 
@@ -346,24 +347,31 @@ uint32_t Listener::ListenToAnImage(char* buf) {
 				cprintf(RED,"Error:(Weird), With carry flag: Frame number %lu less than current frame number %lu\n", fnum, currentFrameIndex);
 				return 0;
 			}
+			FillMissingPackets(buf_data, expect_pnum, pperFrame);
 			new_header->packetNumber = numpackets;
 			return generalData->imageSize;
 		}
 
+		int missing = pnum - expect_pnum;
+		if (missing)
+			FillMissingPackets(buf_data, expect_pnum, missing);
+
 		//copy packet
+		src_data = carryOverPacket + hsize;
 		switch(myDetectorType) {
 		//for gotthard, 1st packet: 4 bytes fnum, CACA					   + CACA, 639*2 bytes data
 		//				2nd packet: 4 bytes fnum, previous 1*2 bytes data  + 640*2 bytes data !!
 		case GOTTHARD:
 			if(!pnum)
-				memcpy(buf + fifohsize , carryOverPacket + hsize+4, dsize-2);
+				memcpy(buf_data, src_data + 4, dsize - 2);
 			else
-				memcpy(buf + fifohsize + dsize - 2, carryOverPacket + hsize, dsize+2);
+				memcpy(buf_data + dsize - 2, src_data, dsize + 2);
 			break;
 		default:
-			memcpy(buf + fifohsize + (pnum * dsize), carryOverPacket + hsize, dsize);
+			memcpy(buf_data + (pnum * dsize), src_data, dsize);
 			break;
 		}
+		expect_pnum = pnum + 1;
 
 		carryOverFlag = false;
 		numpackets++;					//number of packets in this image (each time its copied to buf)
@@ -393,7 +401,7 @@ uint32_t Listener::ListenToAnImage(char* buf) {
 
 
 	//until last packet isHeaderEmpty to account for gotthard short frame, else never entering this loop)
-	while ( numpackets < pperFrame) {
+	while (expect_pnum < pperFrame) {
 		//listen to new packet
 		rc = 0;
 		if (udpSocketAlive){
@@ -401,6 +409,9 @@ uint32_t Listener::ListenToAnImage(char* buf) {
 		}
 		if(rc <= 0) {
 			if (numpackets == 0) return 0;	//empty image
+
+			FillMissingPackets(buf_data, expect_pnum,
+					   pperFrame - expect_pnum);
 
 			new_header->packetNumber = numpackets; 	//number of packets caught
 			return generalData->imageSize;	//empty packet now, but not empty image
@@ -447,25 +458,38 @@ uint32_t Listener::ListenToAnImage(char* buf) {
 			carryOverFlag = true;
 			memcpy(carryOverPacket,listeningPacket, generalData->packetSize);
 
+			FillMissingPackets(buf_data, expect_pnum,
+					   pperFrame - expect_pnum);
+
 			new_header->packetNumber = numpackets; 	//number of packets caught
 			return generalData->imageSize;
 		}
 
+		//fill gaps due to missing packets
+		int missing = pnum - expect_pnum;
+		if (missing < 0)
+			cprintf(RED,"Received packet %u older than expected %u\n", pnum, expect_pnum);
+		else if (missing > 0)
+			FillMissingPackets(buf_data, expect_pnum, missing);
+
 		//copy packet
+		src_data = listeningPacket + hsize;
 		switch(myDetectorType) {
 		//for gotthard, 1st packet: 4 bytes fnum, CACA					   + CACA, 639*2 bytes data
 		//				2nd packet: 4 bytes fnum, previous 1*2 bytes data  + 640*2 bytes data !!
 		case GOTTHARD:
 			if(!pnum)
-				memcpy(buf + fifohsize + (pnum * dsize), listeningPacket + hsize+4, dsize-2);
+				memcpy(buf_data + (pnum * dsize), src_data + 4, dsize - 2);
 			else
-				memcpy(buf + fifohsize + (pnum * dsize) - 2, listeningPacket + hsize, dsize+2);
+				memcpy(buf_data + (pnum * dsize) - 2, src_data, dsize + 2);
 			break;
 		default:
-			memcpy(buf + fifohsize + (pnum * dsize), listeningPacket + hsize, dsize);
+			memcpy(buf_data + (pnum * dsize), src_data, dsize);
 			break;
 		}
+		expect_pnum = pnum + 1;
 		numpackets++;			//number of packets in this image (each time its copied to buf)
+
 		if(isHeaderEmpty) {
 			// -------------------------- new header ----------------------------------------------------------------------
 			if (standardheader) {
@@ -487,6 +511,20 @@ uint32_t Listener::ListenToAnImage(char* buf) {
 
 	new_header->packetNumber = numpackets; 	//number of packets caught
 	return generalData->imageSize;
+}
+
+
+void Listener::FillMissingPackets(char* buf, int start_pnum, int missing_packets)
+{
+	uint32_t dsize = generalData->dataSize;
+	if (myDetectorType == GOTTHARD) {
+		if (start_pnum == 0)
+			memset(buf, 0xFF, dsize - 2);
+		if (start_pnum + missing_packets == 2)
+			memset(buf + dsize - 2, 0xFF, dsize + 2);
+	} else {
+		memset(buf + start_pnum * dsize, 0xFF, missing_packets * dsize);
+	}
 }
 
 

@@ -179,6 +179,14 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	uint32_t CreateAnImage(char* buf);
 
 	/**
+	 * Fill buffer gaps because of missing packets
+	 * @param buf frame buffer pointer (w/o Fifo header)
+	 * @param start_pnum first missing packet
+	 * @param missing_packets
+	 */
+	void FillMissingPackets(char* buf, int start_pnum, int missing_packets);
+
+	/**
 	 * Print Fifo Statistics
 	 */
 	void PrintFifoStatistics();
