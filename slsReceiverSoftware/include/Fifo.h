@@ -24,7 +24,8 @@ class Fifo : private virtual slsReceiverDefs {
 	 * @param fifoItemSize size of each fifo item
 	 * @param depth fifo depth
 	 */
-	Fifo(int ind, uint32_t fifoItemSize, uint32_t depth);
+	Fifo(int ind, uint32_t fifoItemSize, uint32_t depth,
+	     unsigned long node_mask=0, int max_node=0);
 
 	/**
 	 * Destructor
@@ -105,6 +106,9 @@ class Fifo : private virtual slsReceiverDefs {
 
 	/** Fifo depth set */
 	int fifoDepth;
+	size_t memLen;
+	unsigned long nodeMask;
+	int maxNode;
 
 	volatile int status_fifoBound;
 	volatile int status_fifoFree;

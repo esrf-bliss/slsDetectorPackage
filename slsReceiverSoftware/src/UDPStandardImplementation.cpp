@@ -3,7 +3,6 @@
  * @short does all the functions for a receiver, set/get parameters, start/stop etc.
  ***********************************************/
 
-
 #include "UDPStandardImplementation.h"
 #include "GeneralData.h"
 #include "Listener.h"
@@ -16,6 +15,7 @@
 #include <cstring>			//strcpy
 #include <errno.h>			//eperm
 #include <fstream>
+
 
 
 /** cosntructor & destructor */
@@ -716,13 +716,16 @@ int UDPStandardImplementation::SetupFifoStructure() {
 	for (std::vector<Fifo*>::const_iterator it = fifo.begin(); it != fifo.end(); ++it)
 		delete(*it);
 	fifo.clear();
+	size_t item_size = (generalData->imageSize +
+			    generalData->fifoBufferHeaderSize);
 	for ( int i = 0; i < numThreads; ++i ) {
+	    unsigned long node_mask = 0;
+	    if (i < fifoNodeMask.size())
+	        node_mask = fifoNodeMask[i];
 
-		//create fifo structure
+	    //create fifo structure
 	    try {
-	        Fifo* f = new Fifo (i,
-	                generalData->imageSize + generalData->fifoBufferHeaderSize,
-	                fifoDepth);
+	        Fifo* f = new Fifo (i, item_size, fifoDepth, node_mask, maxNode);
 	        fifo.push_back(f);
 	    } catch (...) {
             cprintf(RED,"Error: Could not allocate memory for fifo structure of index %d\n", i);
@@ -810,3 +813,96 @@ void UDPStandardImplementation::StartRunning() {
 		(*it)->Continue();
 	}
 }
+
+
+int UDPStandardImplementation::setThreadCPUAffinity(CPUMaskList& listeners_cpu_mask,
+						    CPUMaskList& processors_cpu_mask) {
+
+	if (listeners_cpu_mask.size() != listener.size()) {
+		cprintf(RED, "Different number of CPU masks (%d) and "
+			"listener tasks (%d)\n", listeners_cpu_mask.size(),
+			listener.size());
+		return 1;
+	} else if (processors_cpu_mask.size() != dataProcessor.size()) {
+		cprintf(RED, "Different number of CPU masks (%d) and "
+			"processor tasks (%d)\n", processors_cpu_mask.size(),
+			dataProcessor.size());
+		return 2;
+	}
+
+	typedef std::vector<pid_t> TIDList;
+	TIDList listener_tids, processor_tids;
+	for (std::vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it)
+		listener_tids.push_back((*it)->GetThreadID());
+	for (std::vector<DataProcessor*>::const_iterator it = dataProcessor.begin(); it != dataProcessor.end(); ++it)
+		processor_tids.push_back((*it)->GetThreadID());
+
+	class ThreadListAffinity
+	{
+	public:
+		ThreadListAffinity(TIDList& tid, CPUMaskList& src,
+				   CPUMaskList& dst, std::string desc)
+			: m_tid(tid), m_src(src), m_dst(dst), m_desc(desc)
+		{
+			m_dst.resize(m_src.size());
+			TIDList::const_iterator it, end = m_tid.end();
+			CPUMaskList::iterator dit = m_dst.begin();
+			for (it = m_tid.begin(); it != end; ++it, ++dit) {
+				size_t size = sizeof(*dit);
+				int ret = sched_getaffinity(*it, size, &*dit);
+				if (ret != 0) {
+					cprintf(RED, "Error getting %s thread "
+						"%d CPU affinity: %s\n",
+						m_desc.c_str(), *it,
+						strerror(errno));
+				}
+			}
+		}
+
+		void apply(int& global_ret) const
+		{
+			TIDList::const_iterator it, end = m_tid.end();
+			CPUMaskList::iterator sit = m_src.begin();
+			CPUMaskList::iterator dit = m_dst.begin();
+			for (it = m_tid.begin(); it != end; ++it, ++sit, ++dit) {
+				cprintf(YELLOW, "%s CPU affinity: tid=%d\n",
+					m_desc.c_str(), *it);
+				size_t size = sizeof(*sit);
+				int ret = sched_setaffinity(*it, size, &*sit);
+				if (ret != 0) {
+					cprintf(RED, "Error setting %s thread "
+						"%d CPU affinity: %s\n",
+						m_desc.c_str(), *it,
+						strerror(errno));
+					if (global_ret == 0)
+						global_ret = errno;
+					continue;
+				}
+				*dit = *sit;
+			}
+		}
+
+	private:
+		TIDList& m_tid;
+		CPUMaskList& m_src;
+		CPUMaskList& m_dst;
+		std::string m_desc;
+	};
+
+	int global_ret = 0;
+	ThreadListAffinity(listener_tids, listeners_cpu_mask,
+			   listenerCPUMask, "listening").apply(global_ret);
+	ThreadListAffinity(processor_tids, processors_cpu_mask,
+			   processorCPUMask, "processing").apply(global_ret);
+
+	return global_ret;
+}
+
+int UDPStandardImplementation::setFifoNodeAffinity(NodeMaskList& fifo_node_mask,
+						   int max_node)
+{
+	fifoNodeMask = fifo_node_mask;
+	maxNode = max_node;
+	return SetupFifoStructure();
+}
+

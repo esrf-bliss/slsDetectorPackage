@@ -11,14 +11,21 @@
 #include <cstdlib>
 #include <cstring>
 
+#include <sys/mman.h>
+#include <numaif.h>
+#include <errno.h>
 
-Fifo::Fifo(int ind, uint32_t fifoItemSize, uint32_t depth):
+Fifo::Fifo(int ind, uint32_t fifoItemSize, uint32_t depth,
+	   unsigned long node_mask, int max_node):
 		index(ind),
 		memory(0),
 		fifoBound(0),
 		fifoFree(0),
 		fifoStream(0),
 		fifoDepth(depth),
+		memLen(0),
+		nodeMask(node_mask),
+		maxNode(max_node),
 		status_fifoBound(0),
 		status_fifoFree(depth){
 	FILE_LOG(logDEBUG) << __AT__ << " called";
@@ -46,14 +53,28 @@ int Fifo::CreateFifos(uint32_t fifoItemSize) {
 	fifoFree = new CircularFifo<char>(fifoDepth);
 	fifoStream = new CircularFifo<char>(fifoDepth);
 	//allocate memory
-	size_t mem_len = fifoItemSize * fifoDepth * sizeof(char);
-	memory = (char*) malloc (mem_len);
-	if (memory == NULL){
+	memLen = fifoItemSize * fifoDepth * sizeof(char);
+	size_t page_size = sysconf(_SC_PAGESIZE);
+	size_t misaligned = memLen & (page_size - 1);
+	if (misaligned)
+		memLen += page_size - misaligned;
+	memory = (char *) mmap(0, memLen, PROT_READ | PROT_WRITE,
+			       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (memory == NULL) {
 		FILE_LOG(logERROR) << "Could not allocate memory for fifos";
 		return FAIL;
 	}
-    memset(memory, 0, mem_len);
-	FILE_LOG(logDEBUG) << "Memory Allocated " << index << ": " << mem_len << " bytes";
+	if (nodeMask && maxNode) {
+		int ret = mbind(memory, memLen, MPOL_BIND, &nodeMask, maxNode,
+				0);
+		if (ret != 0)
+			cprintf(RED, "mbind failed: %s\n", strerror(errno));
+		else
+			cprintf(GREEN, "mbind %d: %ld bytes mappted to node 0x%08x\n",
+				index, memLen, nodeMask);
+	}
+	memset(memory, 0, memLen);
+	FILE_LOG(logDEBUG) << "Memory Allocated " << index << ": " << memLen << " bytes";
 
 	{ //push free addresses into fifoFree fifo
 		char* buffer = memory;
@@ -72,8 +93,9 @@ void Fifo::DestroyFifos(){
 	FILE_LOG(logDEBUG) << __AT__ << " called";
 
 	if(memory) {
-		free(memory);
+		munmap(memory, memLen);
 		memory = 0;
+		memLen = 0;
 	}
 	if (fifoBound) {
 		delete fifoBound;

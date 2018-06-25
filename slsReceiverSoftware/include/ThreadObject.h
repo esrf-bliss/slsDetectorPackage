@@ -57,6 +57,12 @@ class ThreadObject : private virtual slsReceiverDefs {
 	 */
 	void Continue();
 
+	/**
+	 * Get Thread ID
+	 * @returns thread ID
+	 */
+	pid_t GetThreadID();
+
  protected:
 
 	/**
@@ -85,6 +91,9 @@ class ThreadObject : private virtual slsReceiverDefs {
 	 * Then it exits the thread on its own if killThread is true
 	 */
 	void RunningThread();
+
+	/** Thread ID, as returned by gettid */
+	pid_t threadID;
 
 
  protected:

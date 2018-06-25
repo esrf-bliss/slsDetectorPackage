@@ -10,6 +10,15 @@
 #include <iostream>
 #include <syscall.h>
 
+/*************************************************************************
+ * Get Thread ID Linux system call
+ *************************************************************************/
+
+#include <sys/syscall.h>
+
+pid_t gettid() {
+	return syscall(SYS_gettid);
+}
 
 
 ThreadObject::ThreadObject(int ind):
@@ -74,7 +83,8 @@ void* ThreadObject::StartThread(void* thisPointer) {
 
 
 void ThreadObject::RunningThread() {
-	cprintf(BLUE,"Created [ %s Thread %d, Tid: %ld ]\n", GetType().c_str(),index, (long)syscall(SYS_gettid));
+	threadID = gettid();
+	cprintf(BLUE,"Created [ %s Thread %d, Tid: %ld ]\n", GetType().c_str(),index, threadID);
 	while(true)	{
 
 		while(IsRunning()) {
@@ -95,7 +105,10 @@ void ThreadObject::RunningThread() {
 	}//end of outer loop
 }
 
-
+pid_t ThreadObject::GetThreadID()
+{
+	return threadID;
+}
 
 
 void ThreadObject::Continue() {
