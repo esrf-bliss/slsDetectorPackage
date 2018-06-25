@@ -275,9 +275,6 @@ private:
 	/** Number of Threads */
 	int numThreads;
 
-	/** Number of Jobs */
-	int numberofJobs;
-
 	/** Number of channels in roi for jungfrauctb */
 	uint32_t nroichannels;
 

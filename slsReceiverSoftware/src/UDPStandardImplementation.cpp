@@ -53,7 +53,6 @@ void UDPStandardImplementation::InitializeMembers() {
 
 	//*** receiver parameters ***
 	numThreads = 1;
-	numberofJobs = 1;
 	nroichannels = 0;
 
 	//** class objects ***
@@ -171,7 +170,6 @@ int UDPStandardImplementation::setGapPixelsEnable(const bool b) {
 		for (std::vector<DataProcessor*>::const_iterator it = dataProcessor.begin(); it != dataProcessor.end(); ++it)
 			(*it)->SetPixelDimension();
 
-		numberofJobs = -1; //changes to imagesize has to be noted to recreate fifo structure
 		if (SetupFifoStructure() == FAIL)
 			return FAIL;
 	}
@@ -187,7 +185,6 @@ int UDPStandardImplementation::setQuad(const bool b) {
 		// to update npixelsx, npixelsy in file writer
 		for (std::vector<DataProcessor*>::const_iterator it = dataProcessor.begin(); it != dataProcessor.end(); ++it)
 			(*it)->SetPixelDimension();
-		numberofJobs = -1; //changes to imagesize has to be noted to recreate fifo structure
 		if (SetupFifoStructure() == FAIL)
 			return FAIL;	
 
@@ -277,8 +274,6 @@ int UDPStandardImplementation::setROI(const std::vector<slsReceiverDefs::ROI> i)
 
 		generalData->SetROI(i);
 		framesPerFile = generalData->maxFramesPerFile;
-
-		numberofJobs = -1; //changes to imagesize has to be noted to recreate fifo structure
 		if (SetupFifoStructure() == FAIL)
 			return FAIL;
 
@@ -367,7 +362,6 @@ int UDPStandardImplementation::setNumberofSamples(const uint64_t i) {
 		numberOfSamples = i;
 
 		generalData->setNumberofSamples(i, nroichannels);
-		numberofJobs = -1; //changes to imagesize has to be noted to recreate fifo structure
 		if (SetupFifoStructure() == FAIL)
 			return FAIL;
 	}
@@ -389,7 +383,6 @@ int UDPStandardImplementation::setDynamicRange(const uint32_t i) {
 			(*it)->SetPixelDimension();
 
 		fifoDepth = generalData->defaultFifoDepth;
-		numberofJobs = -1; //changes to imagesize has to be noted to recreate fifo structure
 		if (SetupFifoStructure() == FAIL)
 			return FAIL;
 	}
@@ -405,7 +398,6 @@ int UDPStandardImplementation::setTenGigaEnable(const bool b) {
 		generalData->SetTenGigaEnable(b,dynamicRange);
 		generalData->SetGapPixelsEnable(gapPixelsEnable, dynamicRange, quadEnable);
 
-		numberofJobs = -1; //changes to imagesize has to be noted to recreate fifo structure
 		if (SetupFifoStructure() == FAIL)
 			return FAIL;
 	}
@@ -418,7 +410,6 @@ int UDPStandardImplementation::setFifoDepth(const uint32_t i) {
 	if (fifoDepth != i) {
 		fifoDepth = i;
 
-		numberofJobs = -1; //changes to imagesize has to be noted to recreate fifo structure
 		if (SetupFifoStructure() == FAIL)
 			return FAIL;
 	}
@@ -467,7 +458,6 @@ int UDPStandardImplementation::setDetectorType(const detectorType d) {
 	SetLocalNetworkParameters();
 
 	//create fifo structure
-	numberofJobs = -1;
 	if (SetupFifoStructure() == FAIL) {
 		FILE_LOG(logERROR) << "Could not allocate memory for fifo structure";
 		return FAIL;
@@ -569,7 +559,7 @@ int UDPStandardImplementation::startReceiver(char *c) {
 	//callbacks
 	if (startAcquisitionCallBack) {
 		startAcquisitionCallBack(filePath, fileName, fileIndex,
-				(generalData->imageSize) * numberofJobs + (generalData->fifoBufferHeaderSize), pStartAcquisition);
+				generalData->imageSize + generalData->fifoBufferHeaderSize, pStartAcquisition);
 		if (rawDataReadyCallBack != NULL) {
 			FILE_LOG(logINFO) << "Data Write has been defined externally";
 		}
@@ -810,7 +800,6 @@ void UDPStandardImplementation::SetThreadPriorities() {
 
 
 int UDPStandardImplementation::SetupFifoStructure() {
-		numberofJobs = 1;
 
 
 	for (std::vector<Fifo*>::const_iterator it = fifo.begin(); it != fifo.end(); ++it)
@@ -821,7 +810,7 @@ int UDPStandardImplementation::SetupFifoStructure() {
 		//create fifo structure
 	    try {
 	        Fifo* f = new Fifo (i,
-	                (generalData->imageSize) * numberofJobs + (generalData->fifoBufferHeaderSize),
+	                generalData->imageSize + generalData->fifoBufferHeaderSize,
 	                fifoDepth);
 	        fifo.push_back(f);
 	    } catch (...) {
@@ -838,7 +827,7 @@ int UDPStandardImplementation::SetupFifoStructure() {
 		if(dataStreamer.size())dataStreamer[i]->SetFifo(fifo[i]);
 	}
 
-	FILE_LOG(logINFO) << "Memory Allocated Per Fifo: " << (double)( ((size_t)(generalData->imageSize) * numberofJobs + 
+	FILE_LOG(logINFO) << "Memory Allocated Per Fifo: " << (double)( ((size_t)(generalData->imageSize) + 
 	(size_t)(generalData->fifoBufferHeaderSize)) * (size_t)fifoDepth)/ 
 	(double)(1024 * 1024) << " MB" ;
 	FILE_LOG(logINFO) << numThreads << " Fifo structure(s) reconstructed";
