@@ -654,13 +654,18 @@ int UDPStandardImplementation::SetupFifoStructure() {
 	for (vector<Fifo*>::const_iterator it = fifo.begin(); it != fifo.end(); ++it)
 		delete(*it);
 	fifo.clear();
+	size_t item_size = (generalData->imageSize +
+			    generalData->fifoBufferHeaderSize);
 	for ( int i = 0; i < numThreads; i++ ) {
 		//create fifo structure
-		bool success = true;
-		fifo.push_back( new Fifo (
-				generalData->imageSize + generalData->fifoBufferHeaderSize,
-				fifoDepth, success));
-		if (!success) {
+		try {
+			unsigned long node_mask = 0;
+			if (i < fifoNodeMask.size())
+				node_mask = fifoNodeMask[i];
+			Fifo *f = new Fifo (i, item_size, fifoDepth, node_mask,
+					    maxNode);
+			fifo.push_back(f);
+		} catch (...) {
 			cprintf(RED,"Error: Could not allocate memory for fifo structure of index %d\n", i);
 			for (vector<Fifo*>::const_iterator it = fifo.begin(); it != fifo.end(); ++it)
 				delete(*it);
@@ -748,61 +753,96 @@ void UDPStandardImplementation::StartRunning() {
 }
 
 
-int UDPStandardImplementation::setThreadCPUAffinity(size_t cpusetsize,
-						    cpu_set_t *listeners_cpu_mask,
-						    cpu_set_t *processors_cpu_mask) {
+int UDPStandardImplementation::setThreadCPUAffinity(CPUMaskList& listeners_cpu_mask,
+						    CPUMaskList& processors_cpu_mask) {
+
+	if (listeners_cpu_mask.size() != listener.size()) {
+		cprintf(RED, "Different number of CPU masks (%d) and "
+			"listener tasks (%d)\n", listeners_cpu_mask.size(),
+			listener.size());
+		return 1;
+	} else if (processors_cpu_mask.size() != dataProcessor.size()) {
+		cprintf(RED, "Different number of CPU masks (%d) and "
+			"processor tasks (%d)\n", processors_cpu_mask.size(),
+			dataProcessor.size());
+		return 2;
+	}
 
 	typedef vector<pid_t> TIDList;
 	TIDList listener_tids, processor_tids;
-	for (vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it)
+	for (vector<Listener*>::const_iterator it = listener.begin();
+	     it != listener.end(); ++it)
 		listener_tids.push_back((*it)->GetThreadID());
-	for (vector<DataProcessor*>::const_iterator it = dataProcessor.begin(); it != dataProcessor.end(); ++it)
+	for (vector<DataProcessor*>::const_iterator it = dataProcessor.begin();
+	     it != dataProcessor.end(); ++it)
 		processor_tids.push_back((*it)->GetThreadID());
 
+	class ThreadListAffinity
+	{
+	public:
+		ThreadListAffinity(TIDList& tid, CPUMaskList& src,
+				   CPUMaskList& dst, string desc)
+			: m_tid(tid), m_src(src), m_dst(dst), m_desc(desc)
+		{
+			m_dst.resize(m_src.size());
+			TIDList::const_iterator it, end = m_tid.end();
+			CPUMaskList::iterator dit = m_dst.begin();
+			for (it = m_tid.begin(); it != end; ++it, ++dit) {
+				size_t size = sizeof(*dit);
+				int ret = sched_getaffinity(*it, size, &*dit);
+				if (ret != 0) {
+					cprintf(RED, "Error getting %s thread "
+						"%d CPU affinity: %s\n",
+						m_desc.c_str(), *it,
+						strerror(errno));
+				}
+			}
+		}
+
+		void apply(int& global_ret) const
+		{
+			TIDList::const_iterator it, end = m_tid.end();
+			CPUMaskList::iterator sit = m_src.begin();
+			CPUMaskList::iterator dit = m_dst.begin();
+			for (it = m_tid.begin(); it != end; ++it, ++sit, ++dit) {
+				cprintf(YELLOW, "%s CPU affinity: tid=%d\n",
+					m_desc.c_str(), *it);
+				size_t size = sizeof(*sit);
+				int ret = sched_setaffinity(*it, size, &*sit);
+				if (ret != 0) {
+					cprintf(RED, "Error setting %s thread "
+						"%d CPU affinity: %s\n",
+						m_desc.c_str(), *it,
+						strerror(errno));
+					if (global_ret == 0)
+						global_ret = errno;
+					continue;
+				}
+				*dit = *sit;
+			}
+		}
+
+	private:
+		TIDList& m_tid;
+		CPUMaskList& m_src;
+		CPUMaskList& m_dst;
+		string m_desc;
+	};
+
 	int global_ret = 0;
-
-	int count = CPU_COUNT_S(cpusetsize, listeners_cpu_mask);
-	cpu_set_t listeners_array[count];
-	bool recv_cpu = !CPU_EQUAL_S(cpusetsize,
-				     listeners_cpu_mask, processors_cpu_mask);
-	if (recv_cpu) {
-		int i = 0;
-		for (int j = 0; j < count; ++j) {
-			CPU_ZERO(&listeners_array[j]);
-			while (!CPU_ISSET_S(i, cpusetsize, listeners_cpu_mask))
-				++i;
-			CPU_SET(i, &listeners_array[j]);
-			++i;
-		}
-	}
-
-	for (int t = 0; t < 2; ++t) {
-		bool is_l = (t == 0);
-		TIDList& tid_list = is_l ? listener_tids : processor_tids;
-		const char *desc = is_l ? "listening" : "processing";
-		cpu_set_t *mask = is_l ? listeners_cpu_mask : processors_cpu_mask;
-		size_t set_size = cpusetsize;
-
-		TIDList::const_iterator it, end = tid_list.end();
-		uint32_t *port_num = udpPortNum;
-		for (it = tid_list.begin(); it != end; ++it, ++port_num) {
-			if (is_l && recv_cpu) {
-				int x = *port_num % count;
-				mask = &listeners_array[x];
-				set_size = sizeof(cpu_set_t);
-			}
-			cprintf(YELLOW, "%s CPU affinity: tid=%d\n", desc, *it);
-			int ret = sched_setaffinity(*it, set_size, mask);
-			if (ret != 0) {
-				cprintf(RED, "Error setting %s thread %d "
-					"CPU affinity: %s\n", desc, *it, 
-					strerror(errno));
-				if (global_ret == 0)
-					global_ret = errno;
-			}
-		}
-	}
+	ThreadListAffinity(listener_tids, listeners_cpu_mask,
+			   listenerCPUMask, "listening").apply(global_ret);
+	ThreadListAffinity(processor_tids, processors_cpu_mask,
+			   processorCPUMask, "processing").apply(global_ret);
 
 	return global_ret;
+}
+
+int UDPStandardImplementation::setFifoNodeAffinity(NodeMaskList& fifo_node_mask,
+						   int max_node)
+{
+	fifoNodeMask = fifo_node_mask;
+	maxNode = max_node;
+	return SetupFifoStructure();
 }
 

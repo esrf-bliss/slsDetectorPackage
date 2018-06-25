@@ -37,16 +37,24 @@ void slsReceiverUsers::registerCallBackRawDataReady(void (*func)(uint64_t frameN
 	receiver->registerCallBackRawDataReady(func,arg);
 }
 
-int slsReceiverUsers::setThreadCPUAffinity(size_t cpusetsize,
-					   cpu_set_t *listeners_cpu_mask,
-					   cpu_set_t *processors_cpu_mask) {
+int slsReceiverUsers::setThreadCPUAffinity(CPUMaskList& listeners_cpu_mask,
+					   CPUMaskList& processors_cpu_mask) {
 	UDPInterface *udp_iface = receiver->tcpipInterface->receiverBase;
 	if (!udp_iface)
 		return 0;
 	UDPStandardImplementation *udp_impl;
 	udp_impl = static_cast<UDPStandardImplementation *>(udp_iface);
-	return udp_impl->setThreadCPUAffinity(cpusetsize, 
-					      listeners_cpu_mask,
+	return udp_impl->setThreadCPUAffinity(listeners_cpu_mask,
 					      processors_cpu_mask);
+}
+
+int slsReceiverUsers::setFifoNodeAffinity(NodeMaskList& fifo_node_mask,
+					  int max_node) {
+	UDPInterface *udp_iface = receiver->tcpipInterface->receiverBase;
+	if (!udp_iface)
+		return 0;
+	UDPStandardImplementation *udp_impl;
+	udp_impl = static_cast<UDPStandardImplementation *>(udp_iface);
+	return udp_impl->setFifoNodeAffinity(fifo_node_mask, max_node);
 }
 

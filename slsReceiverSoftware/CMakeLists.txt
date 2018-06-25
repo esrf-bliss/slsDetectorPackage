@@ -53,6 +53,9 @@ add_library(slsReceiverStatic STATIC
     ${SOURCES}
     ${HEADERS}
 )
+target_link_libraries(slsReceiverStatic
+    numa
+)
 set_target_properties(slsReceiverStatic PROPERTIES
     ARCHIVE_OUTPUT_NAME SlsReceiver
 )
@@ -60,6 +63,9 @@ set_target_properties(slsReceiverStatic PROPERTIES
 add_library(slsReceiverShared SHARED
     ${SOURCES}
     ${HEADERS}
+)
+target_link_libraries(slsReceiverShared
+    numa
 )
 
 set(PUBLICHEADERS

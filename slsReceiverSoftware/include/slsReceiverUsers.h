@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include <sched.h>
+#include <vector>
 
 class slsReceiver;
 
@@ -17,6 +18,9 @@ class slsReceiver;
 class slsReceiverUsers {
 
 public:
+	typedef std::vector<cpu_set_t> CPUMaskList;
+	typedef std::vector<unsigned long> NodeMaskList;
+
 	/**
 	 * Constructor
 	 * reads config file, creates socket, assigns function table
@@ -75,9 +79,13 @@ public:
 	/**
 	 * Set receiver threads CPU affinity mask
 	 */
-	int setThreadCPUAffinity(size_t cpusetsize,
-				 cpu_set_t *listeners_cpu_mask,
-				 cpu_set_t *processors_cpu_mask);
+	int setThreadCPUAffinity(CPUMaskList& listeners_cpu_mask,
+				 CPUMaskList& processors_cpu_mask);
+
+	/**
+	 * Set receiver fifos node affinity mask
+	 */
+	int setFifoNodeAffinity(NodeMaskList& fifo_node_mask, int max_node);
 
 	//receiver object
 	slsReceiver* receiver;

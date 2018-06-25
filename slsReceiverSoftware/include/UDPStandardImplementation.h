@@ -23,6 +23,8 @@ class Fifo;
 class UDPStandardImplementation: private virtual slsReceiverDefs, public UDPBaseImplementation {
  public:
 
+	typedef std::vector<cpu_set_t> CPUMaskList;
+	typedef std::vector<unsigned long> NodeMaskList;
 
 	//*** cosntructor & destructor ***
 	/**
@@ -182,11 +184,13 @@ class UDPStandardImplementation: private virtual slsReceiverDefs, public UDPBase
 	/**
 	 * Set receiver threads CPU affinity mask
 	 */
-	int setThreadCPUAffinity(size_t cpusetsize,
-				 cpu_set_t *listeners_cpu_mask,
-				 cpu_set_t *processors_cpu_mask);
+	int setThreadCPUAffinity(CPUMaskList& listeners_cpu_mask,
+				 CPUMaskList& processors_cpu_mask);
 
-
+	/**
+	 * Set receiver fifos node affinity mask
+	 */
+	int setFifoNodeAffinity(NodeMaskList& fifo_node_mask, int max_node);
 
 private:
 
@@ -267,5 +271,10 @@ private:
 	/** Fifo Structure to store addresses of memory writes */
 	std::vector <Fifo*> fifo;
 
+	/** CPU affinity **/
+	CPUMaskList listenerCPUMask;
+	CPUMaskList processorCPUMask;
+	NodeMaskList fifoNodeMask;
+	int maxNode;
 };
 
