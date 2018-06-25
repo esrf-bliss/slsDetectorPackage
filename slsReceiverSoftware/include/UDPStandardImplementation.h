@@ -251,9 +251,6 @@ private:
 	/** Number of Threads */
 	int numThreads;
 
-	/** Number of Jobs */
-	int numberofJobs;
-
 	//** class objects ***
 	/** General Data Properties */
 	GeneralData* generalData;

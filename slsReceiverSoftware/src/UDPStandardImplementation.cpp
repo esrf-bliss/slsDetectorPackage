@@ -54,7 +54,6 @@ void UDPStandardImplementation::InitializeMembers() {
 
 	//*** receiver parameters ***
 	numThreads = 1;
-	numberofJobs = 1;
 
 	//** class objects ***
 	generalData = 0;
@@ -161,7 +160,6 @@ int UDPStandardImplementation::setShortFrameEnable(const int i) {
 			generalData = new ShortGotthardData();
 		else
 			generalData = new GotthardData();
-		numberofJobs = -1; //changes to imagesize has to be noted to recreate fifo structure
 		if (SetupFifoStructure() == FAIL)
 			return FAIL;
 
@@ -249,7 +247,6 @@ int UDPStandardImplementation::setDynamicRange(const uint32_t i) {
 		//side effects
 		generalData->SetDynamicRange(i,tengigaEnable);
 
-		numberofJobs = -1; //changes to imagesize has to be noted to recreate fifo structure
 		if (SetupFifoStructure() == FAIL)
 			return FAIL;
 	}
@@ -264,7 +261,6 @@ int UDPStandardImplementation::setTenGigaEnable(const bool b) {
 		//side effects
 		generalData->SetTenGigaEnable(b,dynamicRange);
 
-		numberofJobs = -1; //changes to imagesize has to be noted to recreate fifo structure
 		if (SetupFifoStructure() == FAIL)
 			return FAIL;
 	}
@@ -277,7 +273,6 @@ int UDPStandardImplementation::setFifoDepth(const uint32_t i) {
 	if (fifoDepth != i) {
 		fifoDepth = i;
 
-		numberofJobs = -1; //changes to imagesize has to be noted to recreate fifo structure
 		if (SetupFifoStructure() == FAIL)
 			return FAIL;
 	}
@@ -334,7 +329,6 @@ int UDPStandardImplementation::setDetectorType(const detectorType d) {
 	SetLocalNetworkParameters();
 
 	//create fifo structure
-	numberofJobs = -1;
 	if (SetupFifoStructure() == FAIL) {
 		FILE_LOG(logERROR) << "Could not allocate memory for fifo structure";
 		return FAIL;
@@ -424,7 +418,7 @@ int UDPStandardImplementation::startReceiver(char *c) {
 	//callbacks
 	if (startAcquisitionCallBack) {
 		startAcquisitionCallBack(filePath, fileName, fileIndex,
-				(generalData->imageSize) * numberofJobs + (generalData->fifoBufferHeaderSize), pStartAcquisition);
+				generalData->imageSize + generalData->fifoBufferHeaderSize, pStartAcquisition);
 		if (rawDataReadyCallBack != NULL) {
 			FILE_LOG(logINFO) << "Data Write has been defined externally";
 		}
@@ -655,7 +649,6 @@ void UDPStandardImplementation::SetThreadPriorities() {
 
 
 int UDPStandardImplementation::SetupFifoStructure() {
-		numberofJobs = 1;
 
 
 	for (vector<Fifo*>::const_iterator it = fifo.begin(); it != fifo.end(); ++it)
@@ -665,7 +658,7 @@ int UDPStandardImplementation::SetupFifoStructure() {
 		//create fifo structure
 		bool success = true;
 		fifo.push_back( new Fifo (
-				(generalData->imageSize) * numberofJobs + (generalData->fifoBufferHeaderSize),
+				generalData->imageSize + generalData->fifoBufferHeaderSize,
 				fifoDepth, success));
 		if (!success) {
 			cprintf(RED,"Error: Could not allocate memory for fifo structure of index %d\n", i);
@@ -680,7 +673,7 @@ int UDPStandardImplementation::SetupFifoStructure() {
 		if(dataStreamer.size())dataStreamer[i]->SetFifo(fifo[i]);
 	}
 
-	FILE_LOG(logINFO) << "Memory Allocated Per Fifo: " << ( ((generalData->imageSize) * numberofJobs + (generalData->fifoBufferHeaderSize)) * fifoDepth) << " bytes" ;
+	FILE_LOG(logINFO) << "Memory Allocated Per Fifo: " << ( (generalData->imageSize + generalData->fifoBufferHeaderSize) * fifoDepth) << " bytes" ;
 	FILE_LOG(logINFO) << " Fifo structure(s) reconstructed: " << numThreads;
 	return OK;
 }
