@@ -57,6 +57,7 @@ void UDPStandardImplementation::InitializeMembers() {
 
 	//** class objects ***
 	generalData = 0;
+	frameEventPolicy = AllFrames;
 }
 
 
@@ -364,6 +365,8 @@ int UDPStandardImplementation::setDetectorType(const detectorType d) {
 	//set up writer and callbacks
 	for (vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it)
 		(*it)->SetGeneralData(generalData);
+	for (vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it)
+		(*it)->SetFrameEventPolicy(frameEventPolicy);
 	for (vector<DataProcessor*>::const_iterator it = dataProcessor.begin(); it != dataProcessor.end(); ++it)
 		(*it)->SetGeneralData(generalData);
 
@@ -844,5 +847,17 @@ int UDPStandardImplementation::setFifoNodeAffinity(NodeMaskList& fifo_node_mask,
 	fifoNodeMask = fifo_node_mask;
 	maxNode = max_node;
 	return SetupFifoStructure();
+}
+
+int UDPStandardImplementation::setFrameEventPolicy(int frame_pol)
+{
+	if ((frame_pol != AllFrames) && (frame_pol != SkipMissingFrames)) {
+		cprintf(RED, "Invalid frame event policy: %s\n", frame_pol);
+		return FAIL;
+	}
+	frameEventPolicy = frame_pol;
+	for (vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it)
+		(*it)->SetFrameEventPolicy(frameEventPolicy);
+	return OK;
 }
 

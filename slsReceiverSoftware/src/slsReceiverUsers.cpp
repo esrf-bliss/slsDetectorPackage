@@ -58,3 +58,11 @@ int slsReceiverUsers::setFifoNodeAffinity(NodeMaskList& fifo_node_mask,
 	return udp_impl->setFifoNodeAffinity(fifo_node_mask, max_node);
 }
 
+int slsReceiverUsers::setFrameEventPolicy(int frame_pol) {
+	UDPInterface *udp_iface = receiver->tcpipInterface->receiverBase;
+	if (!udp_iface)
+		return 0;
+	UDPStandardImplementation *udp_impl;
+	udp_impl = static_cast<UDPStandardImplementation *>(udp_iface);
+	return udp_impl->setFrameEventPolicy(frame_pol);
+}

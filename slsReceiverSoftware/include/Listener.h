@@ -18,6 +18,11 @@ class genericSocket;
 class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	
  public:
+	enum {
+		AllFrames,
+		SkipMissingFrames,
+	};
+
 	/**
 	 * Constructor
 	 * Calls Base Class CreateThread()
@@ -96,6 +101,12 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	 * @param f address of Fifo pointer
 	 */
 	void SetFifo(Fifo*& f);
+
+	/**
+	 * Set Frame Event Policy
+	 * @param frame_pol 
+	 */
+	void SetFrameEventPolicy(int frame_pol);
 
 	/**
 	 * Reset parameters for new acquisition (including all scans)
@@ -284,5 +295,8 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 
 	/** number of images for statistic */
 	uint32_t numFramesStatistic;
+
+	/** frame event policy */
+	int frameEventPolicy;
 };
 

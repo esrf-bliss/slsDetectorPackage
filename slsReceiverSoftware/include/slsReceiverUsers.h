@@ -21,6 +21,11 @@ public:
 	typedef std::vector<cpu_set_t> CPUMaskList;
 	typedef std::vector<unsigned long> NodeMaskList;
 
+	enum {
+		AllFrames,
+		SkipMissingFrames,
+	};
+
 	/**
 	 * Constructor
 	 * reads config file, creates socket, assigns function table
@@ -86,6 +91,11 @@ public:
 	 * Set receiver fifos node affinity mask
 	 */
 	int setFifoNodeAffinity(NodeMaskList& fifo_node_mask, int max_node);
+
+	/**
+	 * Set frame event notification policy
+	 */
+	int setFrameEventPolicy(int frame_pol);
 
 	//receiver object
 	slsReceiver* receiver;

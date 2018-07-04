@@ -43,7 +43,8 @@ Listener::Listener(int i, detectorType dtype, Fifo*& f, runStatus* s, uint32_t* 
 		carryOverFlag(0),
 		carryOverPacket(0),
 		listeningPacket(0),
-		udpSocketAlive(0)
+		udpSocketAlive(0),
+		frameEventPolicy(AllFrames)
 {
 	if (ThreadObject::CreateThread())
 		throw std::exception();
@@ -116,6 +117,10 @@ void Listener::SetFifo(Fifo*& f) {
 	fifo = f;
 }
 
+
+void Listener::SetFrameEventPolicy(int frame_pol) {
+	frameEventPolicy = frame_pol;
+}
 
 void Listener::ResetParametersforNewAcquisition() {
 	acquisitionStartedFlag = false;
@@ -345,6 +350,9 @@ uint32_t Listener::ListenToAnImage(char* buf) {
 		if (fnum != currentFrameIndex) {
 			if (fnum < currentFrameIndex) {
 				cprintf(RED,"Error:(Weird), With carry flag: Frame number %lu less than current frame number %lu\n", fnum, currentFrameIndex);
+				return 0;
+			} else if (frameEventPolicy == SkipMissingFrames) {
+				currentFrameIndex++;
 				return 0;
 			}
 			FillMissingPackets(buf_data, expect_pnum, pperFrame);

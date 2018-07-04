@@ -26,6 +26,11 @@ class UDPStandardImplementation: private virtual slsReceiverDefs, public UDPBase
 	typedef std::vector<cpu_set_t> CPUMaskList;
 	typedef std::vector<unsigned long> NodeMaskList;
 
+	enum {
+		AllFrames,
+		SkipMissingFrames,
+	};
+
 	//*** cosntructor & destructor ***
 	/**
 	 * Constructor
@@ -192,6 +197,11 @@ class UDPStandardImplementation: private virtual slsReceiverDefs, public UDPBase
 	 */
 	int setFifoNodeAffinity(NodeMaskList& fifo_node_mask, int max_node);
 
+	/**
+	 * Set frame event notification policy
+	 */
+	int setFrameEventPolicy(int frame_pol);
+
 private:
 
     /**
@@ -276,5 +286,8 @@ private:
 	CPUMaskList processorCPUMask;
 	NodeMaskList fifoNodeMask;
 	int maxNode;
+
+	/** Frame Event Policy **/
+	int frameEventPolicy;
 };
 
