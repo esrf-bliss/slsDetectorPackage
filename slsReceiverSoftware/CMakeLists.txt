@@ -40,6 +40,7 @@ add_definitions(
 
 include_directories(
     include
+    ${NUMA_INCLUDE_DIR}
 )
 
 add_library(zmq STATIC IMPORTED GLOBAL)
@@ -54,7 +55,7 @@ add_library(slsReceiverStatic STATIC
     ${HEADERS}
 )
 target_link_libraries(slsReceiverStatic
-    numa
+    ${NUMA_LIBRARY}
 )
 set_target_properties(slsReceiverStatic PROPERTIES
     ARCHIVE_OUTPUT_NAME SlsReceiver
@@ -65,7 +66,7 @@ add_library(slsReceiverShared SHARED
     ${HEADERS}
 )
 target_link_libraries(slsReceiverShared
-    numa
+    ${NUMA_LIBRARY}
 )
 
 set(PUBLICHEADERS

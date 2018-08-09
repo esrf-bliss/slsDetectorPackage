@@ -32,6 +32,7 @@ if (USE_TEXTCLIENT)
 endif (USE_TEXTCLIENT)
 
 if (USE_RECEIVER)
+       find_package(Numa REQUIRED)
        add_subdirectory(slsReceiverSoftware)
 endif (USE_RECEIVER)
                
