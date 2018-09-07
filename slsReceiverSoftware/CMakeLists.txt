@@ -101,6 +101,7 @@ endif ()
 
 
 install(TARGETS slsReceiverShared slsReceiverStatic slsReceiver
+        EXPORT "${TARGETS_EXPORT_NAME}"
         RUNTIME DESTINATION bin
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib

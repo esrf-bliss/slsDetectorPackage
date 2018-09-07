@@ -93,6 +93,7 @@ if(DOXYGEN_FOUND)
 endif()
 
 install(TARGETS slsDetectorShared slsDetectorStatic
+    EXPORT "${TARGETS_EXPORT_NAME}"
     LIBRARY DESTINATION lib
     PUBLIC_HEADER DESTINATION include
     ARCHIVE DESTINATION lib)
