@@ -657,7 +657,8 @@ int UDPStandardImplementation::SetupFifoStructure() {
 	for (vector<Fifo*>::const_iterator it = fifo.begin(); it != fifo.end(); ++it)
 		delete(*it);
 	fifo.clear();
-	size_t item_size = (generalData->imageSize +
+	size_t item_pad = generalData->fifoBufferHeaderPad;
+	size_t item_size = (item_pad + generalData->imageSize +
 			    generalData->fifoBufferHeaderSize);
 	for ( int i = 0; i < numThreads; i++ ) {
 		//create fifo structure
@@ -665,7 +666,7 @@ int UDPStandardImplementation::SetupFifoStructure() {
 			unsigned long node_mask = 0;
 			if (i < fifoNodeMask.size())
 				node_mask = fifoNodeMask[i];
-			Fifo *f = new Fifo (i, item_size, fifoDepth, node_mask,
+			Fifo *f = new Fifo (i, item_size, item_pad, fifoDepth, node_mask,
 					    maxNode);
 			fifo.push_back(f);
 		} catch (...) {
