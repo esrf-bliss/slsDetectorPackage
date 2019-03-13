@@ -22,9 +22,10 @@ class Fifo : private virtual slsReceiverDefs {
 	 * Calls CreateFifos that creates fifos and allocates memory
 	 * @param ind self index
 	 * @param fifoItemSize size of each fifo item
+	 * @param fifoItemPad pad before each fifo item
 	 * @param depth fifo depth
 	 */
-	Fifo(int ind, uint32_t fifoItemSize, uint32_t depth,
+	Fifo(int ind, uint32_t fifoItemSize, uint32_t fifoItemPad, uint32_t depth,
 	     unsigned long node_mask=0, int max_node=0);
 
 	/**
@@ -106,6 +107,7 @@ class Fifo : private virtual slsReceiverDefs {
 
 	/** Fifo depth set */
 	int fifoDepth;
+	int itemPad;
 	size_t memLen;
 	unsigned long nodeMask;
 	int maxNode;

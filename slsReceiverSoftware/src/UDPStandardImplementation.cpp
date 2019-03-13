@@ -716,7 +716,8 @@ int UDPStandardImplementation::SetupFifoStructure() {
 	for (std::vector<Fifo*>::const_iterator it = fifo.begin(); it != fifo.end(); ++it)
 		delete(*it);
 	fifo.clear();
-	size_t item_size = (generalData->imageSize +
+	size_t item_pad = generalData->fifoBufferHeaderPad;
+	size_t item_size = (item_pad + generalData->imageSize +
 			    generalData->fifoBufferHeaderSize);
 	for ( int i = 0; i < numThreads; ++i ) {
 	    unsigned long node_mask = 0;
@@ -725,7 +726,7 @@ int UDPStandardImplementation::SetupFifoStructure() {
 
 	    //create fifo structure
 	    try {
-	        Fifo* f = new Fifo (i, item_size, fifoDepth, node_mask, maxNode);
+	        Fifo* f = new Fifo (i, item_size, item_pad, fifoDepth, node_mask, maxNode);
 	        fifo.push_back(f);
 	    } catch (...) {
             cprintf(RED,"Error: Could not allocate memory for fifo structure of index %d\n", i);

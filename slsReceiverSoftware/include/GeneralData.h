@@ -63,6 +63,9 @@ public:
 	/** Header size of data saved into fifo buffer at a time*/
 	uint32_t fifoBufferHeaderSize;
 
+	/** Pad before Fifo header to align image buffer data*/
+	uint32_t fifoBufferHeaderPad;
+
 	/** Default Fifo depth */
 	uint32_t defaultFifoDepth;
 
@@ -106,6 +109,7 @@ public:
 		packetIndexOffset(0),
 		maxFramesPerFile(0),
 		fifoBufferHeaderSize(0),
+		fifoBufferHeaderPad(0),
 		defaultFifoDepth(0),
 		threadsPerReceiver(1),
 		headerPacketSize(0),
@@ -227,6 +231,7 @@ public:
 		FILE_LOG(logDEBUG) << "Packet Index Offset: " << packetIndexOffset;
 		FILE_LOG(logDEBUG) << "Max Frames Per File: " << maxFramesPerFile;
 		FILE_LOG(logDEBUG) << "Fifo Buffer Header Size: " << fifoBufferHeaderSize;
+		FILE_LOG(logDEBUG) << "Fifo Buffer Header Pad: " << fifoBufferHeaderPad;
 		FILE_LOG(logDEBUG) << "Default Fifo Depth: " << defaultFifoDepth;
 		FILE_LOG(logDEBUG) << "Threads Per Receiver: " << threadsPerReceiver;
 		FILE_LOG(logDEBUG) << "Header Packet Size: " << headerPacketSize;
@@ -236,6 +241,19 @@ public:
 		FILE_LOG(logDEBUG) << "Standard Header: " << standardheader;
 		FILE_LOG(logDEBUG) << "UDP Socket Buffer Size: " << defaultUdpSocketBufferSize;
 	};
+
+	static unsigned align(unsigned x, unsigned alignment, bool up)
+	{
+		unsigned misalignment = x & (alignment - 1);
+		if (misalignment != 0)
+			x += (up ? alignment : 0) - misalignment;
+		return x;
+	}
+
+	static unsigned calcFifoBufferHeaderPad(unsigned x)
+	{
+		return align(x, 16, true) - x;
+	}
 };
 
 
@@ -262,6 +280,7 @@ private:
 		packetIndexMask 	= 1;
 		maxFramesPerFile 	= MAX_FRAMES_PER_FILE;
 		fifoBufferHeaderSize= FIFO_HEADER_NUMBYTES + sizeof(slsReceiverDefs::sls_receiver_header);
+		fifoBufferHeaderPad = calcFifoBufferHeaderPad(fifoBufferHeaderSize);
 		defaultFifoDepth 	= 50000;
 	};
 
@@ -432,6 +451,7 @@ class PropixData : public GeneralData {
 		packetIndexMask 	= 1;
 		maxFramesPerFile 	= MAX_FRAMES_PER_FILE;
 		fifoBufferHeaderSize= FIFO_HEADER_NUMBYTES + sizeof(slsReceiverDefs::sls_receiver_header);
+		fifoBufferHeaderPad = calcFifoBufferHeaderPad(fifoBufferHeaderSize);
 		defaultFifoDepth 	= 50000;
 	};
 };
@@ -459,6 +479,7 @@ class Moench02Data : public GeneralData {
 		packetIndexMask 	= 0xFF;
 		maxFramesPerFile 	= MOENCH_MAX_FRAMES_PER_FILE;
 		fifoBufferHeaderSize= FIFO_HEADER_NUMBYTES + sizeof(slsReceiverDefs::sls_receiver_header);
+		fifoBufferHeaderPad = calcFifoBufferHeaderPad(fifoBufferHeaderSize);
 		defaultFifoDepth 	= 2500;
 	};
 
@@ -491,6 +512,7 @@ class Moench03Data : public GeneralData {
 		packetIndexMask 	= 0xFFFFFFFF;
 		maxFramesPerFile 	= JFRAU_MAX_FRAMES_PER_FILE;
 		fifoBufferHeaderSize= FIFO_HEADER_NUMBYTES + sizeof(slsReceiverDefs::sls_receiver_header);
+		fifoBufferHeaderPad = calcFifoBufferHeaderPad(fifoBufferHeaderSize);
 		defaultFifoDepth 	= 2500;
 	};
 };
@@ -529,6 +551,7 @@ private:
 		frameIndexMask 		= 0xFFFFFF;
 		maxFramesPerFile 	= JFCTB_MAX_FRAMES_PER_FILE;
 		fifoBufferHeaderSize= FIFO_HEADER_NUMBYTES + sizeof(slsReceiverDefs::sls_receiver_header);
+		fifoBufferHeaderPad = calcFifoBufferHeaderPad(fifoBufferHeaderSize);
 		defaultFifoDepth 	= 2500;
 	};
 
@@ -590,6 +613,7 @@ class JungfrauData : public GeneralData {
 		imageSize 			= dataSize*packetsPerFrame;
 		maxFramesPerFile 	= JFRAU_MAX_FRAMES_PER_FILE;
 		fifoBufferHeaderSize= FIFO_HEADER_NUMBYTES + sizeof(slsReceiverDefs::sls_receiver_header);
+		fifoBufferHeaderPad = calcFifoBufferHeaderPad(fifoBufferHeaderSize);
 		defaultFifoDepth 	= 2500;
 		standardheader		= true;
 		defaultUdpSocketBufferSize = (2000 * 1024 * 1024);
@@ -614,6 +638,7 @@ class EigerData : public GeneralData {
 		imageSize 			= dataSize*packetsPerFrame;
 		maxFramesPerFile 	= EIGER_MAX_FRAMES_PER_FILE;
 		fifoBufferHeaderSize= FIFO_HEADER_NUMBYTES + sizeof(slsReceiverDefs::sls_receiver_header);
+		fifoBufferHeaderPad = calcFifoBufferHeaderPad(fifoBufferHeaderSize);
 		defaultFifoDepth 	= 100;
 		threadsPerReceiver	= 2;
 		headerPacketSize	= 40;

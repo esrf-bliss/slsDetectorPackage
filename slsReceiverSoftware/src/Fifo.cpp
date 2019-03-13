@@ -15,7 +15,7 @@
 #include <numaif.h>
 #include <errno.h>
 
-Fifo::Fifo(int ind, uint32_t fifoItemSize, uint32_t depth,
+Fifo::Fifo(int ind, uint32_t fifoItemSize, uint32_t fifoItemPad, uint32_t depth,
 	   unsigned long node_mask, int max_node):
 		index(ind),
 		memory(0),
@@ -23,6 +23,7 @@ Fifo::Fifo(int ind, uint32_t fifoItemSize, uint32_t depth,
 		fifoFree(0),
 		fifoStream(0),
 		fifoDepth(depth),
+		itemPad(fifoItemPad),
 		memLen(0),
 		nodeMask(node_mask),
 		maxNode(max_node),
@@ -77,7 +78,7 @@ int Fifo::CreateFifos(uint32_t fifoItemSize) {
 	FILE_LOG(logDEBUG) << "Memory Allocated " << index << ": " << memLen << " bytes";
 
 	{ //push free addresses into fifoFree fifo
-		char* buffer = memory;
+		char* buffer = memory + itemPad;
 		for (int i = 0; i < fifoDepth; ++i) {
 			//sprintf(buffer,"memory");
 			FreeAddress(buffer);
