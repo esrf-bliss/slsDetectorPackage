@@ -198,9 +198,9 @@ public:
 
 	static unsigned align(unsigned x, unsigned alignment, bool up)
 	{
-		unsigned misalignment = x & alignment;
+		unsigned misalignment = x & (alignment - 1);
 		if (misalignment != 0)
-			x = (up ? alignment : 0) - misalignment;
+			x += (up ? alignment : 0) - misalignment;
 		return x;
 	}
 
