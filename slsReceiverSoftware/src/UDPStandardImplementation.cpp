@@ -702,9 +702,16 @@ void UDPStandardImplementation::SetThreadPriorities() {
 			return;
 		}
 	}
+	for (std::vector<DataProcessor*>::const_iterator it = dataProcessor.begin(); it != dataProcessor.end(); ++it){
+		if ((*it)->SetThreadPriority(PROCESSOR_PRIORITY) == FAIL) {
+			FILE_LOG(logWARNING) << "No root privileges to prioritize data processor threads";
+			return;
+		}
+	}
 	std::ostringstream osfn;
 	osfn << "Priorities set - "
-			"Listener:" << LISTENER_PRIORITY;
+	     <<	"Listener:" << LISTENER_PRIORITY << ", "
+	     << "DataProcessor:" << PROCESSOR_PRIORITY;
 
 	FILE_LOG(logINFO) << osfn.str();
 }
