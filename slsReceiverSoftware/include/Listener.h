@@ -299,7 +299,7 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	char* listeningPacket;
 
 	/** if the udp socket is connected */
-	bool udpSocketAlive;
+	volatile bool udpSocketAlive;
 
     /** Semaphore to synchonize deleting udp socket */
     sem_t semaphore_socket;
