@@ -52,6 +52,9 @@ add_library(slsReceiverShared SHARED
     ${SOURCES}
     ${HEADERS}
 )
+target_link_libraries(slsReceiverShared
+    PUBLIC zmq
+)
 
 set(PUBLICHEADERS
     include/sls_receiver_defs.h
@@ -79,7 +82,6 @@ set_target_properties(slsReceiver PROPERTIES
 target_link_libraries(slsReceiver
     slsReceiverShared
     pthread
-    zmq
     rt
 )
 
