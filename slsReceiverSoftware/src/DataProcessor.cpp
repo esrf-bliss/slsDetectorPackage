@@ -326,10 +326,10 @@ void DataProcessor::StopProcessing(char* buf) {
 void DataProcessor::ProcessAnImage(char* buf) {
 
 	sls_receiver_header* rheader = (sls_receiver_header*) (buf + FIFO_HEADER_NUMBYTES);
-	sls_detector_header header = rheader->detHeader;
-	uint64_t fnum = header.frameNumber;
+	sls_detector_header* header = &rheader->detHeader;
+	uint64_t fnum = header->frameNumber;
 	currentFrameIndex = fnum;
-	uint32_t nump = header.packetNumber;
+	uint32_t nump = header->packetNumber;
 	if (nump == generalData->packetsPerFrame) {
 		numFramesCaught++;
 		numTotalFramesCaught++;
