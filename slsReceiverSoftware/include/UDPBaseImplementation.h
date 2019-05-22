@@ -703,6 +703,16 @@ class UDPBaseImplementation : protected virtual slsReceiverDefs, public UDPInter
             char*, uint32_t &,void*),void *arg);
 
 
+	/**
+	 * Set the passive mode
+	 */
+	void setPassiveMode(bool passive);
+
+	/**
+	 * Get the next image
+	 */
+	int getImage(slsReceiverDefs::receiver_image_data& image_data);
+
  protected:
 
 	/*************************************************************************
@@ -852,6 +862,8 @@ class UDPBaseImplementation : protected virtual slsReceiverDefs, public UDPInter
 
 	void *pRawDataReady;
 
+	/** Passive Receiver **/
+	bool passiveMode;
 
 
 private:

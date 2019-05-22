@@ -45,3 +45,11 @@ void slsReceiverUsers::registerCallBackRawDataModifyReady(void (*func)(char* hea
 		char* datapointer, uint32_t& revDatasize, void*), void *arg){
 	receiver->registerCallBackRawDataModifyReady(func,arg);
 }
+
+void slsReceiverUsers::setPassiveMode(bool passive) {
+	receiver->setPassiveMode(passive);
+}
+
+int slsReceiverUsers::getImage(slsReceiverDefs::receiver_image_data& image_data) {
+	return receiver->getImage(image_data);
+}

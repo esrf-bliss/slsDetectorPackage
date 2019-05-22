@@ -141,3 +141,12 @@ void slsReceiver::registerCallBackRawDataModifyReady(void (*func)(char*,
         char*, uint32_t &, void*),void *arg){
 	tcpipInterface->registerCallBackRawDataModifyReady(func,arg);
 }
+
+void slsReceiver::setPassiveMode(bool passive) {
+	tcpipInterface->setPassiveMode(passive);
+}
+
+int slsReceiver::getImage(slsReceiverDefs::receiver_image_data& image_data) {
+	return tcpipInterface->getImage(image_data);
+}
+

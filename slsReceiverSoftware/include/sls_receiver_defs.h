@@ -180,6 +180,20 @@ public:
 
 	typedef uint8_t bitset_storage[MAX_NUM_PACKETS/8];
 
+	struct thread_image_data {
+		sls_receiver_header header;
+		char *buffer;
+	};
+
+#define MAX_NUM_THREADS 2
+
+	struct receiver_image_data {
+		thread_image_data threadData[MAX_NUM_THREADS];
+		std::bitset<MAX_NUM_THREADS> threadsMask;
+		int numThreads;
+	};
+
+
 #endif
 	/**
 	 * frameDiscardPolicy

@@ -192,6 +192,12 @@ class UDPStandardImplementation: private virtual slsReceiverDefs, public UDPBase
 	 */
 	int restreamStop();
 
+	/**
+	 * Get the next image
+	 * @return OK or FAIL
+	 */
+	int getImage(receiver_image_data& image_data);
+
 
 private:
 
@@ -274,6 +280,5 @@ private:
 
 	/** Fifo Structure to store addresses of memory writes */
 	std::vector <Fifo*> fifo;
-
 };
 

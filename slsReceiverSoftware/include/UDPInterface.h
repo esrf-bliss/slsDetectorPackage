@@ -794,6 +794,16 @@ class UDPInterface {
     virtual void registerCallBackRawDataModifyReady(void (*func)(char* ,
             char*, uint32_t &,void*),void *arg) = 0;
 
+	/**
+	 * Set the passive mode
+	 */
+	virtual void setPassiveMode(bool passive) = 0;
+
+	/**
+	 * Get the next image
+	 */
+	virtual int getImage(slsReceiverDefs::receiver_image_data& image_data) = 0;
+
 
  protected:
  private:

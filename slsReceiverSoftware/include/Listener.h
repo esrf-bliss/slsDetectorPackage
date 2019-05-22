@@ -38,9 +38,10 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	 * @param sm pointer to silent mode
 	 */
 	Listener(int ind, detectorType dtype, Fifo*& f, runStatus* s,
-	        uint32_t* portno, char* e, uint64_t* nf, uint32_t* dr,
-	        uint32_t* us, uint32_t* as, uint32_t* fpf,
-			frameDiscardPolicy* fdp, bool* act, bool* depaden, bool* sm);
+		 uint32_t* portno, char* e, uint64_t* nf, uint32_t* dr,
+		 uint32_t* us, uint32_t* as, uint32_t* fpf,
+		 frameDiscardPolicy* fdp, bool* act, bool* depaden, bool* sm,
+		 bool do_udp_read);
 
 	/**
 	 * Destructor
@@ -149,6 +150,11 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
     void SetHardCodedPosition(uint16_t r, uint16_t c);
 
 
+    /**
+     * Get an image from the UDP socket
+     * @return OK or FAIL
+     */
+    int GetImage(sls_receiver_header* header, char* buffer);
 
  private:
 
@@ -182,11 +188,12 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	/**
 	 * Listen to the UDP Socket for an image,
 	 * place them in the right order
+	 * @param header
 	 * @param buffer
-	 * @returns number of bytes of relevant data, can be image size or 0 (stop acquisition)
+	 * @returns number of bytes of relevant data (image size or 0, if stop acquisition)
 	 * or -1 to discard image
 	 */
-	uint32_t ListenToAnImage(char* buf);
+	int ListenToAnImage(sls_receiver_header* header, char* buf);
 
 	/**
 	 * Print Fifo Statistics
@@ -317,5 +324,10 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	 * to get first packet number as 0
 	 * (pecific to gotthard, can vary between modules, hence defined here) */
 	bool oddStartingPacket;
+
+	/**
+	 * Do read UDP socket
+	 */
+	bool doUdpRead;
 };
 

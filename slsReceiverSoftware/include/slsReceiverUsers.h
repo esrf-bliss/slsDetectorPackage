@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#include "sls_receiver_defs.h"
 
 class slsReceiver;
 
@@ -81,6 +82,17 @@ public:
      */
     void registerCallBackRawDataModifyReady(void (*func)(char* header,
             char* datapointer, uint32_t &revDatasize, void*),void *arg);
+
+
+	/**
+	 * Set the passive mode
+	 */
+	void setPassiveMode(bool passive);
+
+	/**
+	 * Get the next image
+	 */
+	int getImage(slsReceiverDefs::receiver_image_data& image_data);
 
 	//receiver object
 	slsReceiver* receiver;

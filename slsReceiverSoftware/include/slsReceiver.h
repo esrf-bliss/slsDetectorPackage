@@ -95,6 +95,15 @@ class slsReceiver : private virtual slsReceiverDefs {
     void registerCallBackRawDataModifyReady(void (*func)(char* ,
             char*, uint32_t &,void*),void *arg);
 
+	/**
+	 * Set the passive mode
+	 */
+	void setPassiveMode(bool passive);
+
+	/**
+	 * Get the next image
+	 */
+	int getImage(receiver_image_data& image_data);
 
 
  private:

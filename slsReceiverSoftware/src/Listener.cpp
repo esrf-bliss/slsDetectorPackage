@@ -21,7 +21,8 @@ const std::string Listener::TypeName = "Listener";
 Listener::Listener(int ind, detectorType dtype, Fifo*& f, runStatus* s,
         uint32_t* portno, char* e, uint64_t* nf, uint32_t* dr,
         uint32_t* us, uint32_t* as, uint32_t* fpf,
-		frameDiscardPolicy* fdp, bool* act, bool* depaden, bool* sm) :
+		   frameDiscardPolicy* fdp, bool* act, bool* depaden, bool* sm,
+		   bool do_udp_read) :
 		ThreadObject(ind),
 		runningFlag(0),
 		generalData(0),
@@ -55,9 +56,10 @@ Listener::Listener(int ind, detectorType dtype, Fifo*& f, runStatus* s,
 		udpSocketAlive(0),
 		numPacketsStatistic(0),
 		numFramesStatistic(0),
-		oddStartingPacket(true)
+		oddStartingPacket(true),
+		doUdpRead(do_udp_read)
 {
-	if(ThreadObject::CreateThread() == FAIL)
+	if (doUdpRead && (ThreadObject::CreateThread() == FAIL))
 	    throw std::exception();
 
 	FILE_LOG(logDEBUG) << "Listener " << ind << " created";
@@ -68,11 +70,12 @@ Listener::~Listener() {
 	if (udpSocket){
 		delete udpSocket;
 		sem_post(&semaphore_socket);
-    	sem_destroy(&semaphore_socket);
+		sem_destroy(&semaphore_socket);
 	} 
 	if (carryOverPacket) delete [] carryOverPacket;
 	if (listeningPacket) delete [] listeningPacket;
-	ThreadObject::DestroyThread();
+	if (doUdpRead)
+		ThreadObject::DestroyThread();
 }
 
 /** getters */
@@ -228,6 +231,8 @@ int Listener::CreateUDPSockets() {
 void Listener::ShutDownUDPSocket() {
 	if(udpSocket){
 		udpSocketAlive = false;
+		if (!doUdpRead)
+			StopRunning();
 		udpSocket->ShutDownSocket();
 		FILE_LOG(logINFO) << "Shut down of UDP port " << *udpPortNumber;
 		fflush(stdout);
@@ -304,21 +309,21 @@ void Listener::ThreadExecution() {
 	int rc = 0;
 
 	fifo->GetNewAddress(buffer);
-#ifdef FIFODEBUG
-	cprintf(GREEN,"Listener %d, pop 0x%p buffer:%s\n", index,(void*)(buffer),buffer);
-#endif
+
+	uint32_t* byte_count = (uint32_t*) buffer;
+	sls_receiver_header* header = (sls_receiver_header*) (buffer + FIFO_HEADER_NUMBYTES);
+	char* image_data = (buffer + FIFO_HEADER_NUMBYTES + sizeof(sls_receiver_header));
 
 	//udpsocket doesnt exist
 	if (*activated && !udpSocketAlive && !carryOverFlag) {
-		//FILE_LOG(logERROR) << "Listening_Thread " << index << ": UDP Socket not created or shut down earlier";
-		(*((uint32_t*)buffer)) = 0;
+		*byte_count = 0;
 		StopListening(buffer);
 		return;
 	}
 
 	//get data
 	if ((*status != TRANSMITTING && (!(*activated) || udpSocketAlive)) || carryOverFlag) {
-		rc = ListenToAnImage(buffer);
+		rc = ListenToAnImage(header, image_data);
 	}
 
 
@@ -341,8 +346,8 @@ void Listener::ThreadExecution() {
 		return;
 	}
 
-	(*((uint32_t*)buffer)) = rc;
-	(*((uint64_t*)(buffer + FIFO_HEADER_NUMBYTES ))) = currentFrameIndex;		//for those returning earlier
+	*byte_count = rc;
+	header->detHeader.frameNumber = currentFrameIndex;		//for those returning earlier
 	currentFrameIndex++;
 
 	//push into fifo
@@ -360,21 +365,25 @@ void Listener::ThreadExecution() {
 
 
 
+int Listener::GetImage(sls_receiver_header* header, char* buffer) {
+	int rc = ListenToAnImage(header, buffer);
+	currentFrameIndex++;
+	return (rc > 0) ? OK : FAIL;
+}
+
+
 void Listener::StopListening(char* buf) {
-	(*((uint32_t*)buf)) = DUMMY_PACKET_VALUE;
+	uint32_t* byte_count = (uint32_t *) buf;
+	*byte_count = DUMMY_PACKET_VALUE;
 	fifo->PushAddress(buf);
 	StopRunning();
 
 	 sem_post(&semaphore_socket);
-#ifdef VERBOSE
-	cprintf(GREEN,"%d: Listening Packets (%u) : %llu\n", index, *udpPortNumber, numPacketsCaught);
-	cprintf(GREEN,"%d: Listening Completed\n", index);
-#endif
 }
 
 
 /* buf includes the fifo header and packet header */
-uint32_t Listener::ListenToAnImage(char* buf) {
+int Listener::ListenToAnImage(sls_receiver_header* header, char* buf) {
 
 	int rc = 0;
 	uint64_t fnum = 0, bid = 0;
@@ -383,7 +392,6 @@ uint32_t Listener::ListenToAnImage(char* buf) {
 	uint32_t dsize = generalData->dataSize;
 	uint32_t hsize = generalData->headerSizeinPacket; //(includes empty header)
 	uint32_t esize = generalData->emptyHeader;
-	uint32_t fifohsize = generalData->fifoBufferHeaderSize;
 	uint32_t pperFrame = generalData->packetsPerFrame;
 	bool isHeaderEmpty = true;
 	sls_detector_header* old_header = 0;
@@ -392,10 +400,8 @@ uint32_t Listener::ListenToAnImage(char* buf) {
 	uint32_t corrected_dsize = dsize - ((pperFrame * dsize) - generalData->imageSize);
 
 
-	//reset to -1
-	memset(buf, 0, fifohsize);
-	/*memset(buf + fifohsize, 0xFF, generalData->imageSize);*/
-	new_header = (sls_receiver_header*) (buf + FIFO_HEADER_NUMBYTES);
+	memset(header, 0, sizeof(sls_receiver_header));
+	new_header = header;
 
 	// deactivated (eiger)
 	if (!(*activated)) {
@@ -465,18 +471,18 @@ uint32_t Listener::ListenToAnImage(char* buf) {
 		//				2nd packet: 4 bytes fnum, previous 1*2 bytes data  + 640*2 bytes data !!
 		case GOTTHARD:
 			if(!pnum)
-				memcpy(buf + fifohsize , carryOverPacket + hsize+4, dsize-2);
+				memcpy(buf, carryOverPacket + hsize+4, dsize-2);
 			else
-				memcpy(buf + fifohsize + dsize - 2, carryOverPacket + hsize, dsize+2);
+				memcpy(buf + dsize - 2, carryOverPacket + hsize, dsize+2);
 			break;
 		case JUNGFRAUCTB:
 			if (pnum == (pperFrame-1))
-				memcpy(buf + fifohsize + (pnum * dsize), carryOverPacket + hsize, corrected_dsize);
+				memcpy(buf + (pnum * dsize), carryOverPacket + hsize, corrected_dsize);
 			else
-				memcpy(buf + fifohsize + (pnum * dsize), carryOverPacket + hsize,  dsize);
+				memcpy(buf + (pnum * dsize), carryOverPacket + hsize,  dsize);
 			break;
 		default:
-			memcpy(buf + fifohsize + (pnum * dsize), carryOverPacket + hsize, dsize);
+			memcpy(buf + (pnum * dsize), carryOverPacket + hsize, dsize);
 			break;
 		}
 
@@ -606,18 +612,18 @@ uint32_t Listener::ListenToAnImage(char* buf) {
 		//				2nd packet: 4 bytes fnum, previous 1*2 bytes data  + 640*2 bytes data !!
 		case GOTTHARD:
 			if(!pnum)
-				memcpy(buf + fifohsize + (pnum * dsize), listeningPacket + hsize+4, dsize-2);
+				memcpy(buf + (pnum * dsize), listeningPacket + hsize+4, dsize-2);
 			else
-				memcpy(buf + fifohsize + (pnum * dsize) - 2, listeningPacket + hsize, dsize+2);
+				memcpy(buf + (pnum * dsize) - 2, listeningPacket + hsize, dsize+2);
 			break;
 		case JUNGFRAUCTB:
 			if (pnum == (pperFrame-1))
-				memcpy(buf + fifohsize + (pnum * dsize), listeningPacket + hsize, corrected_dsize);
+				memcpy(buf + (pnum * dsize), listeningPacket + hsize, corrected_dsize);
 			else
-				memcpy(buf + fifohsize + (pnum * dsize), listeningPacket + hsize, dsize);
+				memcpy(buf + (pnum * dsize), listeningPacket + hsize, dsize);
 			break;
 		default:
-			memcpy(buf + fifohsize + (pnum * dsize), listeningPacket + hsize, dsize);
+			memcpy(buf + (pnum * dsize), listeningPacket + hsize, dsize);
 			break;
 		}
 		++numpackets;			//number of packets in this image (each time its copied to buf)
