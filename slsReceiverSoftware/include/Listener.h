@@ -10,6 +10,7 @@
  */
 
 #include "ThreadObject.h"
+#include "FrameAssembler.h"
 
 class GeneralData;
 class Fifo;
@@ -188,8 +189,8 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	/**
 	 * Listen to the UDP Socket for an image,
 	 * place them in the right order
-	 * @param header
-	 * @param buffer
+	 * @param recv_header
+	 * @param buf
 	 * @returns number of bytes of relevant data (image size or 0, if stop acquisition)
 	 * or -1 to discard image
 	 */
@@ -296,14 +297,8 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	 */
 	uint64_t currentFrameIndex;
 
-	/** True if there is a packet carry over from previous Image */
-	bool carryOverFlag;
-
-	/** Carry over packet buffer */
-	char* carryOverPacket;
-
-	/** Listening buffer for one packet - might be removed when we can peek and eiger fnum is in header */
-	char* listeningPacket;
+	/** frame assembler **/
+	DefaultFrameAssembler *frameAssembler;
 
 	/** if the udp socket is connected */
 	volatile bool udpSocketAlive;
@@ -318,12 +313,6 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 
 	/** number of images for statistic */
 	uint32_t numFramesStatistic;
-
-	/**
-	 * starting packet number is odd or evern, accordingly increment frame number
-	 * to get first packet number as 0
-	 * (pecific to gotthard, can vary between modules, hence defined here) */
-	bool oddStartingPacket;
 
 	/**
 	 * Do read UDP socket
