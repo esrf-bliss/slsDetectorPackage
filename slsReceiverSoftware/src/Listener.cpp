@@ -311,7 +311,7 @@ void Listener::ThreadExecution() {
 	fifo->GetNewAddress(buffer);
 
 	uint32_t* byte_count = (uint32_t*) buffer;
-	sls_receiver_header* header = (sls_receiver_header*) (buffer + FIFO_HEADER_NUMBYTES);
+	sls_receiver_header* recv_header = (sls_receiver_header*) (buffer + FIFO_HEADER_NUMBYTES);
 	char* image_data = (buffer + FIFO_HEADER_NUMBYTES + sizeof(sls_receiver_header));
 
 	//udpsocket doesnt exist
@@ -323,7 +323,7 @@ void Listener::ThreadExecution() {
 
 	//get data
 	if ((*status != TRANSMITTING && (!(*activated) || udpSocketAlive)) || carryOverFlag) {
-		rc = ListenToAnImage(header, image_data);
+		rc = ListenToAnImage(recv_header, image_data);
 	}
 
 
@@ -347,7 +347,7 @@ void Listener::ThreadExecution() {
 	}
 
 	*byte_count = rc;
-	header->detHeader.frameNumber = currentFrameIndex;		//for those returning earlier
+	recv_header->detHeader.frameNumber = currentFrameIndex;		//for those returning earlier
 	currentFrameIndex++;
 
 	//push into fifo
@@ -365,8 +365,8 @@ void Listener::ThreadExecution() {
 
 
 
-int Listener::GetImage(sls_receiver_header* header, char* buffer) {
-	int rc = ListenToAnImage(header, buffer);
+int Listener::GetImage(sls_receiver_header* recv_header, char* buffer) {
+	int rc = ListenToAnImage(recv_header, buffer);
 	currentFrameIndex++;
 	return (rc > 0) ? OK : FAIL;
 }
@@ -383,7 +383,7 @@ void Listener::StopListening(char* buf) {
 
 
 /* buf includes the fifo header and packet header */
-int Listener::ListenToAnImage(sls_receiver_header* header, char* buf) {
+int Listener::ListenToAnImage(sls_receiver_header* recv_header, char* buf) {
 
 	int rc = 0;
 	uint64_t fnum = 0, bid = 0;
@@ -394,14 +394,12 @@ int Listener::ListenToAnImage(sls_receiver_header* header, char* buf) {
 	uint32_t esize = generalData->emptyHeader;
 	uint32_t pperFrame = generalData->packetsPerFrame;
 	bool isHeaderEmpty = true;
-	sls_detector_header* old_header = 0;
-	sls_receiver_header* new_header = 0;
+	sls_detector_header* det_header = 0;
 	bool standardheader = generalData->standardheader;
 	uint32_t corrected_dsize = dsize - ((pperFrame * dsize) - generalData->imageSize);
 
 
-	memset(header, 0, sizeof(sls_receiver_header));
-	new_header = header;
+	memset(recv_header, 0, sizeof(sls_receiver_header));
 
 	// deactivated (eiger)
 	if (!(*activated)) {
@@ -416,11 +414,11 @@ int Listener::ListenToAnImage(sls_receiver_header* header, char* buf) {
 		if (!currentFrameIndex) {
 			++currentFrameIndex;
 		}
-		new_header->detHeader.frameNumber = currentFrameIndex;
-		new_header->detHeader.row = row;
-		new_header->detHeader.column = column;
-		new_header->detHeader.detType = (uint8_t) generalData->myDetectorType;
-		new_header->detHeader.version = (uint8_t) SLS_DETECTOR_HEADER_VERSION;
+		recv_header->detHeader.frameNumber = currentFrameIndex;
+		recv_header->detHeader.row = row;
+		recv_header->detHeader.column = column;
+		recv_header->detHeader.detType = (uint8_t) generalData->myDetectorType;
+		recv_header->detHeader.version = (uint8_t) SLS_DETECTOR_HEADER_VERSION;
 		return generalData->imageSize;
 	}
 
@@ -432,9 +430,9 @@ int Listener::ListenToAnImage(sls_receiver_header* header, char* buf) {
 		//check if its the current image packet
 		// -------------------------- new header ----------------------------------------------------------------------
 		if (standardheader) {
-			old_header = (sls_detector_header*) (carryOverPacket + esize);
-			fnum = old_header->frameNumber;
-			pnum = old_header->packetNumber;
+			det_header = (sls_detector_header*) (carryOverPacket + esize);
+			fnum = det_header->frameNumber;
+			pnum = det_header->packetNumber;
 		}
 		// -------------------old header -----------------------------------------------------------------------------
 		else {
@@ -457,10 +455,10 @@ int Listener::ListenToAnImage(sls_receiver_header* header, char* buf) {
 			default:
 				break;
 			}
-			new_header->detHeader.packetNumber = numpackets;
+			recv_header->detHeader.packetNumber = numpackets;
 			if(isHeaderEmpty) {
-				new_header->detHeader.row = row;
-				new_header->detHeader.column = column;
+				recv_header->detHeader.row = row;
+				recv_header->detHeader.column = column;
 			}
 			return generalData->imageSize;
 		}
@@ -488,21 +486,21 @@ int Listener::ListenToAnImage(sls_receiver_header* header, char* buf) {
 
 		carryOverFlag = false;
 		++numpackets;					//number of packets in this image (each time its copied to buf)
-		new_header->packetsMask[pnum] = 1;
+		recv_header->packetsMask[pnum] = 1;
 
 		//writer header
 		if(isHeaderEmpty) {
 			// -------------------------- new header ----------------------------------------------------------------------
 			if (standardheader) {
-				memcpy((char*)new_header, (char*)old_header, sizeof(sls_detector_header));
+				memcpy((char*)recv_header, (char*)det_header, sizeof(sls_detector_header));
 			}
 			// -------------------old header ------------------------------------------------------------------------------
 			else {
-				new_header->detHeader.frameNumber = fnum;
-				new_header->detHeader.row = row;
-				new_header->detHeader.column = column;
-				new_header->detHeader.detType = (uint8_t) generalData->myDetectorType;
-				new_header->detHeader.version = (uint8_t) SLS_DETECTOR_HEADER_VERSION;
+				recv_header->detHeader.frameNumber = fnum;
+				recv_header->detHeader.row = row;
+				recv_header->detHeader.column = column;
+				recv_header->detHeader.detType = (uint8_t) generalData->myDetectorType;
+				recv_header->detHeader.version = (uint8_t) SLS_DETECTOR_HEADER_VERSION;
 			}
 			//------------------------------------------------------------------------------------------------------------
 			isHeaderEmpty = false;
@@ -534,10 +532,10 @@ int Listener::ListenToAnImage(sls_receiver_header* header, char* buf) {
 			default:
 				break;
 			}
-			new_header->detHeader.packetNumber = numpackets; 	//number of packets caught
+			recv_header->detHeader.packetNumber = numpackets; 	//number of packets caught
 			if(isHeaderEmpty) {
-				new_header->detHeader.row = row;
-				new_header->detHeader.column = column;
+				recv_header->detHeader.row = row;
+				recv_header->detHeader.column = column;
 			}
 			return generalData->imageSize;	//empty packet now, but not empty image
 		}
@@ -548,9 +546,9 @@ int Listener::ListenToAnImage(sls_receiver_header* header, char* buf) {
 
 		// -------------------------- new header ----------------------------------------------------------------------
 		if (standardheader) {
-			old_header = (sls_detector_header*) (listeningPacket + esize);
-			fnum = old_header->frameNumber;
-			pnum = old_header->packetNumber;
+			det_header = (sls_detector_header*) (listeningPacket + esize);
+			fnum = det_header->frameNumber;
+			pnum = det_header->packetNumber;
 		}
 		// -------------------old header -----------------------------------------------------------------------------
 		else {
@@ -598,10 +596,10 @@ int Listener::ListenToAnImage(sls_receiver_header* header, char* buf) {
 			default:
 				break;
 			}
-			new_header->detHeader.packetNumber = numpackets; 	//number of packets caught
+			recv_header->detHeader.packetNumber = numpackets; 	//number of packets caught
 			if(isHeaderEmpty) {
-				new_header->detHeader.row = row;
-				new_header->detHeader.column = column;
+				recv_header->detHeader.row = row;
+				recv_header->detHeader.column = column;
 			}
 			return generalData->imageSize;
 		}
@@ -627,20 +625,20 @@ int Listener::ListenToAnImage(sls_receiver_header* header, char* buf) {
 			break;
 		}
 		++numpackets;			//number of packets in this image (each time its copied to buf)
-		new_header->packetsMask[pnum] = 1;
+		recv_header->packetsMask[pnum] = 1;
 
 		if(isHeaderEmpty) {
 			// -------------------------- new header ----------------------------------------------------------------------
 			if (standardheader) {
-				memcpy((char*)new_header, (char*)old_header, sizeof(sls_detector_header));
+				memcpy((char*)recv_header, (char*)det_header, sizeof(sls_detector_header));
 			}
 			// -------------------old header ------------------------------------------------------------------------------
 			else {
-				new_header->detHeader.frameNumber = fnum;
-				new_header->detHeader.row = row;
-				new_header->detHeader.column = column;
-				new_header->detHeader.detType = (uint8_t) generalData->myDetectorType;
-				new_header->detHeader.version = (uint8_t) SLS_DETECTOR_HEADER_VERSION;
+				recv_header->detHeader.frameNumber = fnum;
+				recv_header->detHeader.row = row;
+				recv_header->detHeader.column = column;
+				recv_header->detHeader.detType = (uint8_t) generalData->myDetectorType;
+				recv_header->detHeader.version = (uint8_t) SLS_DETECTOR_HEADER_VERSION;
 			}
 			//------------------------------------------------------------------------------------------------------------
 			isHeaderEmpty = false;
@@ -648,7 +646,7 @@ int Listener::ListenToAnImage(sls_receiver_header* header, char* buf) {
 	}
 
 	// complete image
-	new_header->detHeader.packetNumber = numpackets; 	//number of packets caught
+	recv_header->detHeader.packetNumber = numpackets; 	//number of packets caught
 	return generalData->imageSize;
 }
 

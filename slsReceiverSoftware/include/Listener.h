@@ -154,7 +154,7 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
      * Get an image from the UDP socket
      * @return OK or FAIL
      */
-    int GetImage(sls_receiver_header* header, char* buffer);
+    int GetImage(sls_receiver_header* recv_header, char* buffer);
 
  private:
 
@@ -193,7 +193,7 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	 * @returns number of bytes of relevant data (image size or 0, if stop acquisition)
 	 * or -1 to discard image
 	 */
-	int ListenToAnImage(sls_receiver_header* header, char* buf);
+	int ListenToAnImage(sls_receiver_header* recv_header, char* buf);
 
 	/**
 	 * Print Fifo Statistics
