@@ -122,10 +122,10 @@ int64_t UDPStandardImplementation::getAcquisitionIndex() const {
 
 int UDPStandardImplementation::setGapPixelsEnable(const bool b) {
 	if (gapPixelsEnable != b) {
-		gapPixelsEnable = b;
+		gapPixelsEnable = (passiveMode || (dynamicRange != 4)) ? b: 0;
 
 		// side effects
-		generalData->SetGapPixelsEnable(b, dynamicRange);
+		generalData->SetGapPixelsEnable(gapPixelsEnable);
 		// to update npixelsx, npixelsy in file writer
 		for (std::vector<DataProcessor*>::const_iterator it = dataProcessor.begin(); it != dataProcessor.end(); ++it)
 			(*it)->SetPixelDimension();
@@ -298,8 +298,7 @@ int UDPStandardImplementation::setDynamicRange(const uint32_t i) {
 		dynamicRange = i;
 
 		//side effects
-		generalData->SetDynamicRange(i,tengigaEnable);
-		generalData->SetGapPixelsEnable(gapPixelsEnable, dynamicRange);
+		generalData->SetDynamicRange(dynamicRange);
 		// to update npixelsx, npixelsy in file writer
 		for (std::vector<DataProcessor*>::const_iterator it = dataProcessor.begin(); it != dataProcessor.end(); ++it)
 			(*it)->SetPixelDimension();
@@ -316,7 +315,7 @@ int UDPStandardImplementation::setTenGigaEnable(const bool b) {
 	if (tengigaEnable != b) {
 		tengigaEnable = b;
 		//side effects
-		generalData->SetTenGigaEnable(b,dynamicRange);
+		generalData->SetTenGigaEnable(tengigaEnable);
 
 		if (SetupFifoStructure() == FAIL)
 			return FAIL;

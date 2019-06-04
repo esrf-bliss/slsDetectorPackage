@@ -87,7 +87,14 @@ public:
 	/** default udp socket buffer size */
 	uint32_t defaultUdpSocketBufferSize;
 
+	/** dynamic range */
+	uint32_t dynamicRange;
 
+	/** 10 Gigabit enable */
+	bool tgEnable;
+
+	/** gap pixels enable */
+	bool gapEnable;
 
 	/** Cosntructor */
 	GeneralData():
@@ -113,7 +120,10 @@ public:
 		nPixelsYComplete(0),
 		imageSizeComplete(0),
 		standardheader(false),
-		defaultUdpSocketBufferSize(RECEIVE_SOCKET_BUFFER_SIZE)
+		defaultUdpSocketBufferSize(RECEIVE_SOCKET_BUFFER_SIZE),
+		dynamicRange(0),
+		tgEnable(0),
+		gapEnable(0)
 		{};
 
 	/** Destructor */
@@ -123,14 +133,13 @@ public:
 	 * Get Header Infomation (frame number, packet number)
 	 * @param index thread index for debugging purposes
 	 * @param packetData pointer to data
-	 * @param dynamicRange dynamic range to assign subframenumber if 32 bit mode
 	 * @param oddStartingPacket odd starting packet (gotthard)
 	 * @param frameNumber frame number
 	 * @param packetNumber packet number
 	 * @param subFrameNumber sub frame number if applicable
 	 * @param bunchId bunch id
 	 */
-	virtual void GetHeaderInfo(int index, char* packetData, uint32_t dynamicRange, bool oddStartingPacket,
+	virtual void GetHeaderInfo(int index, char* packetData, bool oddStartingPacket,
 			uint64_t& frameNumber, uint32_t& packetNumber, uint32_t& subFrameNumber, uint64_t& bunchId) const
 	{
 		subFrameNumber = -1;
@@ -163,18 +172,16 @@ public:
 	/**
 	 * Setting dynamic range changes member variables
 	 * @param dr dynamic range
-	 * @param tgEnable true if 10GbE is enabled, else false
 	 */
-	virtual void SetDynamicRange(int dr, bool tgEnable) {
+	virtual void SetDynamicRange(int dr) {
 		cprintf(RED,"This is a generic function that should be overloaded by a derived class\n");
 	};
 
 	/**
 	 * Setting ten giga enable changes member variables
 	 * @param tgEnable true if 10GbE is enabled, else false
-	 * @param dr dynamic range
 	 */
-	virtual void SetTenGigaEnable(bool tgEnable, int dr) {
+	virtual void SetTenGigaEnable(bool tgEnable) {
 		cprintf(RED,"This is a generic function that should be overloaded by a derived class\n");
 	};
 
@@ -191,7 +198,7 @@ public:
 	 * Enable Gap Pixels changes member variables
 	 * @param enable true if gap pixels enable, else false
 	 */
-	virtual void SetGapPixelsEnable(bool b, int dr) {
+	virtual void SetGapPixelsEnable(bool b) {
 		cprintf(RED,"This is a generic function that should be overloaded by a derived class\n");
 	};
 
@@ -270,14 +277,13 @@ private:
 	 * Get Header Infomation (frame number, packet number)
 	 * @param index thread index for debugging purposes
 	 * @param packetData pointer to data
-	 * @param dynamicRange dynamic range to assign subframenumber if 32 bit mode
 	 * @param oddStartingPacket odd starting packet (gotthard)
 	 * @param frameNumber frame number
 	 * @param packetNumber packet number
 	 * @param subFrameNumber sub frame number if applicable
 	 * @param bunchId bunch id
 	 */
-	void GetHeaderInfo(int index, char* packetData, uint32_t dynamicRange, bool oddStartingPacket,
+	void GetHeaderInfo(int index, char* packetData, bool oddStartingPacket,
 			uint64_t& frameNumber, uint32_t& packetNumber, uint32_t& subFrameNumber, uint64_t& bunchId) const
 	{
 		if (nPixelsX == 1280) {
@@ -537,13 +543,12 @@ private:
 	 * Get Header Infomation (frame number, packet number)
 	 * @param index thread index for debugging purposes
 	 * @param packetData pointer to data
-	 * @param dynamicRange dynamic range to assign subframenumber if 32 bit mode
 	 * @param oddStartingPacket odd starting packet (gotthard)
 	 * @param frameNumber frame number 	 * @param packetNumber packet number
 	 * @param subFrameNumber sub frame number if applicable
 	 * @param bunchId bunch id
 	 */
-	void GetHeaderInfo(int index, char* packetData, uint32_t dynamicRange, bool oddStartingPacket,
+	void GetHeaderInfo(int index, char* packetData, bool oddStartingPacket,
 			uint64_t& frameNumber, uint32_t& packetNumber, uint32_t& subFrameNumber, uint64_t& bunchId) const 	{
 		subFrameNumber = -1;
 		jfrauctb_packet_header_t* header = (jfrauctb_packet_header_t*)(packetData);
@@ -605,71 +610,60 @@ class EigerData : public GeneralData {
 	/** Constructor */
 	EigerData(){
 		myDetectorType		= slsReceiverDefs::EIGER;
-		nPixelsX 			= (256*2);
-		nPixelsY 			= 256;
 		headerSizeinPacket  = sizeof(slsReceiverDefs::sls_detector_header);
-		dataSize 			= 1024;
-		packetSize 			= headerSizeinPacket + dataSize;
-		packetsPerFrame 	= 256;
-		imageSize 			= dataSize*packetsPerFrame;
+		dynamicRange		= 16;
 		maxFramesPerFile 	= EIGER_MAX_FRAMES_PER_FILE;
 		fifoBufferHeaderSize= FIFO_HEADER_NUMBYTES + sizeof(slsReceiverDefs::sls_receiver_header);
 		defaultFifoDepth 	= 100;
 		threadsPerReceiver	= 2;
 		headerPacketSize	= 40;
 		standardheader		= true;
+		UpdateImageSize();
 	};
 
 	/**
 	 * Setting dynamic range changes member variables
 	 * @param dr dynamic range
-	 * @param tgEnable true if 10GbE is enabled, else false
 	 */
-	void SetDynamicRange(int dr, bool tgEnable) {
-		packetsPerFrame = (tgEnable ? 4 : 16) * dr;
-		imageSize 		= dataSize*packetsPerFrame;
+	void SetDynamicRange(int dr) {
+		dynamicRange = dr;
+		UpdateImageSize();
 	}
 
 	/**
 	 * Setting ten giga enable changes member variables
-	 * @param tgEnable true if 10GbE is enabled, else false
-	 * @param dr dynamic range
+	 * @param tg true if 10GbE is enabled, else false
 	 */
-	void SetTenGigaEnable(bool tgEnable, int dr) {
-		dataSize 		= (tgEnable ? 4096 : 1024);
-		packetSize 		= headerSizeinPacket + dataSize;
-		packetsPerFrame = (tgEnable ? 4 : 16) * dr;
-		imageSize 		= dataSize*packetsPerFrame;
+	void SetTenGigaEnable(bool tg) {
+		tgEnable = tg;
+		UpdateImageSize();
 	};
 
 	/**
 	 * Enable Gap Pixels changes member variables
-	 * @param enable true if gap pixels enable, else false
-	 * @param dr dynamic range
+	 * @param g enable true if gap pixels enable, else false
 	 */
-	void SetGapPixelsEnable(bool b, int dr) {
-		if (dr == 4)
-			b = 0;
-		switch((int)b) {
-		case 1:
-			nPixelsX	= (256 * 2) + 3;
-			nPixelsY 	= 256 + 1;
-			imageSize	= nPixelsX * nPixelsY * ((dr > 16) ? 4 : // 32 bit
-												((dr > 8)  ? 2 : // 16 bit
-												((dr > 4)  ? 1 : // 8 bit
-												0.5)));			 // 4 bit
-			break;
-		default:
-			nPixelsX 	= (256*2);
-			nPixelsY 	= 256;
-			imageSize	= nPixelsX * nPixelsY * ((dr > 16) ? 4 : // 32 bit
-												((dr > 8)  ? 2 : // 16 bit
-												((dr > 4)  ? 1 : // 8 bit
-												0.5)));			 // 4 bit
-			break;
-		}
+	void SetGapPixelsEnable(bool g) {
+		gapEnable = g;
+		UpdateImageSize();
 	};
 
-
+ private:
+	/**
+	 * Update member variables affecting image size
+	 */
+	void UpdateImageSize() {
+		nPixelsX 	= 256 * 2;
+		nPixelsY 	= 256;
+		packetsPerFrame	= (tgEnable ? 4 : 16) * dynamicRange;
+		dataSize 	= (tgEnable ? 4096 : 1024);
+		packetSize 	= headerSizeinPacket + dataSize;
+		if (gapEnable) {
+			nPixelsX += 3;
+			nPixelsY += 1;
+		}
+		float bytes_per_pixel = float(dynamicRange) / 8;
+		imageSize = nPixelsX * nPixelsY * bytes_per_pixel;
+	}
 };
 

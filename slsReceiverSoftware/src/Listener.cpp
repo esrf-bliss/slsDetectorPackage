@@ -437,7 +437,7 @@ int Listener::ListenToAnImage(sls_receiver_header* recv_header, char* buf) {
 		// -------------------old header -----------------------------------------------------------------------------
 		else {
 			generalData->GetHeaderInfo(index, carryOverPacket + esize,
-					*dynamicRange, oddStartingPacket, fnum, pnum, snum, bid);
+					oddStartingPacket, fnum, pnum, snum, bid);
 		}
 		//------------------------------------------------------------------------------------------------------------
 		if (fnum != currentFrameIndex) {
@@ -558,7 +558,7 @@ int Listener::ListenToAnImage(sls_receiver_header* recv_header, char* buf) {
 		    }
 
 			generalData->GetHeaderInfo(index, listeningPacket + esize,
-					*dynamicRange, oddStartingPacket, fnum, pnum, snum, bid);
+					oddStartingPacket, fnum, pnum, snum, bid);
 		}
 		//------------------------------------------------------------------------------------------------------------
 
