@@ -18,7 +18,7 @@
 const std::string Listener::TypeName = "Listener";
 
 
-Listener::Listener(int ind, detectorType dtype, Fifo*& f, runStatus* s,
+Listener::Listener(int ind, detectorType dtype, Fifo*& f, volatile runStatus* s,
         uint32_t* portno, char* e, uint64_t* nf, uint32_t* dr,
         uint32_t* us, uint32_t* as, uint32_t* fpf,
 		   frameDiscardPolicy* fdp, bool* act, bool* depaden, bool* sm,
@@ -53,7 +53,8 @@ Listener::Listener(int ind, detectorType dtype, Fifo*& f, runStatus* s,
 		udpSocketAlive(0),
 		numPacketsStatistic(0),
 		numFramesStatistic(0),
-		doUdpRead(do_udp_read)
+		doUdpRead(do_udp_read),
+		frameAssembler(0)
 {
 	if (doUdpRead && (ThreadObject::CreateThread() == FAIL))
 	    throw std::exception();
@@ -359,11 +360,16 @@ void Listener::ThreadExecution() {
 }
 
 
+DualPortFrameAssembler *Listener::CreateDualPortFrameAssembler(Listener *listener[2])
+{
+	if (listener[0]->myDetectorType != slsReceiverDefs::EIGER) {
+		FILE_LOG(logERROR) << "EigerFrameAssembler supported only on Eiger";
+		return NULL;
+	}
 
-int Listener::GetImage(sls_receiver_header* recv_header, char* buffer) {
-	int rc = ListenToAnImage(recv_header, buffer);
-	currentFrameIndex++;
-	return (rc > 0) ? OK : FAIL;
+	DefaultFrameAssembler *a[2] = {listener[0]->frameAssembler,
+				       listener[1]->frameAssembler};
+	return new EigerRawFrameAssembler(a);
 }
 
 

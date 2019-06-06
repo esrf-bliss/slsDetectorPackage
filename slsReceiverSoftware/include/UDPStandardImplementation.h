@@ -13,7 +13,7 @@ class Listener;
 class DataProcessor;
 class DataStreamer;
 class Fifo;
-
+class DualPortFrameAssembler;
 
 
 class UDPStandardImplementation: private virtual slsReceiverDefs, public UDPBaseImplementation {
@@ -280,5 +280,9 @@ private:
 
 	/** Fifo Structure to store addresses of memory writes */
 	std::vector <Fifo*> fifo;
+
+	/** Frame memory assembler in passive mode */
+	DualPortFrameAssembler *frameAssembler;
+	volatile bool frameAssemblerBusy;
 };
 

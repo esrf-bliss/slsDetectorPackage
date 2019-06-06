@@ -31,6 +31,8 @@ UDPStandardImplementation::~UDPStandardImplementation() {
 
 
 void UDPStandardImplementation::DeleteMembers() {
+	if (frameAssembler)
+		delete frameAssembler;
 	if (generalData) { delete generalData; generalData=0;}
 	for (std::vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it)
 		delete(*it);
@@ -57,6 +59,8 @@ void UDPStandardImplementation::InitializeMembers() {
 
 	//** class objects ***
 	generalData = 0;
+	frameAssembler = 0;
+	frameAssemblerBusy = false;
 }
 
 
@@ -369,7 +373,7 @@ int UDPStandardImplementation::setDetectorType(const detectorType d) {
 	default: break;
 	}
 	numThreads = generalData->threadsPerReceiver;
-	if (numThreads > MAX_NUM_THREADS) {
+	if (numThreads > MAX_NUM_PORTS) {
 		FILE_LOG(logERROR) << "Invalid numThreads: " << numThreads;
 		return FAIL;
 	}
@@ -642,8 +646,17 @@ void UDPStandardImplementation::startReadout(){
 
 
 void UDPStandardImplementation::shutDownUDPSockets() {
+	if (frameAssembler) {
+		frameAssembler->stop();
+		while (frameAssemblerBusy)
+			usleep(5000);
+	}
 	for (std::vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it)
 		(*it)->ShutDownUDPSocket();
+	if (frameAssembler)
+		delete frameAssembler;
+	frameAssembler = 0;
+
 }
 
 
@@ -790,6 +803,17 @@ int UDPStandardImplementation::CreateUDPSockets() {
 	}
 
 	FILE_LOG(logDEBUG) << "UDP socket(s) created successfully.";
+
+	if (passiveMode) {
+		if (numThreads != 2) {
+			FILE_LOG(logERROR) << "Invalid number of threads";
+			shutDownUDPSockets();
+			return FAIL;
+		}
+		Listener *l[2] = { listener[0], listener[1] };
+		frameAssembler = Listener::CreateDualPortFrameAssembler(l);
+	}
+
 	return OK;
 }
 
@@ -834,26 +858,18 @@ int UDPStandardImplementation::getImage(receiver_image_data& image_data)
 	if (!passiveMode) {
 		FILE_LOG(logERROR) << "getImage: not in passiveMode";
 		return FAIL;
-	} else if (image_data.numThreads != numThreads) {
-		FILE_LOG(logERROR) << "getImage: numThreads mismatch: " 
-				   << "image_data=" << image_data.numThreads
-				   << "this=" << numThreads;
+	}
+
+	frameAssemblerBusy = true;
+	if (status != RUNNING) {
+		frameAssemblerBusy = false;
 		return FAIL;
 	}
 
-	bool got_data = false;
-	while (!got_data && (status == RUNNING)) {
-		thread_image_data* thread_data = image_data.threadData;
-		for (int i = 0; i < numThreads; ++i, ++thread_data) {
-			sls_receiver_header& header = thread_data->header;
-			int ret = listener[i]->GetImage(&header, thread_data->buffer);
-			bool ok = (ret == OK);
-			image_data.threadsMask.set(i, ok);
-			if (ok)
-				got_data = true;
-		}
-
-	}
-
+	image_data.portsMask = frameAssembler->assembleFrame(image_data.frame,
+						       &image_data.header,
+						       image_data.buffer);
+	frameAssemblerBusy = false;
+	bool got_data = image_data.portsMask.any();
 	return got_data ? OK : FAIL;
 }

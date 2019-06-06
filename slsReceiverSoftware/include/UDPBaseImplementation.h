@@ -754,7 +754,7 @@ class UDPBaseImplementation : protected virtual slsReceiverDefs, public UDPInter
 	/** Maximum Number of Listening Threads/ UDP Ports */
 	const static int MAX_NUMBER_OF_LISTENING_THREADS = 2;
 	/** Receiver Status */
-	runStatus status;
+	volatile runStatus status;
 	/** Activated/Deactivated */
 	bool activated;
 	/** Deactivated padding enable */

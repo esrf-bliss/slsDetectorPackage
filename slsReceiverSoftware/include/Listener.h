@@ -38,7 +38,7 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	 * @param depaden pointer to deactivated padding enable
 	 * @param sm pointer to silent mode
 	 */
-	Listener(int ind, detectorType dtype, Fifo*& f, runStatus* s,
+	Listener(int ind, detectorType dtype, Fifo*& f, volatile runStatus* s,
 		 uint32_t* portno, char* e, uint64_t* nf, uint32_t* dr,
 		 uint32_t* us, uint32_t* as, uint32_t* fpf,
 		 frameDiscardPolicy* fdp, bool* act, bool* depaden, bool* sm,
@@ -152,10 +152,9 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 
 
     /**
-     * Get an image from the UDP socket
-     * @return OK or FAIL
+     * Create a dual-port frame assembler object listening on 2 Listeners' UDP ports
      */
-    int GetImage(sls_receiver_header* recv_header, char* buffer);
+    static DualPortFrameAssembler *CreateDualPortFrameAssembler(Listener *listener[2]);
 
  private:
 
@@ -221,7 +220,7 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	detectorType myDetectorType;
 
 	/** Receiver Status */
-	runStatus* status;
+	volatile runStatus* status;
 
 	/** UDP Socket - Detector to Receiver */
 	genericSocket* udpSocket;

@@ -180,17 +180,13 @@ public:
 
 	typedef uint8_t bitset_storage[MAX_NUM_PACKETS/8];
 
-	struct thread_image_data {
-		sls_receiver_header header;
-		char *buffer;
-	};
-
-#define MAX_NUM_THREADS 2
+#define MAX_NUM_PORTS 2
 
 	struct receiver_image_data {
-		thread_image_data threadData[MAX_NUM_THREADS];
-		std::bitset<MAX_NUM_THREADS> threadsMask;
-		int numThreads;
+		uint64_t frame;
+		sls_receiver_header header;
+		char *buffer;
+		std::bitset<MAX_NUM_PORTS> portsMask;
 	};
 
 

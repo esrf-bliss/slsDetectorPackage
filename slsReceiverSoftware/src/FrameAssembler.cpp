@@ -75,3 +75,16 @@ int DefaultFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header
 
 	return 0;
 }
+
+DualPortFrameAssembler::PortsMask
+EigerRawFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header, char *buf)
+{
+	const int nb_ports = 2;
+	const int image_size = assembler[0]->getImageSize();
+	PortsMask mask;
+	for (int i = 0; i < nb_ports; ++i, buf += image_size) {
+		int ret = assembler[i]->assembleFrame(frame, recv_header, buf);
+		mask.set(i, (ret == 0));
+	}
+	return mask;
+}
