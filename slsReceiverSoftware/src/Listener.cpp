@@ -204,7 +204,7 @@ int Listener::CreateUDPSockets() {
 		return FAIL;
 	}
 
-	frameAssembler = new DefaultFrameAssembler(udpSocket, generalData, *frameDiscardMode);
+	frameAssembler = new DefaultFrameAssembler(udpSocket, generalData, *frameDiscardMode, !doUdpRead);
 
 	udpSocketAlive = true;
     sem_init(&semaphore_socket,1,0);

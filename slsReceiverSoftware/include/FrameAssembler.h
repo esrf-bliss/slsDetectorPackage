@@ -113,9 +113,10 @@ class DefaultFrameAssembler {
 	typedef slsReceiverDefs::sls_receiver_header RecvHeader;
 	typedef slsReceiverDefs::frameDiscardPolicy FramePolicy;
 
-	DefaultFrameAssembler(genericSocket *s, GeneralData *d, FramePolicy fp)
+	DefaultFrameAssembler(genericSocket *s, GeneralData *d, FramePolicy fp,
+			   bool e4b)
 		: packet_stream(new PacketStream(s, d)), general_data(d),
-		frame_policy(fp), stopped(false)
+		  frame_policy(fp), stopped(false), expand_4bits(e4b)
  	{}
 
 	int assembleFrame(uint64_t frame, RecvHeader *header, char *buf);
@@ -132,7 +133,7 @@ class DefaultFrameAssembler {
 
 	int getImageSize()
 	{
-		return general_data->imageSize;
+		return general_data->imageSize * (doExpand4Bits() ? 2 : 1);
 	}
 
  protected:
@@ -148,10 +149,18 @@ class DefaultFrameAssembler {
 			 !num_packets));
 	}
 
+	bool doExpand4Bits()
+	{
+		return (general_data->dynamicRange == 4) && expand_4bits;
+	}
+
+	void expand4Bits(char *dst, char *src, int src_size);
+
 	PacketStreamPtr packet_stream;
 	GeneralData *general_data;
 	FramePolicy frame_policy;
 	volatile bool stopped;
+	bool expand_4bits;
 };
 
 
