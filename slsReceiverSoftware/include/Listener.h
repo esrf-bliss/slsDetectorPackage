@@ -151,6 +151,11 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
     void SetHardCodedPosition(uint16_t r, uint16_t c);
 
     /**
+     * Set receiver threads CPU affinity mask
+     */
+    void SetThreadCPUAffinity(const cpu_set_t& cpu_mask);
+
+    /**
      * Set receiver fifo node affinity mask
      */
     void SetFifoNodeAffinity(unsigned long fifo_node_mask, int max_node);
@@ -321,6 +326,9 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	 * Do read UDP socket
 	 */
 	bool doUdpRead;
+
+	/** frame assembler CPU affinity **/
+	cpu_set_t cpuMask;
 
 	/** Fifo node affinity **/
 	unsigned long fifoNodeMask;

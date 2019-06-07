@@ -90,6 +90,11 @@ public:
 	void setPassiveMode(bool passive);
 
 	/**
+	 * Set receiver threads CPU affinity mask
+	 */
+	void setThreadCPUAffinity(const slsReceiverDefs::CPUMaskList& cpu_masks);
+
+	/**
 	 * Set receiver fifo node affinity mask
 	 */
 	void setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node);

@@ -50,6 +50,10 @@ void slsReceiverUsers::setPassiveMode(bool passive) {
 	receiver->setPassiveMode(passive);
 }
 
+void slsReceiverUsers::setThreadCPUAffinity(const slsReceiverDefs::CPUMaskList& cpu_masks) {
+	receiver->setThreadCPUAffinity(cpu_masks);
+}
+
 void slsReceiverUsers::setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node) {
 	receiver->setFifoNodeAffinity(fifo_node_mask, max_node);
 }

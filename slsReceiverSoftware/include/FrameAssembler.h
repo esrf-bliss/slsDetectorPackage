@@ -38,28 +38,44 @@ class PacketStream {
 		{}
 	};
 
-	PacketStream(genericSocket *s, GeneralData *d,
+	PacketStream(genericSocket *s, GeneralData *d, cpu_set_t cpu_mask,
 		     unsigned long node_mask, int max_node)
 		: socket(s),
 		  general_data(d),
+		  nb_packets(128),
 		  carry_over(false),
 		  odd_numbering(false),
-		  first_packet(true)
+		  first_packet(true),
+		  stopped(false),
+		  write_idx(0),
+		  read_idx(nb_packets - 1), // will be incremented on first read
+		  cpu_aff_mask(cpu_mask)
 	{
 		initMem(node_mask, max_node);
+		initThread();
+	}
+
+	~PacketStream()
+	{
+		stop();
+		void *r;
+		pthread_join(thread, &r);
+		usleep(5000);	// give reader thread time to exit getPacket
 	}
 
 	Packet getPacket(uint64_t frame)
 	{
 		GeneralData& gd = *general_data;
 
-		char *p = packet.getPtr() + header_pad;
 		if (!carry_over) {
-			int ret = socket->ReceiveDataOnly(p);
-			if (ret <= 0)
+			incIndex(read_idx);
+			while (!stopped && bufferEmpty())
+				usleep(10);
+			if (stopped)
 				return Packet(false);
 		}
 
+		char *p = packetPtr(read_idx);
 		p += gd.emptyHeader;
 		DetHeader *header = reinterpret_cast<DetHeader *>(p);
 		uint64_t packet_frame, packet_bid;
@@ -94,6 +110,11 @@ class PacketStream {
 	bool hasPendingPacket()
 	{
 		return carry_over;
+	}
+
+	void stop()
+	{
+		stopped = true;
 	}
 
  private:
@@ -172,21 +193,106 @@ class PacketStream {
 	{
 		const int data_align = 128 / 8;
 		GeneralData& gd = *general_data;
-		size_t packet_len = gd.packetSize;
+		packet_len = gd.packetSize;
 		size_t header_len = gd.emptyHeader + sizeof(DetHeader);
 		size_t misalign = header_len % data_align;
 		header_pad = misalign ? (data_align - misalign) : 0;
 		packet_len += header_pad;
-		packet.alloc(packet_len, node_mask, max_node);
+		misalign = packet_len % data_align;
+		packet_len += misalign ? (data_align - misalign) : 0;
+		packet.alloc(packet_len * nb_packets, node_mask, max_node);
+	}
+
+	int packetsAvailable()
+	{
+		int diff = write_idx - read_idx;
+		if (diff < 0)
+			diff += nb_packets;
+		return diff;
+	}
+
+	char *packetPtr(int idx)
+	{
+		return packet.getPtr() + idx * packet_len + header_pad;
+	}
+
+	void incIndex(volatile int& index)
+	{
+		int new_idx = index + 1;
+		index = new_idx % nb_packets;
+	}
+
+	bool bufferEmpty()
+	{
+		return packetsAvailable() == 0;
+	}
+
+	bool bufferFull()
+	{
+		return packetsAvailable() == (nb_packets - 1);
+	}
+
+	void initThread()
+	{
+		int ret;
+		ret = pthread_create(&thread, NULL, threadFunctionStatic, this);
+		if (ret != 0)
+			throw std::runtime_error("Could not start packet thread");
+
+		struct sched_param param;
+		param.sched_priority = 90;
+		ret = pthread_setschedparam(thread, SCHED_FIFO, &param);
+		if (ret != 0) {
+			void *r;
+			pthread_join(thread, &r);
+			throw std::runtime_error("Could not set packet thread prio");
+		}
+	}
+
+	static void *threadFunctionStatic(void *data)
+	{
+		PacketStream *ps = static_cast<PacketStream *>(data);
+		ps->threadFunction();
+		return NULL;
+	}
+
+	void threadFunction()
+	{
+		if (CPU_COUNT(&cpu_aff_mask) != 0) {
+			int size = sizeof(cpu_aff_mask);
+			int ret = sched_setaffinity(0, size, &cpu_aff_mask);
+			if (ret != 0)
+				throw std::runtime_error("Could not set packet "
+							 "cpu affinity mask");
+		}
+
+		while (true) {
+			while (!stopped && bufferFull())
+				usleep(10);
+			if (stopped)
+				break;
+			char *p = packetPtr(write_idx);
+			int ret = socket->ReceiveDataOnly(p);
+			if (ret < 0)
+				break;
+			incIndex(write_idx);
+		}
 	}
 
 	genericSocket *socket;
 	GeneralData *general_data;
+	const int nb_packets;
 	int header_pad;
+	int packet_len;
 	MmapMem packet;
 	bool carry_over;
 	bool odd_numbering;
 	bool first_packet;
+	volatile bool stopped;
+	volatile int write_idx;
+	volatile int read_idx;
+	cpu_set_t cpu_aff_mask;
+	pthread_t thread;
 };
 
 
@@ -200,10 +306,11 @@ class DefaultFrameAssembler {
 	typedef slsReceiverDefs::sls_receiver_header RecvHeader;
 	typedef slsReceiverDefs::frameDiscardPolicy FramePolicy;
 
-	DefaultFrameAssembler(genericSocket *s, GeneralData *d,
+	DefaultFrameAssembler(genericSocket *s, GeneralData *d, cpu_set_t cpu_mask,
 			   unsigned long node_mask, int max_node, 
 			   FramePolicy fp, bool e4b)
-		: packet_stream(new PacketStream(s, d, node_mask, max_node)),
+		: packet_stream(new PacketStream(s, d, cpu_mask,
+						 node_mask, max_node)),
 		  general_data(d),
 		  frame_policy(fp), stopped(false), expand_4bits(e4b)
  	{}
@@ -213,6 +320,7 @@ class DefaultFrameAssembler {
 	void stop()
 	{
 		stopped = true;
+		packet_stream->stop();
 	}
 
 	bool hasPendingPacket()
@@ -299,5 +407,5 @@ public:
 	{}
 
 	virtual PortsMask assembleFrame(uint64_t frame, RecvHeader *recv_header,
-				     char *buf) override;
+					char *buf) override;
 };

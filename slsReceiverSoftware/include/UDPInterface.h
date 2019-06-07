@@ -800,6 +800,11 @@ class UDPInterface {
 	virtual void setPassiveMode(bool passive) = 0;
 
 	/**
+	 * Set receiver threads CPU affinity mask
+	 */
+	virtual void setThreadCPUAffinity(const slsReceiverDefs::CPUMaskList& cpu_masks) = 0;
+
+	/**
 	 * Set receiver fifo node affinity mask
 	 */
 	virtual void setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node) = 0;

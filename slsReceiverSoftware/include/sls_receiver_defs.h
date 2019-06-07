@@ -10,6 +10,8 @@
 #ifdef __cplusplus
 #include <bitset>
 #include <string>
+#include <sched.h>
+#include <vector>
 #endif
 #include "ansi.h"
 
@@ -189,6 +191,7 @@ public:
 		std::bitset<MAX_NUM_PORTS> portsMask;
 	};
 
+	typedef std::vector<cpu_set_t> CPUMaskList;
 
 #endif
 	/**

@@ -853,6 +853,12 @@ void UDPStandardImplementation::StartRunning() {
 }
 
 
+void UDPStandardImplementation::setThreadCPUAffinity(const CPUMaskList& cpu_masks) {
+	CPUMaskList::const_iterator mit = cpu_masks.begin();
+	for (std::vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it, ++mit)
+		(*it)->SetThreadCPUAffinity(*mit);
+}
+
 void UDPStandardImplementation::setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node)
 {
 	for (std::vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it)

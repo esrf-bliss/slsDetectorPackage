@@ -194,6 +194,11 @@ class UDPStandardImplementation: private virtual slsReceiverDefs, public UDPBase
 
 
 	/**
+	 * Set receiver threads CPU affinity mask
+	 */
+	void setThreadCPUAffinity(const CPUMaskList& cpu_masks);
+
+	/**
 	 * Set receiver fifo node affinity mask
 	 */
 	void setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node);

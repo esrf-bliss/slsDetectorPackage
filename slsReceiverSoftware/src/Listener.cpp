@@ -58,6 +58,8 @@ Listener::Listener(int ind, detectorType dtype, Fifo*& f, volatile runStatus* s,
 		fifoNodeMask(0),
 		maxNode(0)
 {
+	CPU_ZERO(&cpuMask);
+
 	if (doUdpRead && (ThreadObject::CreateThread() == FAIL))
 	    throw std::exception();
 
@@ -179,6 +181,11 @@ int Listener::SetThreadPriority(int priority) {
 	return OK;
 }
 
+void Listener::SetThreadCPUAffinity(const cpu_set_t& cpu_mask)
+{
+	cpuMask = cpu_mask;
+}
+
 void Listener::SetFifoNodeAffinity(unsigned long fifo_node_mask, int max_node)
 {
 	fifoNodeMask = fifo_node_mask;
@@ -214,7 +221,7 @@ int Listener::CreateUDPSockets() {
 		return FAIL;
 	}
 
-	frameAssembler = new DefaultFrameAssembler(udpSocket, generalData, fifoNodeMask, maxNode,
+	frameAssembler = new DefaultFrameAssembler(udpSocket, generalData, cpuMask, fifoNodeMask, maxNode,
 					     *frameDiscardMode, !doUdpRead);
 
 	udpSocketAlive = true;
