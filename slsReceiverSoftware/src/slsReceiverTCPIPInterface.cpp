@@ -2992,6 +2992,10 @@ void slsReceiverTCPIPInterface::setPassiveMode(bool passive)
 	FILE_LOG(logINFO) << "Passive mode: " << passiveMode;
 }
 
+void slsReceiverTCPIPInterface::setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node) {
+	receiverBase->setFifoNodeAffinity(fifo_node_mask, max_node);
+}
+
 int slsReceiverTCPIPInterface::getImage(slsReceiverDefs::receiver_image_data& image_data)
 {
 	return receiverBase->getImage(image_data);

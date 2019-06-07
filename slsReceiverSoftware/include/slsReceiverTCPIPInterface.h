@@ -94,6 +94,11 @@ class slsReceiverTCPIPInterface : private virtual slsReceiverDefs {
 	void setPassiveMode(bool passive);
 
 	/**
+	 * Set receiver fifo node affinity mask
+	 */
+	void setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node);
+
+	/**
 	 * Get the next image
 	 */
 	int getImage(receiver_image_data& image_data);

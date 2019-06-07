@@ -800,6 +800,11 @@ class UDPInterface {
 	virtual void setPassiveMode(bool passive) = 0;
 
 	/**
+	 * Set receiver fifo node affinity mask
+	 */
+	virtual void setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node) = 0;
+
+	/**
 	 * Get the next image
 	 */
 	virtual int getImage(slsReceiverDefs::receiver_image_data& image_data) = 0;

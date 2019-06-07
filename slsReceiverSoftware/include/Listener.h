@@ -150,6 +150,10 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
      */
     void SetHardCodedPosition(uint16_t r, uint16_t c);
 
+    /**
+     * Set receiver fifo node affinity mask
+     */
+    void SetFifoNodeAffinity(unsigned long fifo_node_mask, int max_node);
 
     /**
      * Create a dual-port frame assembler object listening on 2 Listeners' UDP ports
@@ -317,5 +321,9 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	 * Do read UDP socket
 	 */
 	bool doUdpRead;
+
+	/** Fifo node affinity **/
+	unsigned long fifoNodeMask;
+	int maxNode;
 };
 

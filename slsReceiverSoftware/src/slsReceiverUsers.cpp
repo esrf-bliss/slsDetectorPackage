@@ -50,6 +50,10 @@ void slsReceiverUsers::setPassiveMode(bool passive) {
 	receiver->setPassiveMode(passive);
 }
 
+void slsReceiverUsers::setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node) {
+	receiver->setFifoNodeAffinity(fifo_node_mask, max_node);
+}
+
 int slsReceiverUsers::getImage(slsReceiverDefs::receiver_image_data& image_data) {
 	return receiver->getImage(image_data);
 }

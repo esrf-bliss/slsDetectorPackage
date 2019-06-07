@@ -192,6 +192,12 @@ class UDPStandardImplementation: private virtual slsReceiverDefs, public UDPBase
 	 */
 	int restreamStop();
 
+
+	/**
+	 * Set receiver fifo node affinity mask
+	 */
+	void setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node);
+
 	/**
 	 * Get the next image
 	 * @return OK or FAIL

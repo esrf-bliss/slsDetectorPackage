@@ -50,6 +50,7 @@ if (SLS_USE_TEXTCLIENT)
 endif (SLS_USE_TEXTCLIENT)
 
 if (SLS_USE_RECEIVER)
+       find_package(Numa REQUIRED)
        add_subdirectory(slsReceiverSoftware)
        add_subdirectory(manual/manual-api)    
 endif (SLS_USE_RECEIVER)

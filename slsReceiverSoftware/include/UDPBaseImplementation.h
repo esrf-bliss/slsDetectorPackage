@@ -709,6 +709,11 @@ class UDPBaseImplementation : protected virtual slsReceiverDefs, public UDPInter
 	void setPassiveMode(bool passive);
 
 	/**
+	 * Set receiver fifo node affinity mask
+	 */
+	void setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node);
+
+	/**
 	 * Get the next image
 	 */
 	int getImage(slsReceiverDefs::receiver_image_data& image_data);

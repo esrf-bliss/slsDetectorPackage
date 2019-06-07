@@ -853,6 +853,12 @@ void UDPStandardImplementation::StartRunning() {
 }
 
 
+void UDPStandardImplementation::setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node)
+{
+	for (std::vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it)
+		(*it)->SetFifoNodeAffinity(fifo_node_mask, max_node);
+}
+
 int UDPStandardImplementation::getImage(receiver_image_data& image_data)
 {
 	if (!passiveMode) {
