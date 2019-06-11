@@ -37,11 +37,12 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	 * @param act pointer to activated
 	 * @param depaden pointer to deactivated padding enable
 	 * @param sm pointer to silent mode
+	 * @param fl pointer to flipped data
 	 */
 	Listener(int ind, detectorType dtype, Fifo*& f, volatile runStatus* s,
 		 uint32_t* portno, char* e, uint64_t* nf, uint32_t* dr,
 		 uint32_t* us, uint32_t* as, uint32_t* fpf,
-		 frameDiscardPolicy* fdp, bool* act, bool* depaden, bool* sm,
+		 frameDiscardPolicy* fdp, bool* act, bool* depaden, bool* sm, int* fl,
 		 bool do_udp_read);
 
 	/**
@@ -266,6 +267,9 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 
     /** Silent Mode */
     bool* silentMode;
+
+	/** Flipped Data */
+	int* flippedData;
 
 	/** row hardcoded as 1D or 2d,
 	 * if detector does not send them yet or

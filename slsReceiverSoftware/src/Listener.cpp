@@ -21,7 +21,7 @@ const std::string Listener::TypeName = "Listener";
 Listener::Listener(int ind, detectorType dtype, Fifo*& f, volatile runStatus* s,
         uint32_t* portno, char* e, uint64_t* nf, uint32_t* dr,
         uint32_t* us, uint32_t* as, uint32_t* fpf,
-		   frameDiscardPolicy* fdp, bool* act, bool* depaden, bool* sm,
+		   frameDiscardPolicy* fdp, bool* act, bool* depaden, bool* sm, int* fl,
 		   bool do_udp_read) :
 		ThreadObject(ind),
 		runningFlag(0),
@@ -41,6 +41,7 @@ Listener::Listener(int ind, detectorType dtype, Fifo*& f, volatile runStatus* s,
 		activated(act),
 		deactivatedPaddingEnable(depaden),
 		silentMode(sm),
+		flippedData(fl),
 		row(0),
 		column(0),
 		acquisitionStartedFlag(false),
@@ -387,7 +388,15 @@ DualPortFrameAssembler *Listener::CreateDualPortFrameAssembler(Listener *listene
 
 	DefaultFrameAssembler *a[2] = {listener[0]->frameAssembler,
 				       listener[1]->frameAssembler};
-	return new EigerRawFrameAssembler(a);
+	DualPortFrameAssembler *fa;
+	GeneralData *gd = listener[0]->generalData;
+	if (gd->gapEnable) {
+		bool flipped = !listener[0]->flippedData[0];
+		fa = new EigerStdFrameAssembler(a, flipped);
+	} else {
+		fa = new EigerRawFrameAssembler(a);
+	}
+	return fa;
 }
 
 

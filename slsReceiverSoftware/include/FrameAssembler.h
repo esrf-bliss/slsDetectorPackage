@@ -63,7 +63,7 @@ class PacketStream {
 		usleep(5000);	// give reader thread time to exit getPacket
 	}
 
-	Packet getPacket(uint64_t frame)
+	Packet getPacket(uint64_t frame, int num = -1)
 	{
 		GeneralData& gd = *general_data;
 
@@ -95,13 +95,18 @@ class PacketStream {
 					 packet_frame, packet_number,
 					 packet_subframe, packet_bid);
 		}
-			
-		carry_over = (packet_frame > frame);
-		if (packet_frame < frame)
-			cprintf(RED, "Error: Frame number %lu less than "
-				"current frame number %lu\n", packet_frame, frame);
-		if (packet_frame != frame)
+
+		bool good_frame = (packet_frame == frame);
+		carry_over = ((packet_frame > frame) ||
+			      (good_frame && (num >= 0) && (packet_number > num)));
+		if (carry_over) {
 			return Packet(false);
+		} else if (!good_frame || ((num >= 0) && (packet_number < num))) {
+			cprintf(RED, "Error: Frame/packet number %lu/%d less than "
+				"current number %lu/%d\n",
+				packet_frame, packet_number, frame, num);
+			return Packet(false);
+		}
 
 		return Packet(true, header, p + sizeof(DetHeader),
 			      packet_frame, packet_number);
@@ -300,6 +305,8 @@ class PacketStream {
  *@short Default frame assembler in Listener
  */
 
+class EigerStdFrameAssembler;
+
 class DefaultFrameAssembler {
 
  public:
@@ -334,6 +341,8 @@ class DefaultFrameAssembler {
 	}
 
  protected:
+	friend class EigerStdFrameAssembler;
+
 	typedef std::unique_ptr<PacketStream> PacketStreamPtr;
 	typedef PacketStream::Packet Packet;
 
@@ -408,4 +417,100 @@ public:
 
 	virtual PortsMask assembleFrame(uint64_t frame, RecvHeader *recv_header,
 					char *buf) override;
+};
+
+/**
+ *@short Eiger frame assembler in std mode: port interleaving
+ */
+
+class EigerStdFrameAssembler : public DualPortFrameAssembler {
+
+public:
+	typedef DefaultFrameAssembler::FramePolicy FramePolicy;
+	typedef PacketStream::Packet Packet;
+
+	EigerStdFrameAssembler(DefaultFrameAssembler *a[2], bool flipped)
+		: DualPortFrameAssembler(a)
+	{
+		GeneralData *gd = a[0]->general_data;
+		if (!gd->tgEnable)
+			throw std::runtime_error("10 Giga not enabled!");
+
+		Helper *h;
+		if (a[0]->doExpand4Bits())
+			h = new Expand4BitsHelper(gd, flipped);
+		else
+			h = new CopyHelper(gd, flipped);
+		helper.reset(h);
+	}
+
+	virtual PortsMask assembleFrame(uint64_t frame, RecvHeader *recv_header,
+					char *buf) override;
+
+ protected:
+	class Helper {
+	public:
+		Helper(GeneralData *gd, bool f);
+
+		float getSrcPixelBytes()
+		{
+			return float(general_data->dynamicRange) / 8;
+		}
+
+		float getDstPixelBytes()
+		{
+			int factor = (general_data->dynamicRange == 4) ? 2 : 1;
+			return getSrcPixelBytes() * factor;
+		}
+
+		void startNewFrame(char *d)
+		{
+			buf = d;
+		}
+
+		virtual void assemblePackets(uint64_t pnum, Packet packet[2]) = 0;
+
+	protected:
+		static const int chip_size;
+		static const int chip_gap;
+		static const int port_chips;
+		static const int nb_ports;
+
+		struct Geometry {
+			float pixel_size;
+			int chip_size;
+			int line_size;
+			int packet_size;
+			int offset;
+		};
+
+		GeneralData *general_data;
+		bool flipped;
+		int packet_lines;
+		Geometry src;
+		Geometry dst;
+		char *buf;
+	};
+
+	typedef std::unique_ptr<Helper> HelperPtr;
+
+	class Expand4BitsHelper : public Helper {
+	public:
+		Expand4BitsHelper(GeneralData *gd, bool flipped);
+
+		virtual void assemblePackets(uint64_t pnum, Packet packet[2])
+			override;
+	};
+
+	class CopyHelper : public Helper {
+	public:
+		CopyHelper(GeneralData *gd, bool flipped)
+			: Helper(gd, flipped)
+		{}
+
+		virtual void assemblePackets(uint64_t pnum, Packet packet[2])
+			override;
+	};
+
+	HelperPtr helper;
 };
