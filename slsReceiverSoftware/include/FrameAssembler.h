@@ -15,6 +15,7 @@
 
 #include <sys/mman.h>
 #include <numaif.h>
+#include <semaphore.h>
 
 /**
  *@short manages packet stream with carry-over functionality
@@ -47,8 +48,9 @@ class PacketStream {
 		  odd_numbering(false),
 		  first_packet(true),
 		  stopped(false),
-		  write_idx(0),
-		  read_idx(nb_packets - 1), // will be incremented on first read
+		  read_idx(0),
+		  write_sem(nb_packets - 1), // reader owns oldest packet
+		  read_sem(0),
 		  cpu_aff_mask(cpu_mask)
 	{
 		initMem(node_mask, max_node);
@@ -67,49 +69,47 @@ class PacketStream {
 	{
 		GeneralData& gd = *general_data;
 
-		if (!carry_over) {
-			incIndex(read_idx);
-			while (!stopped && bufferEmpty())
-				usleep(10);
-			if (stopped)
-				return Packet(false);
-		}
-
-		char *p = packetPtr(read_idx);
-		p += gd.emptyHeader;
-		DetHeader *header = reinterpret_cast<DetHeader *>(p);
-		uint64_t packet_frame, packet_bid;
-		uint32_t packet_number, packet_subframe;
-		
-		if (gd.standardheader) {
-			packet_frame = header->frameNumber;
-			packet_number = header->packetNumber;
-		} else {
-			int thread_idx;
-			if (first_packet && 
-			    (gd.myDetectorType == slsReceiverDefs::GOTTHARD)) {
-				odd_numbering = gd.SetOddStartingPacket(thread_idx, p);
-				first_packet = false;
+		while (!stopped) {
+			if (!carry_over) {
+				write_sem.post();
+				read_sem.wait();
+				if (stopped)
+					break;
 			}
-			gd.GetHeaderInfo(thread_idx, p, odd_numbering,
-					 packet_frame, packet_number,
-					 packet_subframe, packet_bid);
+
+			char *p = packetPtr(read_idx);
+			incIndex(read_idx);
+			p += gd.emptyHeader;
+			DetHeader *header = reinterpret_cast<DetHeader *>(p);
+			uint64_t packet_frame, packet_bid;
+			uint32_t packet_number, packet_subframe;
+		
+			if (gd.standardheader) {
+				packet_frame = header->frameNumber;
+				packet_number = header->packetNumber;
+			} else {
+				int thread_idx;
+				if (first_packet && 
+				    (gd.myDetectorType == slsReceiverDefs::GOTTHARD)) {
+					odd_numbering = gd.SetOddStartingPacket(thread_idx, p);
+					first_packet = false;
+				}
+				gd.GetHeaderInfo(thread_idx, p, odd_numbering,
+						 packet_frame, packet_number,
+						 packet_subframe, packet_bid);
+			}
+
+			bool good_frame = (packet_frame == frame);
+			carry_over = ((packet_frame > frame) ||
+				      (good_frame && (num >= 0) && (packet_number > num)));
+			if (carry_over)
+				return Packet(false);
+			if (good_frame && ((num < 0) || (packet_number == num)))
+				return Packet(true, header, p + sizeof(DetHeader),
+					      packet_frame, packet_number);
 		}
 
-		bool good_frame = (packet_frame == frame);
-		carry_over = ((packet_frame > frame) ||
-			      (good_frame && (num >= 0) && (packet_number > num)));
-		if (carry_over) {
-			return Packet(false);
-		} else if (!good_frame || ((num >= 0) && (packet_number < num))) {
-			cprintf(RED, "Error: Frame/packet number %lu/%d less than "
-				"current number %lu/%d\n",
-				packet_frame, packet_number, frame, num);
-			return Packet(false);
-		}
-
-		return Packet(true, header, p + sizeof(DetHeader),
-			      packet_frame, packet_number);
+		return Packet(false);
 	}
 
 	bool hasPendingPacket()
@@ -120,6 +120,8 @@ class PacketStream {
 	void stop()
 	{
 		stopped = true;
+		write_sem.post();
+		read_sem.post();
 	}
 
  private:
@@ -194,6 +196,28 @@ class PacketStream {
 		size_t len;
 	};
 
+	class Semaphore
+	{
+	public:
+		Semaphore(int n)
+		{
+			if (sem_init(&sem, 0, n) != 0)
+				throw std::runtime_error("Could not init sem");
+		}
+
+		~Semaphore()
+		{ sem_destroy(&sem); }
+
+		void post()
+		{ sem_post(&sem); }
+
+		void wait()
+		{ sem_wait(&sem); }
+
+	private:
+		sem_t sem;
+	};
+
 	void initMem(unsigned long node_mask, int max_node)
 	{
 		const int data_align = 128 / 8;
@@ -208,33 +232,15 @@ class PacketStream {
 		packet.alloc(packet_len * nb_packets, node_mask, max_node);
 	}
 
-	int packetsAvailable()
-	{
-		int diff = write_idx - read_idx;
-		if (diff < 0)
-			diff += nb_packets;
-		return diff;
-	}
-
 	char *packetPtr(int idx)
 	{
 		return packet.getPtr() + idx * packet_len + header_pad;
 	}
 
-	void incIndex(volatile int& index)
+	void incIndex(int& index)
 	{
 		int new_idx = index + 1;
 		index = new_idx % nb_packets;
-	}
-
-	bool bufferEmpty()
-	{
-		return packetsAvailable() == 0;
-	}
-
-	bool bufferFull()
-	{
-		return packetsAvailable() == (nb_packets - 1);
 	}
 
 	void initThread()
@@ -271,16 +277,15 @@ class PacketStream {
 							 "cpu affinity mask");
 		}
 
-		while (true) {
-			while (!stopped && bufferFull())
-				usleep(10);
+		for (int write_idx = 0; !stopped; incIndex(write_idx)) {
+			write_sem.wait();
 			if (stopped)
 				break;
 			char *p = packetPtr(write_idx);
 			int ret = socket->ReceiveDataOnly(p);
 			if (ret < 0)
 				break;
-			incIndex(write_idx);
+			read_sem.post();
 		}
 	}
 
@@ -294,8 +299,9 @@ class PacketStream {
 	bool odd_numbering;
 	bool first_packet;
 	volatile bool stopped;
-	volatile int write_idx;
-	volatile int read_idx;
+	int read_idx;
+	Semaphore write_sem;
+	Semaphore read_sem;
 	cpu_set_t cpu_aff_mask;
 	pthread_t thread;
 };
