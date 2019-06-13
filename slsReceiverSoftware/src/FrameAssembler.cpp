@@ -132,7 +132,7 @@ const int EigerStdFrameAssembler::Helper::nb_ports = 2;
 EigerStdFrameAssembler::Helper::Helper(GeneralData *gd, bool f)
 	: general_data(gd), flipped(f)
 {
-	const int frame_packets = gd->packetsPerFrame;
+	frame_packets = gd->packetsPerFrame;
 	packet_lines = chip_size / frame_packets;
 	src.pixel_size = getSrcPixelBytes();
 	src.chip_size = chip_size * src.pixel_size;
@@ -145,11 +145,14 @@ EigerStdFrameAssembler::Helper::Helper(GeneralData *gd, bool f)
 	if (flipped) {
 		src.offset = (packet_lines - 1) * src.line_size;
 		src.line_size *= -1;
-		dst.offset = (frame_packets - 1) * dst.packet_size;
-		dst.packet_size *= -1;
+		dst.offset = 0;
+		first_idx = frame_packets - 1;
+		idx_inc = -1;
 	} else {
 		src.offset = 0;
 		dst.offset = dst.line_size;
+		first_idx = 0;
+		idx_inc = 1;
 	}
 }
 
@@ -159,16 +162,12 @@ EigerStdFrameAssembler::Expand4BitsHelper::Expand4BitsHelper(GeneralData *gd,
 {
 }
 
-void EigerStdFrameAssembler::Expand4BitsHelper::assemblePackets(uint64_t pnum,
-								Packet packet[2])
+void EigerStdFrameAssembler::Expand4BitsHelper::assemblePackets(Packet packets[][2])
 {
-	char *s[nb_ports] = {packet[0].buf + src.offset,
-			     packet[1].buf + src.offset};
-	if ((((unsigned long) s[0] | (unsigned long) s[1]) & 15) != 0) {
-		FILE_LOG(logERROR) << "Missaligned src";
-		return;
-	}
-	char *d = buf + pnum * dst.packet_size + dst.offset;
+	packets += first_idx;
+	bool v[nb_ports];
+	char *s[nb_ports];
+	char *d = buf + dst.offset;
 
 	const int half_module_chips = nb_ports * port_chips;
 	const int block_len = sizeof(__m128i);
@@ -180,19 +179,35 @@ void EigerStdFrameAssembler::Expand4BitsHelper::assemblePackets(uint64_t pnum,
 	const __m128i m64_0 = _mm_set_epi64x(0, -1);
 	const __m128i m64_1 = _mm_set_epi64x(-1, 0);
 
-	const int nb_blocks = src.packet_size * nb_ports / block_len;
+	const int packet_blocks = src.packet_size * nb_ports / block_len;
+	const int nb_blocks = packet_blocks * frame_packets;
 	const int chip_blocks = src.chip_size / block_len;
 	const int port_blocks = abs(src.line_size) / block_len;
 
-	int pi = 0;
-	bool valid_data = packet[pi].valid;
-	const __m128i *src128 = (const __m128i *) s[pi];
+	int pi;
+	bool valid_data;
+	const __m128i *src128;
 	__m128i *dst128;
 	int dest_misalign;
 	int shift_l;
 	__m128i shift_l128, shift_r128;
 	__m128i m0, prev;
 	int chip_count = 0;
+
+#define load_src()							\
+	do {								\
+		s[0] = (*packets)[0].buf + src.offset;			\
+		s[1] = (*packets)[1].buf + src.offset;			\
+		if ((((unsigned long) s[0] | (unsigned long) s[1]) & 15) != 0) { \
+			FILE_LOG(logERROR) << "Missaligned src";	\
+			return;						\
+		}							\
+		v[0] = (*packets)[0].valid, v[1] = (*packets)[1].valid;	\
+		packets += idx_inc;					\
+		pi = 0;							\
+		valid_data = v[pi];					\
+		src128 = (const __m128i *) s[pi];			\
+	} while (0)
 
 #define load_dst128()							\
 	do {								\
@@ -237,6 +252,7 @@ void EigerStdFrameAssembler::Expand4BitsHelper::assemblePackets(uint64_t pnum,
 		}							\
 	} while (0)
 
+	load_src();
 	load_dst128();
 	for (int i = 0; i < nb_blocks; ++i) {
 		if (i && (i % chip_blocks == 0) &&
@@ -247,9 +263,11 @@ void EigerStdFrameAssembler::Expand4BitsHelper::assemblePackets(uint64_t pnum,
 				src128 -= 2 * port_blocks;
 			s[pi++] = (char *) src128;
 			pi %= nb_ports;
-			valid_data = packet[pi].valid;
+			valid_data = v[pi];
 			src128 = (const __m128i *) s[pi];
 		}
+		if (i && (i % packet_blocks == 0))
+			load_src();
 		__m128i p4_raw;
 		if (valid_data)
 			p4_raw = _mm_load_si128(src128);
@@ -292,30 +310,31 @@ void EigerStdFrameAssembler::Expand4BitsHelper::assemblePackets(uint64_t pnum,
 	sync_dst128();
 }
 
-void EigerStdFrameAssembler::CopyHelper::assemblePackets(uint64_t pnum,
-							 Packet packet[2])
+void EigerStdFrameAssembler::CopyHelper::assemblePackets(Packet packets[][2])
 {
-	char *s[nb_ports] = {packet[0].buf + src.offset,
-			     packet[1].buf + src.offset};
-	char *d = buf + pnum * dst.packet_size + dst.offset;
-	for (int l = 0; l < packet_lines; ++l) {
-		char *ld = d;
-		for (int p = 0; p < nb_ports; ++p) {
-			char *ls = s[p];
-			for (int c = 0; c < port_chips; ++c) {
-				if (packet[p].valid)
-					memcpy(ld, ls, src.chip_size);
-				else
-					memset(ld, 0xff, src.chip_size);
-				ls += src.chip_size;
-				ld += dst.chip_size;
+	packets += first_idx;
+	char *d = buf + dst.offset;
+	for (int i = 0; i < frame_packets; ++i, packets += idx_inc) {
+		char *s[nb_ports] = {(*packets)[0].buf + src.offset,
+				     (*packets)[1].buf + src.offset};
+		for (int l = 0; l < packet_lines; ++l) {
+			char *ld = d;
+			for (int p = 0; p < nb_ports; ++p) {
+				char *ls = s[p];
+				for (int c = 0; c < port_chips; ++c) {
+					if ((*packets)[p].valid)
+						memcpy(ld, ls, src.chip_size);
+					else
+						memset(ld, 0xff, src.chip_size);
+					ls += src.chip_size;
+					ld += dst.chip_size;
+				}
+				s[p] += src.line_size;
 			}
-			s[p] += src.line_size;
+			d += dst.line_size;
 		}
-		d += dst.line_size;
 	}
 }
-
 
 DualPortFrameAssembler::PortsMask
 EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header, char *buf)
@@ -332,18 +351,21 @@ EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header, c
 	int packets_per_frame = a[0]->general_data->packetsPerFrame;
 	PacketStream::DetHeader *det_header = &recv_header->detHeader;
 	FramePolicy policy = a[0]->frame_policy;
-	
+	bool fp_partial = (policy == slsReceiverDefs::DISCARD_PARTIAL_FRAMES);
+	bool fp_empty = (policy == slsReceiverDefs::DISCARD_EMPTY_FRAMES);
+
+	Packet packets[packets_per_frame][nb_ports];
 	for (int pnum = 0; pnum < packets_per_frame; ++pnum) {
 		if (a[0]->stopped)
 			return PortsMask();
 
-		Packet packet[nb_ports];
 		int packet_count = 0;
 		for (int i = 0; i < nb_ports; ++i) {
+			Packet& p = packets[pnum][i];
 			PacketStream *ps = a[i]->packet_stream.get();
-			packet[i] = ps->getPacket(frame, pnum);
-			if (!packet[i].valid)
-				continue;
+			p = ps->getPacket(frame, pnum);
+			if (!p.valid && fp_partial)
+				return PortsMask();
 
 			mask.set(i, true);
 	 		++packet_count;
@@ -351,24 +373,18 @@ EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header, c
 			//write header
 			if (header_empty) {
 				const int det_header_len = sizeof(*det_header);
-				memcpy(det_header, packet[i].header, det_header_len);
+				memcpy(det_header, p.header, det_header_len);
 				header_empty = false;
 			}
 		}
-		if ((packet_count != nb_ports) &&
-		    (policy == slsReceiverDefs::DISCARD_PARTIAL_FRAMES))
-			return PortsMask();
-		else if (packet_count == 0)
-			continue;
-
-		helper->assemblePackets(pnum, packet);
-		
 		num_packets += packet_count;
-		recv_header->packetsMask[pnum] = 1;
+		recv_header->packetsMask[pnum] = (packet_count > 0);
 	}
 
-	if (header_empty) {
-		if (policy == slsReceiverDefs::DISCARD_EMPTY_FRAMES)
+	if (mask.any()) {
+		helper->assemblePackets(packets);
+	} else {
+		if (fp_empty)
 			return PortsMask();
 		det_header->frameNumber = frame;
 	}

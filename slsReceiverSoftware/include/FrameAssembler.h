@@ -23,6 +23,8 @@
 
 class PacketStream {
 
+#define PSMaxNbPackets 256
+
  public:
 	typedef slsReceiverDefs::sls_detector_header DetHeader;
 
@@ -32,24 +34,69 @@ class PacketStream {
 		uint64_t frame;
 		int number;
 		char *buf;
+		PacketStream *pstream;
+		int idx;
 
 		Packet(bool v=false, DetHeader *h = nullptr, char *b = nullptr,
-		       uint64_t f = 0, int n = 0)
-			: valid(v), header(h), buf(b), frame(f), number(n)
+		       uint64_t f = 0, int n = 0, PacketStream *ps = nullptr,
+		       int i = -1)
+			: valid(v), header(h), buf(b), frame(f), number(n),
+			  pstream(ps), idx(i)
 		{}
+
+		Packet(Packet&& o)
+			: valid(std::move(o.valid)), header(std::move(o.header)), buf(std::move(o.buf)),
+			  frame(std::move(o.frame)), number(std::move(o.number)),
+			  pstream(std::move(o.pstream)), idx(std::move(o.idx))
+		{
+			o.forget();
+		}
+
+		~Packet()
+		{
+			release();
+		}
+
+		void release()
+		{
+			if (pstream && (idx >= 0)) {
+				pstream->releaseBlockedPacket(idx);
+				forget();
+			}
+		}
+
+		Packet& operator =(Packet&& o)
+		{
+			release();
+			valid = std::move(o.valid);
+			header = std::move(o.header);
+			frame = std::move(o.frame);
+			number = std::move(o.number);
+			buf = std::move(o.buf);
+			pstream = std::move(o.pstream);
+			idx = std::move(o.idx);
+			o.forget();
+			return *this;
+		}
+
+		void forget()
+		{
+			pstream = nullptr;
+			idx = -1;
+		}
 	};
 
 	PacketStream(genericSocket *s, GeneralData *d, cpu_set_t cpu_mask,
 		     unsigned long node_mask, int max_node)
 		: socket(s),
 		  general_data(d),
-		  nb_packets(128),
-		  carry_over(false),
+		  nb_packets(2 * general_data->packetsPerFrame),
+		  nb_blocked_packets(0),
 		  odd_numbering(false),
 		  first_packet(true),
 		  stopped(false),
 		  read_idx(0),
-		  write_sem(nb_packets - 1), // reader owns oldest packet
+		  write_sem(nb_packets),
 		  read_sem(0),
 		  cpu_aff_mask(cpu_mask)
 	{
@@ -69,21 +116,24 @@ class PacketStream {
 	{
 		GeneralData& gd = *general_data;
 
-		while (!stopped) {
-			if (!carry_over) {
-				write_sem.post();
+		for (int i = 0; (i < nb_packets) && !stopped; ++i) {
+			if (i == nb_blocked_packets) {
 				read_sem.wait();
 				if (stopped)
 					break;
+				++nb_blocked_packets;
+				waiting_mask[i] = 1;
+			} else if (!waiting_mask[i]) {
+				continue;
 			}
 
-			char *p = packetPtr(read_idx);
-			incIndex(read_idx);
+			int idx = getIndex(read_idx + i);
+			char *p = packetPtr(idx);
 			p += gd.emptyHeader;
 			DetHeader *header = reinterpret_cast<DetHeader *>(p);
 			uint64_t packet_frame, packet_bid;
 			uint32_t packet_number, packet_subframe;
-		
+
 			if (gd.standardheader) {
 				packet_frame = header->frameNumber;
 				packet_number = header->packetNumber;
@@ -99,14 +149,16 @@ class PacketStream {
 						 packet_subframe, packet_bid);
 			}
 
-			bool good_frame = (packet_frame == frame);
-			carry_over = ((packet_frame > frame) ||
-				      (good_frame && (num >= 0) && (packet_number > num)));
-			if (carry_over)
-				return Packet(false);
-			if (good_frame && ((num < 0) || (packet_number == num)))
+			if (packet_frame < frame) {
+				if (releaseBlockedPacket(idx))
+					--i;
+				continue;
+			} else if (packet_frame > frame) {
+				break;
+			} else if ((num < 0) || (packet_number == num)) {
 				return Packet(true, header, p + sizeof(DetHeader),
-					      packet_frame, packet_number);
+					      packet_frame, packet_number, this, idx);
+			}
 		}
 
 		return Packet(false);
@@ -114,7 +166,7 @@ class PacketStream {
 
 	bool hasPendingPacket()
 	{
-		return carry_over;
+		return (nb_blocked_packets > 0);
 	}
 
 	void stop()
@@ -125,6 +177,8 @@ class PacketStream {
 	}
 
  private:
+	friend struct Packet;
+
 	class bad_mmap_alloc : public std::bad_alloc {
 	public:
 		bad_mmap_alloc(const char *m = "") : msg(m)
@@ -237,10 +291,31 @@ class PacketStream {
 		return packet.getPtr() + idx * packet_len + header_pad;
 	}
 
+	bool releaseBlockedPacket(int idx)
+	{
+		int i = idx - read_idx;
+		if (i < 0)
+			i += nb_packets;
+		waiting_mask[i] = 0;
+		if (i > 0)
+			return false;
+		while (nb_blocked_packets && !waiting_mask[0]) {
+			write_sem.post();
+			--nb_blocked_packets;
+			waiting_mask >>= 1;
+			incIndex(read_idx);
+		}
+		return true;
+	}
+
+	int getIndex(int index)
+	{
+		return index % nb_packets;
+	}
+
 	void incIndex(int& index)
 	{
-		int new_idx = index + 1;
-		index = new_idx % nb_packets;
+		index = getIndex(index + 1);
 	}
 
 	void initThread()
@@ -295,7 +370,8 @@ class PacketStream {
 	int header_pad;
 	int packet_len;
 	MmapMem packet;
-	bool carry_over;
+	int nb_blocked_packets;
+	std::bitset<PSMaxNbPackets> waiting_mask;
 	bool odd_numbering;
 	bool first_packet;
 	volatile bool stopped;
@@ -474,7 +550,7 @@ public:
 			buf = d;
 		}
 
-		virtual void assemblePackets(uint64_t pnum, Packet packet[2]) = 0;
+		virtual void assemblePackets(Packet packet[][2]) = 0;
 
 	protected:
 		static const int chip_size;
@@ -492,9 +568,12 @@ public:
 
 		GeneralData *general_data;
 		bool flipped;
+		int frame_packets;
 		int packet_lines;
 		Geometry src;
 		Geometry dst;
+		int first_idx;
+		int idx_inc;
 		char *buf;
 	};
 
@@ -504,7 +583,7 @@ public:
 	public:
 		Expand4BitsHelper(GeneralData *gd, bool flipped);
 
-		virtual void assemblePackets(uint64_t pnum, Packet packet[2])
+		virtual void assemblePackets(Packet packets[][2])
 			override;
 	};
 
@@ -514,7 +593,7 @@ public:
 			: Helper(gd, flipped)
 		{}
 
-		virtual void assemblePackets(uint64_t pnum, Packet packet[2])
+		virtual void assemblePackets(Packet packets[][2])
 			override;
 	};
 
