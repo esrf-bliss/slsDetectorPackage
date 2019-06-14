@@ -511,91 +511,14 @@ public:
 	typedef DefaultFrameAssembler::FramePolicy FramePolicy;
 	typedef PacketStream::Packet Packet;
 
-	EigerStdFrameAssembler(DefaultFrameAssembler *a[2], bool flipped)
-		: DualPortFrameAssembler(a)
-	{
-		GeneralData *gd = a[0]->general_data;
-		if (!gd->tgEnable)
-			throw std::runtime_error("10 Giga not enabled!");
-
-		Helper *h;
-		if (a[0]->doExpand4Bits())
-			h = new Expand4BitsHelper(gd, flipped);
-		else
-			h = new CopyHelper(gd, flipped);
-		helper.reset(h);
-	}
+	EigerStdFrameAssembler(DefaultFrameAssembler *a[2], bool flipped);
 
 	virtual PortsMask assembleFrame(uint64_t frame, RecvHeader *recv_header,
 					char *buf) override;
 
+	class Helper;
  protected:
-	class Helper {
-	public:
-		Helper(GeneralData *gd, bool f);
-
-		float getSrcPixelBytes()
-		{
-			return float(general_data->dynamicRange) / 8;
-		}
-
-		float getDstPixelBytes()
-		{
-			int factor = (general_data->dynamicRange == 4) ? 2 : 1;
-			return getSrcPixelBytes() * factor;
-		}
-
-		void startNewFrame(char *d)
-		{
-			buf = d;
-		}
-
-		virtual void assemblePackets(Packet packet[][2]) = 0;
-
-	protected:
-		static const int chip_size;
-		static const int chip_gap;
-		static const int port_chips;
-		static const int nb_ports;
-
-		struct Geometry {
-			float pixel_size;
-			int chip_size;
-			int line_size;
-			int packet_size;
-			int offset;
-		};
-
-		GeneralData *general_data;
-		bool flipped;
-		int frame_packets;
-		int packet_lines;
-		Geometry src;
-		Geometry dst;
-		int first_idx;
-		int idx_inc;
-		char *buf;
-	};
-
 	typedef std::unique_ptr<Helper> HelperPtr;
-
-	class Expand4BitsHelper : public Helper {
-	public:
-		Expand4BitsHelper(GeneralData *gd, bool flipped);
-
-		virtual void assemblePackets(Packet packets[][2])
-			override;
-	};
-
-	class CopyHelper : public Helper {
-	public:
-		CopyHelper(GeneralData *gd, bool flipped)
-			: Helper(gd, flipped)
-		{}
-
-		virtual void assemblePackets(Packet packets[][2])
-			override;
-	};
-
 	HelperPtr helper;
 };
+
