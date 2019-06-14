@@ -8,6 +8,373 @@
 
 #include <emmintrin.h>
 
+/**
+ * PacketStream::Packet
+ */
+
+inline PacketStream::Packet::Packet(bool v, DetHeader *h, char *b,
+			     uint64_t f, int n, PacketStream *ps,
+			     int i)
+	: valid(v), header(h), buf(b), frame(f), number(n),
+	  pstream(ps), idx(i)
+{}
+
+inline PacketStream::Packet::Packet(Packet&& o)
+	: valid(std::move(o.valid)), header(std::move(o.header)), buf(std::move(o.buf)),
+	  frame(std::move(o.frame)), number(std::move(o.number)),
+	  pstream(std::move(o.pstream)), idx(std::move(o.idx))
+{
+	o.forget();
+}
+
+inline PacketStream::Packet::~Packet()
+{
+	release();
+}
+
+inline void PacketStream::Packet::release()
+{
+	if (pstream && (idx >= 0)) {
+		pstream->releaseBlockedPacket(idx);
+		forget();
+	}
+}
+
+inline PacketStream::Packet& PacketStream::Packet::operator =(Packet&& o)
+{
+	release();
+	valid = std::move(o.valid);
+	header = std::move(o.header);
+	frame = std::move(o.frame);
+	number = std::move(o.number);
+	buf = std::move(o.buf);
+	pstream = std::move(o.pstream);
+	idx = std::move(o.idx);
+	o.forget();
+	return *this;
+}
+
+inline void PacketStream::Packet::forget()
+{
+	pstream = nullptr;
+	idx = -1;
+}
+
+
+/**
+ * PacketStream::MmapMem
+ */
+
+PacketStream::MmapMem::MmapMem(size_t size, unsigned long node_mask,
+			       int max_node)
+	: ptr(nullptr), len(0)
+{
+	alloc(size, node_mask, max_node);
+}
+
+PacketStream::MmapMem::~MmapMem()
+{
+	release();
+}
+
+void PacketStream::MmapMem::alloc(size_t size, unsigned long node_mask,
+				  int max_node)
+{
+	release();
+	if (size == 0)
+		return;
+
+	size_t page_size = sysconf(_SC_PAGESIZE);
+	size_t misalign = size % page_size;
+	size += misalign ? (page_size - misalign) : 0;
+
+	ptr = (char *) mmap(0, size, PROT_READ | PROT_WRITE,
+			    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (ptr == NULL)
+		throw bad_mmap_alloc("Could not allocate packet memory");
+	len = size;
+
+	if (node_mask && max_node) {
+		int ret = mbind(ptr, len, MPOL_BIND,
+				&node_mask, max_node, 0);
+		if (ret != 0) {
+			release();
+			throw bad_mmap_alloc("Could not bind packet memory");
+		}
+	}
+	memset(ptr, 0, len);
+}
+
+void PacketStream::MmapMem::release()
+{
+	if (len) {
+		munmap(ptr, len);
+		len = 0;
+	}
+}
+
+inline char *PacketStream::MmapMem::getPtr()
+{
+	return ptr;
+}
+
+
+/**
+ * PacketStream::Semaphore
+ */
+
+PacketStream::Semaphore::Semaphore(int n)
+{
+	if (sem_init(&sem, 0, n) != 0)
+		throw std::runtime_error("Could not init sem");
+}
+
+PacketStream::Semaphore::~Semaphore()
+{
+	sem_destroy(&sem);
+}
+
+inline void PacketStream::Semaphore::post()
+{
+	sem_post(&sem);
+}
+
+inline void PacketStream::Semaphore::wait()
+{
+	sem_wait(&sem);
+}
+
+/**
+ * PacketStream
+ */
+
+inline char *PacketStream::packetPtr(int idx)
+{
+	return packet.getPtr() + idx * packet_len + header_pad;
+}
+
+inline bool PacketStream::releaseBlockedPacket(int idx)
+{
+	int i = idx - read_idx;
+	if (i < 0)
+		i += nb_packets;
+	waiting_mask[i] = 0;
+	if (i > 0)
+		return false;
+	while (nb_blocked_packets && !waiting_mask[0]) {
+		write_sem.post();
+		--nb_blocked_packets;
+		waiting_mask >>= 1;
+		incIndex(read_idx);
+	}
+	return true;
+}
+
+inline int PacketStream::getIndex(int index)
+{
+	return index % nb_packets;
+}
+
+inline void PacketStream::incIndex(int& index)
+{
+	index = getIndex(index + 1);
+}
+
+inline PacketStream::Packet PacketStream::getPacket(uint64_t frame, int num)
+{
+	GeneralData& gd = *general_data;
+
+	for (int i = 0; (i < nb_packets) && !stopped; ++i) {
+		if (i == nb_blocked_packets) {
+			read_sem.wait();
+			if (stopped)
+				break;
+			++nb_blocked_packets;
+			waiting_mask[i] = 1;
+		} else if (!waiting_mask[i]) {
+			continue;
+		}
+
+		int idx = getIndex(read_idx + i);
+		char *p = packetPtr(idx);
+		p += gd.emptyHeader;
+		DetHeader *header = reinterpret_cast<DetHeader *>(p);
+		uint64_t packet_frame, packet_bid;
+		uint32_t packet_number, packet_subframe;
+
+		if (gd.standardheader) {
+			packet_frame = header->frameNumber;
+			packet_number = header->packetNumber;
+		} else {
+			int thread_idx;
+			if (first_packet && 
+			    (gd.myDetectorType == slsReceiverDefs::GOTTHARD)) {
+				odd_numbering = gd.SetOddStartingPacket(thread_idx, p);
+				first_packet = false;
+			}
+			gd.GetHeaderInfo(thread_idx, p, odd_numbering,
+					 packet_frame, packet_number,
+					 packet_subframe, packet_bid);
+		}
+
+		if (packet_frame < frame) {
+			if (releaseBlockedPacket(idx))
+				--i;
+			continue;
+		} else if (packet_frame > frame) {
+			break;
+		} else if ((num < 0) || (packet_number == num)) {
+			return Packet(true, header, p + sizeof(DetHeader),
+				      packet_frame, packet_number, this, idx);
+		}
+	}
+
+	return Packet(false);
+}
+
+inline bool PacketStream::hasPendingPacket()
+{
+	return (nb_blocked_packets > 0);
+}
+
+PacketStream::PacketStream(genericSocket *s, GeneralData *d, cpu_set_t cpu_mask,
+				  unsigned long node_mask, int max_node)
+	: socket(s),
+	  general_data(d),
+	  nb_packets(2 * general_data->packetsPerFrame),
+	  nb_blocked_packets(0),
+	  odd_numbering(false),
+	  first_packet(true),
+	  stopped(false),
+	  read_idx(0),
+	  write_sem(nb_packets),
+	  read_sem(0),
+	  cpu_aff_mask(cpu_mask)
+{
+	initMem(node_mask, max_node);
+	initThread();
+}
+
+PacketStream::~PacketStream()
+{
+	stop();
+	void *r;
+	pthread_join(thread, &r);
+	usleep(5000);	// give reader thread time to exit getPacket
+}
+
+void PacketStream::stop()
+{
+	stopped = true;
+	write_sem.post();
+	read_sem.post();
+}
+
+void PacketStream::initMem(unsigned long node_mask, int max_node)
+{
+	const int data_align = 128 / 8;
+	GeneralData& gd = *general_data;
+	packet_len = gd.packetSize;
+	size_t header_len = gd.emptyHeader + sizeof(DetHeader);
+	size_t misalign = header_len % data_align;
+	header_pad = misalign ? (data_align - misalign) : 0;
+	packet_len += header_pad;
+	misalign = packet_len % data_align;
+	packet_len += misalign ? (data_align - misalign) : 0;
+	packet.alloc(packet_len * nb_packets, node_mask, max_node);
+}
+
+void PacketStream::initThread()
+{
+	int ret;
+	ret = pthread_create(&thread, NULL, threadFunctionStatic, this);
+	if (ret != 0)
+		throw std::runtime_error("Could not start packet thread");
+
+	struct sched_param param;
+	param.sched_priority = 90;
+	ret = pthread_setschedparam(thread, SCHED_FIFO, &param);
+	if (ret != 0) {
+		void *r;
+		pthread_join(thread, &r);
+		throw std::runtime_error("Could not set packet thread prio");
+	}
+}
+
+void *PacketStream::threadFunctionStatic(void *data)
+{
+	PacketStream *ps = static_cast<PacketStream *>(data);
+	ps->threadFunction();
+	return NULL;
+}
+
+void PacketStream::threadFunction()
+{
+	if (CPU_COUNT(&cpu_aff_mask) != 0) {
+		int size = sizeof(cpu_aff_mask);
+		int ret = sched_setaffinity(0, size, &cpu_aff_mask);
+		if (ret != 0)
+			throw std::runtime_error("Could not set packet "
+						 "cpu affinity mask");
+	}
+
+	for (int write_idx = 0; !stopped; incIndex(write_idx)) {
+		write_sem.wait();
+		if (stopped)
+			break;
+		char *p = packetPtr(write_idx);
+		int ret = socket->ReceiveDataOnly(p);
+		if (ret < 0)
+			break;
+		read_sem.post();
+	}
+}
+
+
+/**
+ * DefaultFrameAssembler
+ */
+
+DefaultFrameAssembler::DefaultFrameAssembler(genericSocket *s, GeneralData *d, cpu_set_t cpu_mask,
+					     unsigned long node_mask, int max_node, 
+					     FramePolicy fp, bool e4b)
+	: packet_stream(new PacketStream(s, d, cpu_mask,
+					 node_mask, max_node)),
+	  general_data(d),
+	  frame_policy(fp), stopped(false), expand_4bits(e4b)
+{
+}
+
+void DefaultFrameAssembler::stop()
+{
+	stopped = true;
+	packet_stream->stop();
+}
+
+bool DefaultFrameAssembler::hasPendingPacket()
+{
+	return packet_stream->hasPendingPacket();
+}
+
+inline int DefaultFrameAssembler::getImageSize()
+{
+	return general_data->imageSize * (doExpand4Bits() ? 2 : 1);
+}
+
+inline bool DefaultFrameAssembler::canDiscardFrame(int num_packets)
+{
+	return ((frame_policy ==
+		 slsReceiverDefs::DISCARD_PARTIAL_FRAMES) ||
+		((frame_policy ==
+		  slsReceiverDefs::DISCARD_EMPTY_FRAMES) &&
+		 !num_packets));
+}
+
+inline bool DefaultFrameAssembler::doExpand4Bits()
+{
+	return (general_data->dynamicRange == 4) && expand_4bits;
+}
+
 inline void DefaultFrameAssembler::expand4Bits(char *dst, char *src, int src_size)
 {
 	unsigned long s = (unsigned long) src;
@@ -109,6 +476,39 @@ int DefaultFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header
 	det_header->packetNumber = num_packets;
 
 	return 0;
+}
+
+
+/**
+ * DualPortFrameAssembler
+ */
+
+DualPortFrameAssembler::DualPortFrameAssembler(DefaultFrameAssembler *a[2])
+	: assembler({a[0], a[1]})
+{}
+
+DualPortFrameAssembler::~DualPortFrameAssembler()
+{}
+
+void DualPortFrameAssembler::stop()
+{
+	stopAssemblers();
+}
+
+void DualPortFrameAssembler::stopAssemblers()
+{
+	assembler[0]->stop(), assembler[1]->stop();
+}
+
+
+/**
+ * EigerRawFrameAssembler
+ */
+
+
+EigerRawFrameAssembler::EigerRawFrameAssembler(DefaultFrameAssembler *a[2])
+	: DualPortFrameAssembler(a)
+{
 }
 
 DualPortFrameAssembler::PortsMask
