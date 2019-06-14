@@ -12,19 +12,10 @@
  * PacketStream::Packet
  */
 
-inline PacketStream::Packet::Packet(bool v, DetHeader *h, char *b,
-			     uint64_t f, int n, PacketStream *ps,
-			     int i)
-	: valid(v), header(h), buf(b), frame(f), number(n),
-	  pstream(ps), idx(i)
-{}
-
-inline PacketStream::Packet::Packet(Packet&& o)
-	: valid(std::move(o.valid)), header(std::move(o.header)), buf(std::move(o.buf)),
-	  frame(std::move(o.frame)), number(std::move(o.number)),
-	  pstream(std::move(o.pstream)), idx(std::move(o.idx))
+inline PacketStream::Packet::Packet()
+	: valid(false), header(NULL), buf(NULL), frame(0), number(0),
+	  pstream(NULL), idx(-1)
 {
-	o.forget();
 }
 
 inline PacketStream::Packet::~Packet()
@@ -40,23 +31,23 @@ inline void PacketStream::Packet::release()
 	}
 }
 
-inline PacketStream::Packet& PacketStream::Packet::operator =(Packet&& o)
+inline void PacketStream::Packet::setValid(DetHeader *h, char *b, uint64_t f,
+					   int n, PacketStream *ps, int i)
 {
 	release();
-	valid = std::move(o.valid);
-	header = std::move(o.header);
-	frame = std::move(o.frame);
-	number = std::move(o.number);
-	buf = std::move(o.buf);
-	pstream = std::move(o.pstream);
-	idx = std::move(o.idx);
-	o.forget();
-	return *this;
+	valid = true;
+	header = h;
+	buf = b;
+	frame = f;
+	number = n;
+	pstream = ps;
+	idx = i;
 }
 
 inline void PacketStream::Packet::forget()
 {
-	pstream = nullptr;
+	valid = false;
+	pstream = NULL;
 	idx = -1;
 }
 
@@ -67,7 +58,7 @@ inline void PacketStream::Packet::forget()
 
 PacketStream::MmapMem::MmapMem(size_t size, unsigned long node_mask,
 			       int max_node)
-	: ptr(nullptr), len(0)
+	: ptr(NULL), len(0)
 {
 	alloc(size, node_mask, max_node);
 }
@@ -180,7 +171,7 @@ inline void PacketStream::incIndex(int& index)
 	index = getIndex(index + 1);
 }
 
-inline PacketStream::Packet PacketStream::getPacket(uint64_t frame, int num)
+inline void PacketStream::getPacket(Packet& ret, uint64_t frame, int num)
 {
 	GeneralData& gd = *general_data;
 
@@ -224,12 +215,13 @@ inline PacketStream::Packet PacketStream::getPacket(uint64_t frame, int num)
 		} else if (packet_frame > frame) {
 			break;
 		} else if ((num < 0) || (packet_number == num)) {
-			return Packet(true, header, p + sizeof(DetHeader),
-				      packet_frame, packet_number, this, idx);
+			ret.setValid(header, p + sizeof(DetHeader),
+				     packet_frame, packet_number, this, idx);
+			return;
 		}
 	}
 
-	return Packet(false);
+	ret.release();
 }
 
 inline bool PacketStream::hasPendingPacket()
@@ -345,6 +337,11 @@ DefaultFrameAssembler::DefaultFrameAssembler(genericSocket *s, GeneralData *d, c
 {
 }
 
+DefaultFrameAssembler::~DefaultFrameAssembler()
+{
+	delete packet_stream;
+}
+
 void DefaultFrameAssembler::stop()
 {
 	stopped = true;
@@ -423,7 +420,8 @@ int DefaultFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header
 		if (stopped)
 			return -1;
 
-		Packet packet = packet_stream->getPacket(frame);
+		Packet packet;
+		packet_stream->getPacket(packet, frame);
 		if (!packet.valid) {
 			if (canDiscardFrame(num_packets))
 				return -1;
@@ -610,8 +608,7 @@ class Expand4BitsHelper : public EigerStdFrameAssembler::Helper {
 public:
 	Expand4BitsHelper(GeneralData *gd, bool flipped);
 
-	virtual void assemblePackets(Packet packets[][2])
-		override;
+	virtual void assemblePackets(Packet packets[][2]);
 
 private:
 	static const int half_module_chips = nb_ports * port_chips;
@@ -791,8 +788,7 @@ public:
 		: Helper(gd, flipped)
 	{}
 	
-	virtual void assemblePackets(Packet packets[][2])
-		override;
+	virtual void assemblePackets(Packet packets[][2]);
 };
 
 void CopyHelper::assemblePackets(Packet packets[][2])
@@ -838,9 +834,13 @@ EigerStdFrameAssembler::EigerStdFrameAssembler(DefaultFrameAssembler *a[2], bool
 		h = new Expand4BitsHelper(gd, flipped);
 	else
 		h = new CopyHelper(gd, flipped);
-	helper.reset(h);
+	helper = h;
 }
 
+EigerStdFrameAssembler::~EigerStdFrameAssembler()
+{
+	delete helper;
+}
 
 DualPortFrameAssembler::PortsMask
 EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header, char *buf)
@@ -868,8 +868,8 @@ EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header, c
 		int packet_count = 0;
 		for (int i = 0; i < nb_ports; ++i) {
 			Packet& p = packets[pnum][i];
-			PacketStream *ps = a[i]->packet_stream.get();
-			p = ps->getPacket(frame, pnum);
+			PacketStream *ps = a[i]->packet_stream;
+			ps->getPacket(p, frame, pnum);
 			if (!p.valid && fp_partial)
 				return PortsMask();
 

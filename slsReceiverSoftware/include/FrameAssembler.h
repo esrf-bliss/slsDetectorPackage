@@ -37,23 +37,22 @@ class PacketStream {
 		PacketStream *pstream;
 		int idx;
 
-		Packet(bool v=false, DetHeader *h = nullptr, char *b = nullptr,
-		       uint64_t f = 0, int n = 0, PacketStream *ps = nullptr,
-		       int i = -1);
-		Packet(Packet&& o);
+		Packet();
 		~Packet();
 
-		void release();
-		void forget();
+		void setValid(DetHeader *h, char *b, uint64_t f, int n,
+			      PacketStream *ps, int i);
 
-		Packet& operator =(Packet&& o);
+		void release();
+	private:
+		void forget();
 	};
 
 	PacketStream(genericSocket *s, GeneralData *d, cpu_set_t cpu_mask,
 		     unsigned long node_mask, int max_node);
 	~PacketStream();
 
-	Packet getPacket(uint64_t frame, int num = -1);
+	void getPacket(Packet& ret, uint64_t frame, int num = -1);
 	bool hasPendingPacket();
 	void stop();
 
@@ -64,7 +63,9 @@ class PacketStream {
 	public:
 		bad_mmap_alloc(const char *m = "") : msg(m)
 		{}
-		virtual const char* what() const throw() override
+		virtual ~bad_mmap_alloc() throw()
+		{}
+		virtual const char* what() const throw()
 		{ return msg.c_str(); }
 	private:
 		std::string msg;
@@ -140,9 +141,11 @@ class DefaultFrameAssembler {
 	typedef slsReceiverDefs::sls_receiver_header RecvHeader;
 	typedef slsReceiverDefs::frameDiscardPolicy FramePolicy;
 
-	DefaultFrameAssembler(genericSocket *s, GeneralData *d, cpu_set_t cpu_mask,
+	DefaultFrameAssembler(genericSocket *s, GeneralData *d,
+			      cpu_set_t cpu_mask,
 			      unsigned long node_mask, int max_node, 
 			      FramePolicy fp, bool e4b);
+	~DefaultFrameAssembler();
 
 	int assembleFrame(uint64_t frame, RecvHeader *header, char *buf);
 
@@ -154,7 +157,7 @@ class DefaultFrameAssembler {
  protected:
 	friend class EigerStdFrameAssembler;
 
-	typedef std::unique_ptr<PacketStream> PacketStreamPtr;
+	typedef PacketStream *PacketStreamPtr;
 	typedef PacketStream::Packet Packet;
 
 	bool canDiscardFrame(int num_packets);
@@ -184,7 +187,8 @@ class DualPortFrameAssembler {
 
 	virtual void stop();
 
-	virtual PortsMask assembleFrame(uint64_t frame, RecvHeader *header, char *buf) = 0;
+	virtual PortsMask assembleFrame(uint64_t frame, RecvHeader *header,
+					char *buf) = 0;
 
  protected:
 	void stopAssemblers();
@@ -203,7 +207,7 @@ public:
 	EigerRawFrameAssembler(DefaultFrameAssembler *a[2]);
 
 	virtual PortsMask assembleFrame(uint64_t frame, RecvHeader *recv_header,
-					char *buf) override;
+					char *buf);
 };
 
 /**
@@ -217,13 +221,14 @@ public:
 	typedef PacketStream::Packet Packet;
 
 	EigerStdFrameAssembler(DefaultFrameAssembler *a[2], bool flipped);
+	~EigerStdFrameAssembler();
 
 	virtual PortsMask assembleFrame(uint64_t frame, RecvHeader *recv_header,
-					char *buf) override;
+					char *buf);
 
 	class Helper;
  protected:
-	typedef std::unique_ptr<Helper> HelperPtr;
+	typedef Helper *HelperPtr;
 	HelperPtr helper;
 };
 
