@@ -17,92 +17,121 @@
 #include <numaif.h>
 #include <semaphore.h>
 
+namespace FrameAssembler
+{
+
+typedef slsReceiverDefs::sls_detector_header DetHeader;
+typedef slsReceiverDefs::sls_receiver_header RecvHeader;
+typedef slsReceiverDefs::frameDiscardPolicy FramePolicy;
+
+
 /**
- *@short manages packet stream with carry-over functionality
+ *@short Utility classes
+ */
+
+class bad_mmap_alloc : public std::bad_alloc {
+public:
+	bad_mmap_alloc(const char *m = "") : msg(m)
+	{}
+	virtual ~bad_mmap_alloc() throw()
+	{}
+	virtual const char* what() const throw()
+	{ return msg.c_str(); }
+private:
+	std::string msg;
+};
+
+class MmapMem
+{
+public:
+	MmapMem(size_t size = 0, unsigned long node_mask = 0,
+		int max_node = 0);
+	~MmapMem();
+
+	void alloc(size_t size, unsigned long node_mask = 0,
+		   int max_node = 0);
+	void release();
+	char *getPtr();
+
+private:
+	char *ptr;
+	size_t len;
+};
+
+class Semaphore
+{
+public:
+	Semaphore(int n);
+	~Semaphore();
+	void post();
+	void wait();
+
+private:
+	sem_t sem;
+};
+
+
+
+
+/**
+ *@short Packet helper classes
+ */
+
+class PacketStream;
+
+const int MaxBufferFrames = 4;
+const int MaxNbPackets = MaxBufferFrames * 512;
+
+struct Packet {
+	bool valid;
+	DetHeader *header;
+	uint64_t frame;
+	int number;
+	char *buf;
+
+	void setValid(DetHeader *h, char *b, uint64_t f, int n);
+	void setInvalid();
+};
+
+struct PacketBlock {
+	Packet packet[MaxNbPackets];
+	const int len;
+
+	PacketBlock(int l);
+	~PacketBlock();
+
+	Packet& operator[](int i);
+
+private:
+	friend class PacketStream;
+	PacketStream *ps;
+	int idx;
+	
+};
+
+
+/**
+ *@short manages packet stream with buffer & parallel read functionality
  */
 
 class PacketStream {
 
  public:
-	static const int PSMaxNbPackets = 256;
-
-	typedef slsReceiverDefs::sls_detector_header DetHeader;
-
-	struct Packet {
-		bool valid;
-		DetHeader *header;
-		uint64_t frame;
-		int number;
-		char *buf;
-		PacketStream *pstream;
-		int idx;
-
-		Packet();
-		~Packet();
-
-		void setValid(DetHeader *h, char *b, uint64_t f, int n,
-			      PacketStream *ps, int i);
-
-		void release();
-	private:
-		void forget();
-	};
-
-	PacketStream(genericSocket *s, GeneralData *d, cpu_set_t cpu_mask,
+	PacketStream(genericSocket *s, GeneralData *d, FramePolicy fp,
+		     cpu_set_t cpu_mask,
 		     unsigned long node_mask, int max_node);
 	~PacketStream();
 
-	void getPacket(Packet& ret, uint64_t frame, int num = -1);
+	int getPacketBlock(PacketBlock& block, uint64_t frame);
+
 	bool hasPendingPacket();
 	void stop();
 
  private:
-	friend struct Packet;
-
-	class bad_mmap_alloc : public std::bad_alloc {
-	public:
-		bad_mmap_alloc(const char *m = "") : msg(m)
-		{}
-		virtual ~bad_mmap_alloc() throw()
-		{}
-		virtual const char* what() const throw()
-		{ return msg.c_str(); }
-	private:
-		std::string msg;
-	};
-
-	class MmapMem
-	{
-	public:
-		MmapMem(size_t size = 0, unsigned long node_mask = 0,
-			int max_node = 0);
-		~MmapMem();
-
-		void alloc(size_t size, unsigned long node_mask = 0,
-			   int max_node = 0);
-		void release();
-		char *getPtr();
-
-	private:
-		char *ptr;
-		size_t len;
-	};
-
-	class Semaphore
-	{
-	public:
-		Semaphore(int n);
-		~Semaphore();
-		void post();
-		void wait();
-
-	private:
-		sem_t sem;
-	};
+	friend class PacketBlock;
 
 	void initMem(unsigned long node_mask, int max_node);
 	char *packetPtr(int idx);
-	bool releaseBlockedPacket(int idx);
 	int getIndex(int index);
 	void incIndex(int& index);
 
@@ -110,14 +139,20 @@ class PacketStream {
 	static void *threadFunctionStatic(void *data);
 	void threadFunction();
 
+	bool canDiscardFrame(int num_packets);
+	int getNextPacket(Packet& np, uint64_t frame, int pnum);
+
+	void releasePacketBlock(PacketBlock& block);
+
 	genericSocket *socket;
 	GeneralData *general_data;
+	FramePolicy frame_policy;
 	const int nb_packets;
 	int header_pad;
 	int packet_len;
 	MmapMem packet;
 	int nb_blocked_packets;
-	std::bitset<PSMaxNbPackets> waiting_mask;
+	std::bitset<MaxNbPackets> waiting_mask;
 	bool odd_numbering;
 	bool first_packet;
 	volatile bool stopped;
@@ -138,9 +173,6 @@ class EigerStdFrameAssembler;
 class DefaultFrameAssembler {
 
  public:
-	typedef slsReceiverDefs::sls_receiver_header RecvHeader;
-	typedef slsReceiverDefs::frameDiscardPolicy FramePolicy;
-
 	DefaultFrameAssembler(genericSocket *s, GeneralData *d,
 			      cpu_set_t cpu_mask,
 			      unsigned long node_mask, int max_node, 
@@ -158,9 +190,7 @@ class DefaultFrameAssembler {
 	friend class EigerStdFrameAssembler;
 
 	typedef PacketStream *PacketStreamPtr;
-	typedef PacketStream::Packet Packet;
 
-	bool canDiscardFrame(int num_packets);
 	bool doExpand4Bits();
 	void expand4Bits(char *dst, char *src, int src_size);
 
@@ -179,7 +209,6 @@ class DefaultFrameAssembler {
 class DualPortFrameAssembler {
 
  public:
-	typedef slsReceiverDefs::sls_receiver_header RecvHeader;
 	typedef std::bitset<2> PortsMask;
 
 	DualPortFrameAssembler(DefaultFrameAssembler *a[2]);
@@ -217,9 +246,6 @@ public:
 class EigerStdFrameAssembler : public DualPortFrameAssembler {
 
 public:
-	typedef DefaultFrameAssembler::FramePolicy FramePolicy;
-	typedef PacketStream::Packet Packet;
-
 	EigerStdFrameAssembler(DefaultFrameAssembler *a[2], bool flipped);
 	~EigerStdFrameAssembler();
 
@@ -227,8 +253,9 @@ public:
 					char *buf);
 
 	class Helper;
+
  protected:
-	typedef Helper *HelperPtr;
-	HelperPtr helper;
+	Helper *helper;
 };
 
+} // namespace FrameAssembler

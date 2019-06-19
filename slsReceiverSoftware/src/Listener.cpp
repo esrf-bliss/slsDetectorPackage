@@ -15,6 +15,8 @@
 #include <errno.h>
 #include <cstring>
 
+using namespace FrameAssembler;
+
 const std::string Listener::TypeName = "Listener";
 
 

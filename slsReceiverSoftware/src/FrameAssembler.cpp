@@ -8,68 +8,24 @@
 
 #include <emmintrin.h>
 
-/**
- * PacketStream::Packet
- */
-
-inline PacketStream::Packet::Packet()
-	: valid(false), header(NULL), buf(NULL), frame(0), number(0),
-	  pstream(NULL), idx(-1)
-{
-}
-
-inline PacketStream::Packet::~Packet()
-{
-	release();
-}
-
-inline void PacketStream::Packet::release()
-{
-	if (pstream && (idx >= 0)) {
-		pstream->releaseBlockedPacket(idx);
-		forget();
-	}
-}
-
-inline void PacketStream::Packet::setValid(DetHeader *h, char *b, uint64_t f,
-					   int n, PacketStream *ps, int i)
-{
-	release();
-	valid = true;
-	header = h;
-	buf = b;
-	frame = f;
-	number = n;
-	pstream = ps;
-	idx = i;
-}
-
-inline void PacketStream::Packet::forget()
-{
-	valid = false;
-	pstream = NULL;
-	idx = -1;
-}
-
+using namespace FrameAssembler;
 
 /**
- * PacketStream::MmapMem
+ * MmapMem
  */
 
-PacketStream::MmapMem::MmapMem(size_t size, unsigned long node_mask,
-			       int max_node)
+MmapMem::MmapMem(size_t size, unsigned long node_mask, int max_node)
 	: ptr(NULL), len(0)
 {
 	alloc(size, node_mask, max_node);
 }
 
-PacketStream::MmapMem::~MmapMem()
+MmapMem::~MmapMem()
 {
 	release();
 }
 
-void PacketStream::MmapMem::alloc(size_t size, unsigned long node_mask,
-				  int max_node)
+void MmapMem::alloc(size_t size, unsigned long node_mask, int max_node)
 {
 	release();
 	if (size == 0)
@@ -96,7 +52,7 @@ void PacketStream::MmapMem::alloc(size_t size, unsigned long node_mask,
 	memset(ptr, 0, len);
 }
 
-void PacketStream::MmapMem::release()
+void MmapMem::release()
 {
 	if (len) {
 		munmap(ptr, len);
@@ -104,35 +60,75 @@ void PacketStream::MmapMem::release()
 	}
 }
 
-inline char *PacketStream::MmapMem::getPtr()
+inline char *MmapMem::getPtr()
 {
 	return ptr;
 }
 
 
 /**
- * PacketStream::Semaphore
+ * Semaphore
  */
 
-PacketStream::Semaphore::Semaphore(int n)
+Semaphore::Semaphore(int n)
 {
 	if (sem_init(&sem, 0, n) != 0)
 		throw std::runtime_error("Could not init sem");
 }
 
-PacketStream::Semaphore::~Semaphore()
+Semaphore::~Semaphore()
 {
 	sem_destroy(&sem);
 }
 
-inline void PacketStream::Semaphore::post()
+inline void Semaphore::post()
 {
 	sem_post(&sem);
 }
 
-inline void PacketStream::Semaphore::wait()
+inline void Semaphore::wait()
 {
 	sem_wait(&sem);
+}
+
+/**
+ * Packet
+ */
+
+inline void Packet::setValid(DetHeader *h, char *b, uint64_t f,
+					   int n)
+{
+	valid = true;
+	header = h;
+	buf = b;
+	frame = f;
+	number = n;
+}
+
+inline void Packet::setInvalid()
+{
+	valid = false;
+}
+
+
+/**
+ * PacketBlock
+ */
+
+inline PacketBlock::PacketBlock(int l)
+	: len(l), ps(NULL), idx(-1)
+{
+}
+
+inline PacketBlock::~PacketBlock()
+{
+	if (ps && (idx >= 0))
+		ps->releasePacketBlock(*this);
+}
+
+inline Packet& PacketBlock::operator [](int i)
+{
+	return packet[i];
 }
 
 /**
@@ -144,21 +140,24 @@ inline char *PacketStream::packetPtr(int idx)
 	return packet.getPtr() + idx * packet_len + header_pad;
 }
 
-inline bool PacketStream::releaseBlockedPacket(int idx)
+inline void PacketStream::releasePacketBlock(PacketBlock& block)
 {
-	int i = idx - read_idx;
-	if (i < 0)
-		i += nb_packets;
-	waiting_mask[i] = 0;
-	if (i > 0)
-		return false;
+	int idx = block.idx;
+	for (int i = 0; (i < block.len) && block[i].valid; ++i) {
+		int n = idx - read_idx;
+		if (n < 0)
+			n += nb_packets;
+		waiting_mask[n] = 0;
+		incIndex(idx);
+	}
+	if (block.idx != read_idx)
+		return;
 	while (nb_blocked_packets && !waiting_mask[0]) {
 		write_sem.post();
 		--nb_blocked_packets;
 		waiting_mask >>= 1;
 		incIndex(read_idx);
 	}
-	return true;
 }
 
 inline int PacketStream::getIndex(int index)
@@ -171,7 +170,16 @@ inline void PacketStream::incIndex(int& index)
 	index = getIndex(index + 1);
 }
 
-inline void PacketStream::getPacket(Packet& ret, uint64_t frame, int num)
+inline bool PacketStream::canDiscardFrame(int num_packets)
+{
+	return ((frame_policy ==
+		 slsReceiverDefs::DISCARD_PARTIAL_FRAMES) ||
+		((frame_policy ==
+		  slsReceiverDefs::DISCARD_EMPTY_FRAMES) &&
+		 !num_packets));
+}
+
+inline int PacketStream::getNextPacket(Packet& np, uint64_t frame, int num)
 {
 	GeneralData& gd = *general_data;
 
@@ -209,19 +217,40 @@ inline void PacketStream::getPacket(Packet& ret, uint64_t frame, int num)
 		}
 
 		if (packet_frame < frame) {
-			if (releaseBlockedPacket(idx))
-				--i;
 			continue;
 		} else if (packet_frame > frame) {
 			break;
-		} else if ((num < 0) || (packet_number == num)) {
-			ret.setValid(header, p + sizeof(DetHeader),
-				     packet_frame, packet_number, this, idx);
-			return;
+		} else if (packet_number == num) {
+			np.setValid(header, p + sizeof(DetHeader),
+				   packet_frame, packet_number);
+			return idx;
 		}
 	}
 
-	ret.release();
+	np.setInvalid();
+	return -1;
+}
+
+inline int PacketStream::getPacketBlock(PacketBlock& block, uint64_t frame)
+{
+	int pnum;
+	for (pnum = 0; pnum < block.len; ++pnum) {
+		Packet& p = block[pnum];
+		int idx = getNextPacket(p, frame, pnum);
+		if (pnum == 0) {
+			block.ps = this;
+			block.idx = idx;
+		}
+		if (p.valid)
+			continue;
+		while (++pnum < block.len)
+			block[pnum].valid = false;
+		if (canDiscardFrame(pnum))
+			return 0;
+		break;
+	}
+
+	return pnum;
 }
 
 inline bool PacketStream::hasPendingPacket()
@@ -229,11 +258,13 @@ inline bool PacketStream::hasPendingPacket()
 	return (nb_blocked_packets > 0);
 }
 
-PacketStream::PacketStream(genericSocket *s, GeneralData *d, cpu_set_t cpu_mask,
-				  unsigned long node_mask, int max_node)
+PacketStream::PacketStream(genericSocket *s, GeneralData *d, FramePolicy fp,
+			   cpu_set_t cpu_mask,
+			   unsigned long node_mask, int max_node)
 	: socket(s),
 	  general_data(d),
-	  nb_packets(2 * general_data->packetsPerFrame),
+	  frame_policy(fp),
+	  nb_packets(MaxBufferFrames * general_data->packetsPerFrame),
 	  nb_blocked_packets(0),
 	  odd_numbering(false),
 	  first_packet(true),
@@ -327,10 +358,12 @@ void PacketStream::threadFunction()
  * DefaultFrameAssembler
  */
 
-DefaultFrameAssembler::DefaultFrameAssembler(genericSocket *s, GeneralData *d, cpu_set_t cpu_mask,
-					     unsigned long node_mask, int max_node, 
+DefaultFrameAssembler::DefaultFrameAssembler(genericSocket *s, GeneralData *d,
+					     cpu_set_t cpu_mask,
+					     unsigned long node_mask,
+					     int max_node,
 					     FramePolicy fp, bool e4b)
-	: packet_stream(new PacketStream(s, d, cpu_mask,
+	: packet_stream(new PacketStream(s, d, fp, cpu_mask,
 					 node_mask, max_node)),
 	  general_data(d),
 	  frame_policy(fp), stopped(false), expand_4bits(e4b)
@@ -358,21 +391,13 @@ inline int DefaultFrameAssembler::getImageSize()
 	return general_data->imageSize * (doExpand4Bits() ? 2 : 1);
 }
 
-inline bool DefaultFrameAssembler::canDiscardFrame(int num_packets)
-{
-	return ((frame_policy ==
-		 slsReceiverDefs::DISCARD_PARTIAL_FRAMES) ||
-		((frame_policy ==
-		  slsReceiverDefs::DISCARD_EMPTY_FRAMES) &&
-		 !num_packets));
-}
-
 inline bool DefaultFrameAssembler::doExpand4Bits()
 {
 	return (general_data->dynamicRange == 4) && expand_4bits;
 }
 
-inline void DefaultFrameAssembler::expand4Bits(char *dst, char *src, int src_size)
+inline void DefaultFrameAssembler::expand4Bits(char *dst, char *src,
+					       int src_size)
 {
 	unsigned long s = (unsigned long) src;
 	unsigned long d = (unsigned long) dst;
@@ -384,7 +409,8 @@ inline void DefaultFrameAssembler::expand4Bits(char *dst, char *src, int src_siz
 	const int blk = sizeof(__m128i);
 	if ((src_size % blk) != 0)
 		FILE_LOG(logWARNING) << "len misalignment: "
-				     << "src_size=" << src_size << ", blk=" << blk;
+				     << "src_size=" << src_size << ", "
+				     << "blk=" << blk;
 	int nb_blocks = src_size / blk;
 	const __m128i *src128 = (const __m128i *) src;
 	__m128i *dst128 = (__m128i *) dst;
@@ -401,12 +427,12 @@ inline void DefaultFrameAssembler::expand4Bits(char *dst, char *src, int src_siz
 	}
 }
 
-int DefaultFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header, char *buf)
+int DefaultFrameAssembler::assembleFrame(uint64_t frame,
+					 RecvHeader *recv_header, char *buf)
 {
 	bool header_empty = true;
-	int num_packets = 0;
 	int packets_per_frame = general_data->packetsPerFrame;
-	PacketStream::DetHeader *det_header = &recv_header->detHeader;
+	DetHeader *det_header = &recv_header->detHeader;
 	bool do_expand_4bits = doExpand4Bits();
 	uint32_t src_dsize = general_data->dataSize;
 	uint32_t last_dsize = general_data->imageSize % src_dsize;
@@ -416,17 +442,15 @@ int DefaultFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header
 
 	recv_header->packetsMask.reset();
 
-	while (num_packets < packets_per_frame) {
-		if (stopped)
-			return -1;
+	PacketBlock block(packets_per_frame);
+	int num_packets = packet_stream->getPacketBlock(block, frame);
+	if (num_packets == 0)
+		return -1;
 
-		Packet packet;
-		packet_stream->getPacket(packet, frame);
-		if (!packet.valid) {
-			if (canDiscardFrame(num_packets))
-				return -1;
+	for (int i = 0; i < num_packets; ++i) {
+		Packet& packet = block[i];
+		if (!packet.valid)
 			break;
-		}
 
 		int pnum = packet.number;
 
@@ -451,7 +475,6 @@ int DefaultFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header
 		else
 			memcpy(dst, packet.buf, copy_dsize);
 
-		++num_packets;
 		recv_header->packetsMask[pnum] = 1;
 
 		//write header
@@ -510,7 +533,8 @@ EigerRawFrameAssembler::EigerRawFrameAssembler(DefaultFrameAssembler *a[2])
 }
 
 DualPortFrameAssembler::PortsMask
-EigerRawFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header, char *buf)
+EigerRawFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
+				      char *buf)
 {
 	const int nb_ports = 2;
 	const int image_size = assembler[0]->getImageSize();
@@ -529,8 +553,6 @@ EigerRawFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header, c
 
 class EigerStdFrameAssembler::Helper {
 public:
-	typedef PacketStream::Packet Packet;
-
 	Helper(GeneralData *gd, bool f);
 
 	float getSrcPixelBytes()
@@ -549,7 +571,7 @@ public:
 		buf = d;
 	}
 
-	virtual void assemblePackets(Packet packet[][2]) = 0;
+	virtual void assemblePackets(PacketBlock block[2]) = 0;
 
 protected:
 	static const int chip_size = 256;
@@ -608,7 +630,7 @@ class Expand4BitsHelper : public EigerStdFrameAssembler::Helper {
 public:
 	Expand4BitsHelper(GeneralData *gd, bool flipped);
 
-	virtual void assemblePackets(Packet packets[][2]);
+	virtual void assemblePackets(PacketBlock block[2]);
 
 private:
 	static const int half_module_chips = nb_ports * port_chips;
@@ -624,20 +646,27 @@ private:
 	const __m128i gap_bits128;
 	const __m128i block64_bits128;
 
-	int load_packet(Packet (*&packets)[2]);
-	void load_dst128();
-	void load_shift_store128();
-	void pad_dst128();
-	void sync_dst128();
+	struct Worker {
+		Expand4BitsHelper& h;
 
-	bool v[nb_ports], valid_data;
-	const __m128i *s[nb_ports], *src128;
-	__m128i *dst128;
-	int dest_misalign;
-	int shift_l;
-	__m128i shift_l128, shift_r128;
-	__m128i prev;
+		bool v[nb_ports], valid_data;
+		const __m128i *s[nb_ports], *src128;
+		__m128i *dst128;
+		int dest_misalign;
+		int shift_l;
+		__m128i shift_l128, shift_r128;
+		__m128i prev;
 
+		Worker(Expand4BitsHelper& helper);
+
+		int load_packet(PacketBlock block[2], int packet);
+		void load_dst128();
+		void load_shift_store128();
+		void pad_dst128();
+		void sync_dst128();
+
+		void assemblePackets(PacketBlock block[2]);
+	};
 };
 
 Expand4BitsHelper::Expand4BitsHelper(GeneralData *gd, bool flipped)
@@ -652,39 +681,47 @@ Expand4BitsHelper::Expand4BitsHelper(GeneralData *gd, bool flipped)
 {
 }
 
-inline int Expand4BitsHelper::load_packet(Packet (*&packets)[2])
+inline Expand4BitsHelper::Worker::Worker(Expand4BitsHelper& helper)
+	: h(helper)
 {
-	s[0] = (const __m128i *) ((*packets)[0].buf + src.offset);
-	s[1] = (const __m128i *) ((*packets)[1].buf + src.offset);
+}
+
+inline int Expand4BitsHelper::Worker::load_packet(PacketBlock block[2],
+						  int packet)
+{
+	Packet& p0 = block[0][packet];
+	Packet& p1 = block[1][packet];
+	s[0] = (const __m128i *) (p0.buf + h.src.offset);
+	s[1] = (const __m128i *) (p1.buf + h.src.offset);
 	if ((((unsigned long) s[0] | (unsigned long) s[1]) & 15) != 0) {
 		FILE_LOG(logERROR) << "Missaligned src";
 		return -1;
 	}
-	v[0] = (*packets)[0].valid;
-	v[1] = (*packets)[1].valid;
+	v[0] = p0.valid;
+	v[1] = p1.valid;
 	return 0;
 }
 
-inline void Expand4BitsHelper::load_dst128()
+inline void Expand4BitsHelper::Worker::load_dst128()
 {
-	char *d = buf + dst.offset;
+	char *d = h.buf + h.dst.offset;
 	dest_misalign = ((unsigned long) d & 15);
 	dst128 = (__m128i *) (d - dest_misalign);
 	shift_l = dest_misalign * 8;
 	shift_l128 = _mm_set_epi64x(0, shift_l % 64);
-	shift_r128 = _mm_sub_epi64(block64_bits128, shift_l128);
+	shift_r128 = _mm_sub_epi64(h.block64_bits128, shift_l128);
 	if (shift_l != 0) {
 		__m128i m0;
 		m0 = _mm_srl_epi64(_mm_set1_epi8(0xff), shift_r128);
 		if (shift_l < 64)
-			m0 = _mm_and_si128(m0, m64_0);
+			m0 = _mm_and_si128(m0, h.m64_0);
 		prev = _mm_and_si128(_mm_load_si128(dst128), m0);
 	} else {
 		prev = _mm_setzero_si128();
 	}
 }
 
-inline void Expand4BitsHelper::load_shift_store128()
+inline void Expand4BitsHelper::Worker::load_shift_store128()
 {
 	__m128i p4_raw;
 	if (valid_data)
@@ -693,8 +730,8 @@ inline void Expand4BitsHelper::load_shift_store128()
 		p4_raw = _mm_set1_epi8(0xff);
 	++src128;
 	__m128i p4_shr = _mm_srli_epi16(p4_raw, 4);
-	__m128i i8_0 = _mm_and_si128(p4_raw, m);
-	__m128i i8_1 = _mm_and_si128(p4_shr, m);
+	__m128i i8_0 = _mm_and_si128(p4_raw, h.m);
+	__m128i i8_1 = _mm_and_si128(p4_shr, h.m);
 	__m128i p8_0 = _mm_unpacklo_epi8(i8_0, i8_1);
 	__m128i p8_1 = _mm_unpackhi_epi8(i8_0, i8_1);
 	__m128i p8_0l = _mm_sll_epi64(p8_0, shift_l128);
@@ -726,56 +763,63 @@ inline void Expand4BitsHelper::load_shift_store128()
 	prev = _mm_or_si128(d31, d4);
 }
 
-inline void Expand4BitsHelper::pad_dst128()
+inline void Expand4BitsHelper::Worker::pad_dst128()
 {
-	shift_l += gap_bits;
+	shift_l += h.gap_bits;
 	if (shift_l % 64 == 0)
 		shift_l128 = _mm_setzero_si128();
 	else
-		shift_l128 = _mm_add_epi64(shift_l128, gap_bits128);
-	shift_r128 = _mm_sub_epi64(block64_bits128, shift_l128);
-	if (shift_l == block_bits) {
+		shift_l128 = _mm_add_epi64(shift_l128, h.gap_bits128);
+	shift_r128 = _mm_sub_epi64(h.block64_bits128, shift_l128);
+	if (shift_l == h.block_bits) {
 		_mm_store_si128(dst128++, prev);
 		prev = _mm_setzero_si128();
 		shift_l = 0;
 	}
 }
 
-inline void Expand4BitsHelper::sync_dst128()
+inline void Expand4BitsHelper::Worker::sync_dst128()
 {
 	if (shift_l != 0) {
 		__m128i m0;
 		m0 = _mm_sll_epi64(_mm_set1_epi8(0xff), shift_l128);
 		if (shift_l >= 64)
-			m0 = _mm_and_si128(m0, m64_1);
+			m0 = _mm_and_si128(m0, h.m64_1);
 		__m128i a = _mm_and_si128(_mm_load_si128(dst128), m0);
 		_mm_store_si128(dst128, _mm_or_si128(prev, a));
 	}
 }
 
-void Expand4BitsHelper::assemblePackets(Packet packets[][2])
+inline void Expand4BitsHelper::Worker::assemblePackets(PacketBlock block[2])
 {
-	packets += first_idx;
+	const int& hm_chips = h.half_module_chips;
+	int packet = h.first_idx;
 	load_dst128();
-	for (int i = 0; i < frame_packets; ++i, packets += idx_inc) {
-		if (load_packet(packets) < 0)
+	for (int i = 0; i < h.frame_packets; ++i, packet += h.idx_inc) {
+		if (load_packet(block, packet) < 0)
 			return;
-		for (int l = 0; l < packet_lines; ++l) {
+		for (int l = 0; l < h.packet_lines; ++l) {
 			int chip_count = 0;
-			for (int p = 0; p < nb_ports; ++p) {
+			for (int p = 0; p < h.nb_ports; ++p) {
 				valid_data = v[p];
 				src128 = s[p];
-				for (int c = 0; c < port_chips; ++c) {
-					for (int b = 0; b < chip_blocks; ++b)
+				for (int c = 0; c < h.port_chips; ++c) {
+					for (int b = 0; b < h.chip_blocks; ++b)
 						load_shift_store128();
-					if (++chip_count % half_module_chips > 0)
+					if (++chip_count % hm_chips > 0)
 						pad_dst128();
 				}
-				s[p] += port_blocks;
+				s[p] += h.port_blocks;
 			}
 		}
 	}
 	sync_dst128();
+}
+
+void Expand4BitsHelper::assemblePackets(PacketBlock block[2])
+{
+	Worker w(*this);
+	w.assemblePackets(block);
 }
 
 /**
@@ -788,22 +832,24 @@ public:
 		: Helper(gd, flipped)
 	{}
 	
-	virtual void assemblePackets(Packet packets[][2]);
+	virtual void assemblePackets(PacketBlock block[2]);
 };
 
-void CopyHelper::assemblePackets(Packet packets[][2])
+void CopyHelper::assemblePackets(PacketBlock block[2])
 {
-	packets += first_idx;
+	int packet = first_idx;
 	char *d = buf + dst.offset;
-	for (int i = 0; i < frame_packets; ++i, packets += idx_inc) {
-		char *s[nb_ports] = {(*packets)[0].buf + src.offset,
-				     (*packets)[1].buf + src.offset};
+	for (int i = 0; i < frame_packets; ++i, packet += idx_inc) {
+		Packet *line_packet[2] = {&block[0][packet],
+					  &block[1][packet]};
+		char *s[nb_ports] = {line_packet[0]->buf + src.offset,
+				     line_packet[1]->buf + src.offset};
 		for (int l = 0; l < packet_lines; ++l) {
 			char *ld = d;
 			for (int p = 0; p < nb_ports; ++p) {
 				char *ls = s[p];
 				for (int c = 0; c < port_chips; ++c) {
-					if ((*packets)[p].valid)
+					if (line_packet[p]->valid)
 						memcpy(ld, ls, src.chip_size);
 					else
 						memset(ld, 0xff, src.chip_size);
@@ -822,7 +868,8 @@ void CopyHelper::assemblePackets(Packet packets[][2])
  * EigerStdFrameAssembler
  */
 
-EigerStdFrameAssembler::EigerStdFrameAssembler(DefaultFrameAssembler *a[2], bool flipped)
+EigerStdFrameAssembler::EigerStdFrameAssembler(DefaultFrameAssembler *a[2],
+					       bool flipped)
 	: DualPortFrameAssembler(a)
 {
 	GeneralData *gd = a[0]->general_data;
@@ -843,7 +890,8 @@ EigerStdFrameAssembler::~EigerStdFrameAssembler()
 }
 
 DualPortFrameAssembler::PortsMask
-EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header, char *buf)
+EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
+				      char *buf)
 {
 	PortsMask mask;
 
@@ -853,48 +901,37 @@ EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header, c
 
 	DefaultFrameAssembler **a = assembler;
 	bool header_empty = true;
-	int num_packets = 0;
-	int packets_per_frame = a[0]->general_data->packetsPerFrame;
-	PacketStream::DetHeader *det_header = &recv_header->detHeader;
+	const int packets_per_frame = a[0]->general_data->packetsPerFrame;
+
+	DetHeader *det_header = &recv_header->detHeader;
+	det_header->frameNumber = frame;
+	det_header->packetNumber = 0;
+
+	PacketBlock block[2] = {packets_per_frame, packets_per_frame};
+	for (int i = 0; i < nb_ports; ++i) {
+		PacketStream *ps = a[i]->packet_stream;
+		int packet_count = ps->getPacketBlock(block[i], frame);
+		if (packet_count == 0)
+			continue;
+		mask.set(i, true);
+		det_header->packetNumber += packet_count;
+
+		//write header
+		if (header_empty) {
+			Packet& p = block[i][0];
+			const int det_header_len = sizeof(*det_header);
+			memcpy(det_header, p.header, det_header_len);
+			header_empty = false;
+		}
+	}
+
 	FramePolicy policy = a[0]->frame_policy;
 	bool fp_partial = (policy == slsReceiverDefs::DISCARD_PARTIAL_FRAMES);
-	bool fp_empty = (policy == slsReceiverDefs::DISCARD_EMPTY_FRAMES);
+	if (fp_partial && (mask.count() != nb_ports))
+		return PortsMask();
 
-	Packet packets[packets_per_frame][nb_ports];
-	for (int pnum = 0; pnum < packets_per_frame; ++pnum) {
-		if (a[0]->stopped)
-			return PortsMask();
-
-		int packet_count = 0;
-		for (int i = 0; i < nb_ports; ++i) {
-			Packet& p = packets[pnum][i];
-			PacketStream *ps = a[i]->packet_stream;
-			ps->getPacket(p, frame, pnum);
-			if (!p.valid && fp_partial)
-				return PortsMask();
-
-			mask.set(i, true);
-	 		++packet_count;
-
-			//write header
-			if (header_empty) {
-				const int det_header_len = sizeof(*det_header);
-				memcpy(det_header, p.header, det_header_len);
-				header_empty = false;
-			}
-		}
-		num_packets += packet_count;
-		recv_header->packetsMask[pnum] = (packet_count > 0);
-	}
-
-	if (mask.any()) {
-		helper->assemblePackets(packets);
-	} else {
-		if (fp_empty)
-			return PortsMask();
-		det_header->frameNumber = frame;
-	}
-	det_header->packetNumber = num_packets;
+	if (mask.any())
+		helper->assemblePackets(block);
 
 	return mask;
 }

@@ -164,7 +164,8 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
     /**
      * Create a dual-port frame assembler object listening on 2 Listeners' UDP ports
      */
-    static DualPortFrameAssembler *CreateDualPortFrameAssembler(Listener *listener[2]);
+    static FrameAssembler::DualPortFrameAssembler *
+      CreateDualPortFrameAssembler(Listener *listener[2]);
 
  private:
 
@@ -310,7 +311,7 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	uint64_t currentFrameIndex;
 
 	/** frame assembler **/
-	DefaultFrameAssembler *frameAssembler;
+	FrameAssembler::DefaultFrameAssembler *frameAssembler;
 
 	/** if the udp socket is connected */
 	volatile bool udpSocketAlive;
