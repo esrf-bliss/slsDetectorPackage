@@ -60,7 +60,7 @@ void UDPStandardImplementation::InitializeMembers() {
 	//** class objects ***
 	generalData = 0;
 	frameAssembler = 0;
-	frameAssemblerBusy = false;
+	frameAssemblerBusyCount = 0;
 }
 
 
@@ -648,8 +648,9 @@ void UDPStandardImplementation::startReadout(){
 void UDPStandardImplementation::shutDownUDPSockets() {
 	if (frameAssembler) {
 		frameAssembler->stop();
-		while (frameAssemblerBusy)
-			usleep(5000);
+		MutexLock l(frameAssemblerBusyCond.getMutex());
+		while (frameAssemblerBusyCount > 0)
+			frameAssemblerBusyCond.wait();
 	}
 	for (std::vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it)
 		(*it)->ShutDownUDPSocket();
@@ -872,16 +873,35 @@ int UDPStandardImplementation::getImage(receiver_image_data& image_data)
 		return FAIL;
 	}
 
-	frameAssemblerBusy = true;
-	if (status != RUNNING) {
-		frameAssemblerBusy = false;
+	class Busy
+	{
+	public:
+		Busy(int& i, Cond& c)
+			: count(i), cond(c), mutex(c.getMutex())
+		{
+			MutexLock l(mutex);
+			++count;
+		}
+
+		~Busy()
+		{
+			MutexLock l(mutex);
+			--count;
+			cond.signal();
+		}
+
+	private:
+		int& count;
+		Cond& cond;
+		Mutex& mutex;
+	} b(frameAssemblerBusyCount, frameAssemblerBusyCond);
+
+	if (status != RUNNING)
 		return FAIL;
-	}
 
 	image_data.portsMask = frameAssembler->assembleFrame(image_data.frame,
 						       &image_data.header,
 						       image_data.buffer);
-	frameAssemblerBusy = false;
 	bool got_data = image_data.portsMask.any();
 	return got_data ? OK : FAIL;
 }

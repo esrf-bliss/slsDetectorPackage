@@ -142,14 +142,11 @@ inline char *PacketStream::packetPtr(int idx)
 
 inline void PacketStream::releasePacketBlock(PacketBlock& block)
 {
-	int idx = block.idx;
-	for (int i = 0; (i < block.len) && block[i].valid; ++i) {
-		int n = idx - read_idx;
-		if (n < 0)
-			n += nb_packets;
+	MutexLock l(block_cond.getMutex());
+
+	int n = getIndexDiff(block.idx, read_idx);
+	for (int i = 0; (i < block.len) && block[i].valid; ++i, ++n)
 		waiting_mask[n] = 0;
-		incIndex(idx);
-	}
 	if (block.idx != read_idx)
 		return;
 	while (nb_blocked_packets && !waiting_mask[0]) {
@@ -163,6 +160,14 @@ inline void PacketStream::releasePacketBlock(PacketBlock& block)
 inline int PacketStream::getIndex(int index)
 {
 	return index % nb_packets;
+}
+
+inline int PacketStream::getIndexDiff(int a, int b)
+{
+	int n = a - b;
+	if (n < 0)
+		n += nb_packets;
+	return n;
 }
 
 inline void PacketStream::incIndex(int& index)
@@ -183,18 +188,21 @@ inline int PacketStream::getNextPacket(Packet& np, uint64_t frame, int num)
 {
 	GeneralData& gd = *general_data;
 
-	for (int i = 0; (i < nb_packets) && !stopped; ++i) {
-		if (i == nb_blocked_packets) {
+	int idx = read_idx;
+	for (int i = 0; (i < nb_packets) && !stopped; ++i, incIndex(idx)) {
+		int n = getIndexDiff(idx, read_idx);
+		if (n == nb_blocked_packets) {
+			Mutex& mutex = block_cond.getMutex();
+			mutex.unlock();
 			read_sem.wait();
+			mutex.lock();
 			if (stopped)
 				break;
-			++nb_blocked_packets;
-			waiting_mask[i] = 1;
-		} else if (!waiting_mask[i]) {
+			waiting_mask[nb_blocked_packets++] = 1;
+		} else if (!waiting_mask[n]) {
 			continue;
 		}
 
-		int idx = getIndex(read_idx + i);
 		char *p = packetPtr(idx);
 		p += gd.emptyHeader;
 		DetHeader *header = reinterpret_cast<DetHeader *>(p);
@@ -222,7 +230,7 @@ inline int PacketStream::getNextPacket(Packet& np, uint64_t frame, int num)
 			break;
 		} else if (packet_number == num) {
 			np.setValid(header, p + sizeof(DetHeader),
-				   packet_frame, packet_number);
+				    packet_frame, packet_number);
 			return idx;
 		}
 	}
@@ -233,6 +241,33 @@ inline int PacketStream::getNextPacket(Packet& np, uint64_t frame, int num)
 
 inline int PacketStream::getPacketBlock(PacketBlock& block, uint64_t frame)
 {
+	class BlockLock
+	{
+	public:
+		BlockLock(Cond& c, bool& i, volatile bool& s)
+			: cond(c), in_get_block(i), stopped(s), l(c.getMutex())
+		{
+			while (in_get_block && !stopped)
+				cond.wait();
+			in_get_block = true;
+		}
+
+		~BlockLock()
+		{
+			in_get_block = false;
+			cond.signal();
+		}
+
+	private:
+		Cond& cond;
+		bool& in_get_block;
+		volatile bool& stopped;
+		MutexLock l;
+	} b(block_cond, in_get_block, stopped);
+
+	if (stopped)
+		return 0;
+
 	int pnum;
 	for (pnum = 0; pnum < block.len; ++pnum) {
 		Packet& p = block[pnum];
@@ -272,6 +307,7 @@ PacketStream::PacketStream(genericSocket *s, GeneralData *d, FramePolicy fp,
 	  read_idx(0),
 	  write_sem(nb_packets),
 	  read_sem(0),
+	  in_get_block(false),
 	  cpu_aff_mask(cpu_mask)
 {
 	initMem(node_mask, max_node);
@@ -291,6 +327,7 @@ void PacketStream::stop()
 	stopped = true;
 	write_sem.post();
 	read_sem.post();
+	block_cond.signal();
 }
 
 void PacketStream::initMem(unsigned long node_mask, int max_node)

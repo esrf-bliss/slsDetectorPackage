@@ -70,7 +70,102 @@ private:
 	sem_t sem;
 };
 
+class Cond;
 
+/**
+ * Mutex
+ */
+
+class Mutex
+{
+ public:
+	Mutex()
+	{
+		if (pthread_mutex_init(&mutex, NULL) != 0)
+			throw std::runtime_error("Could not init mutex");
+	}
+
+	~Mutex()
+	{
+		pthread_mutex_destroy(&mutex);
+	}
+
+	void lock()
+	{
+		if (pthread_mutex_lock(&mutex) != 0)
+			throw std::runtime_error("Error locking mutex");
+	}
+
+	void unlock()
+	{
+		if (pthread_mutex_unlock(&mutex) != 0)
+			throw std::runtime_error("Error unlocking mutex");
+	}
+
+ private:
+	friend class Cond;
+	pthread_mutex_t mutex;
+};
+
+
+/**
+ * MutexLock
+ */
+
+class MutexLock
+{
+ public:
+	MutexLock(Mutex& m)
+	: mutex(m)
+	{ mutex.lock(); }
+
+	~MutexLock()
+	{ mutex.unlock(); }
+
+ private:
+	Mutex& mutex;
+};
+
+
+/**
+ * Cond
+ */
+
+class Cond
+{
+ public:
+	Cond()
+	{
+		if (pthread_cond_init(&cond, NULL) != 0)
+			throw std::runtime_error("Could not init cond");
+	}
+
+	~Cond()
+	{
+		pthread_cond_destroy(&cond);
+	}
+
+	Mutex& getMutex()
+	{
+		return mutex;
+	}
+
+	void wait()
+	{
+		if (pthread_cond_wait(&cond, &mutex.mutex) != 0)
+			throw std::runtime_error("Could not wait on cond");
+	}
+
+	void signal()
+	{
+		if (pthread_cond_signal(&cond) != 0)
+			throw std::runtime_error("Could not signal cond");
+	}
+
+ private:
+	Mutex mutex;
+	pthread_cond_t cond;
+};
 
 
 /**
@@ -134,6 +229,7 @@ class PacketStream {
 	char *packetPtr(int idx);
 	int getIndex(int index);
 	void incIndex(int& index);
+	int getIndexDiff(int a, int b);
 
 	void initThread();
 	static void *threadFunctionStatic(void *data);
@@ -159,6 +255,8 @@ class PacketStream {
 	int read_idx;
 	Semaphore write_sem;
 	Semaphore read_sem;
+	bool in_get_block;
+	Cond block_cond;
 	cpu_set_t cpu_aff_mask;
 	pthread_t thread;
 };

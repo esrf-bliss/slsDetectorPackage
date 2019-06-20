@@ -14,10 +14,7 @@ class DataProcessor;
 class DataStreamer;
 class Fifo;
 
-namespace FrameAssembler
-{
-class DualPortFrameAssembler;
-}
+#include "FrameAssembler.h"
 
 class UDPStandardImplementation: private virtual slsReceiverDefs, public UDPBaseImplementation {
  public:
@@ -214,6 +211,10 @@ class UDPStandardImplementation: private virtual slsReceiverDefs, public UDPBase
 
 
 private:
+	typedef FrameAssembler::Cond Cond;
+	typedef FrameAssembler::Mutex Mutex;
+	typedef FrameAssembler::MutexLock MutexLock;
+	typedef FrameAssembler::DualPortFrameAssembler DualPortFrameAssembler;
 
     /**
 	 * Delete and free member parameters
@@ -296,7 +297,8 @@ private:
 	std::vector <Fifo*> fifo;
 
 	/** Frame memory assembler in passive mode */
-	FrameAssembler::DualPortFrameAssembler *frameAssembler;
-	volatile bool frameAssemblerBusy;
+	DualPortFrameAssembler *frameAssembler;
+	Cond frameAssemblerBusyCond;
+	int frameAssemblerBusyCount;
 };
 
