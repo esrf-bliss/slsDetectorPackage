@@ -41,12 +41,12 @@ private:
 	std::string msg;
 };
 
-class MmapMem
+class MmappedRegion
 {
 public:
-	MmapMem(size_t size = 0, unsigned long node_mask = 0,
-		int max_node = 0);
-	~MmapMem();
+	MmappedRegion(size_t size = 0, unsigned long node_mask = 0,
+		      int max_node = 0);
+	~MmappedRegion();
 
 	void alloc(size_t size, unsigned long node_mask = 0,
 		   int max_node = 0);
@@ -175,7 +175,7 @@ class Cond
 class PacketStream;
 
 const int MaxBufferFrames = 4;
-const int MaxNbPackets = MaxBufferFrames * 512;
+const int MaxBufferPackets = MaxBufferFrames * 512;
 
 struct Packet {
 	bool valid;
@@ -189,7 +189,7 @@ struct Packet {
 };
 
 struct PacketBlock {
-	Packet packet[MaxNbPackets];
+	Packet packet[MaxBufferPackets];
 	const int len;
 
 	PacketBlock(int l);
@@ -201,7 +201,6 @@ private:
 	friend class PacketStream;
 	PacketStream *ps;
 	int idx;
-	
 };
 
 
@@ -239,7 +238,7 @@ class PacketStream {
 	static void *threadFunctionStatic(void *data);
 	void threadFunction();
 
-	bool canDiscardFrame(int num_packets);
+	bool canDiscardFrame(int received_packets);
 	int getNextPacket(Packet& np, uint64_t frame, int pnum);
 
 	void releasePacketBlock(PacketBlock& block);
@@ -247,15 +246,15 @@ class PacketStream {
 	genericSocket *socket;
 	GeneralData *general_data;
 	FramePolicy frame_policy;
-	const int nb_packets;
+	const int tot_num_packets;
 	volatile int packets_caught;
 	volatile uint64_t frames_caught;
 	volatile uint64_t last_frame;
 	int header_pad;
 	int packet_len;
-	MmapMem packet;
-	int nb_blocked_packets;
-	std::bitset<MaxNbPackets> waiting_mask;
+	MmappedRegion packet;
+	int num_blocked_packets;
+	std::bitset<MaxBufferPackets> waiting_mask;
 	bool odd_numbering;
 	bool first_packet;
 	volatile bool stopped;

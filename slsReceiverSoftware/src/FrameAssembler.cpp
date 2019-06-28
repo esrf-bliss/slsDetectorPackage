@@ -11,21 +11,21 @@
 using namespace FrameAssembler;
 
 /**
- * MmapMem
+ * MmappedRegion
  */
 
-MmapMem::MmapMem(size_t size, unsigned long node_mask, int max_node)
+MmappedRegion::MmappedRegion(size_t size, unsigned long node_mask, int max_node)
 	: ptr(NULL), len(0)
 {
 	alloc(size, node_mask, max_node);
 }
 
-MmapMem::~MmapMem()
+MmappedRegion::~MmappedRegion()
 {
 	release();
 }
 
-void MmapMem::alloc(size_t size, unsigned long node_mask, int max_node)
+void MmappedRegion::alloc(size_t size, unsigned long node_mask, int max_node)
 {
 	release();
 	if (size == 0)
@@ -52,7 +52,7 @@ void MmapMem::alloc(size_t size, unsigned long node_mask, int max_node)
 	memset(ptr, 0, len);
 }
 
-void MmapMem::release()
+void MmappedRegion::release()
 {
 	if (len) {
 		munmap(ptr, len);
@@ -60,7 +60,7 @@ void MmapMem::release()
 	}
 }
 
-inline char *MmapMem::getPtr()
+inline char *MmappedRegion::getPtr()
 {
 	return ptr;
 }
@@ -149,9 +149,9 @@ inline void PacketStream::releasePacketBlock(PacketBlock& block)
 		waiting_mask[n] = 0;
 	if (block.idx != read_idx)
 		return;
-	while (nb_blocked_packets && !waiting_mask[0]) {
+	while (num_blocked_packets && !waiting_mask[0]) {
 		write_sem.post();
-		--nb_blocked_packets;
+		--num_blocked_packets;
 		waiting_mask >>= 1;
 		incIndex(read_idx);
 	}
@@ -159,14 +159,14 @@ inline void PacketStream::releasePacketBlock(PacketBlock& block)
 
 inline int PacketStream::getIndex(int index)
 {
-	return index % nb_packets;
+	return index % tot_num_packets;
 }
 
 inline int PacketStream::getIndexDiff(int a, int b)
 {
 	int n = a - b;
 	if (n < 0)
-		n += nb_packets;
+		n += tot_num_packets;
 	return n;
 }
 
@@ -175,13 +175,13 @@ inline void PacketStream::incIndex(int& index)
 	index = getIndex(index + 1);
 }
 
-inline bool PacketStream::canDiscardFrame(int num_packets)
+inline bool PacketStream::canDiscardFrame(int received_packets)
 {
 	return ((frame_policy ==
 		 slsReceiverDefs::DISCARD_PARTIAL_FRAMES) ||
 		((frame_policy ==
 		  slsReceiverDefs::DISCARD_EMPTY_FRAMES) &&
-		 !num_packets));
+		 !received_packets));
 }
 
 inline int PacketStream::getNextPacket(Packet& np, uint64_t frame, int num)
@@ -189,16 +189,16 @@ inline int PacketStream::getNextPacket(Packet& np, uint64_t frame, int num)
 	GeneralData& gd = *general_data;
 
 	int idx = read_idx;
-	for (int i = 0; (i < nb_packets) && !stopped; ++i, incIndex(idx)) {
+	for (int i = 0; (i < tot_num_packets) && !stopped; ++i, incIndex(idx)) {
 		int n = getIndexDiff(idx, read_idx);
-		if (n == nb_blocked_packets) {
+		if (n == num_blocked_packets) {
 			Mutex& mutex = block_cond.getMutex();
 			mutex.unlock();
 			read_sem.wait();
 			mutex.lock();
 			if (stopped)
 				break;
-			waiting_mask[nb_blocked_packets++] = 1;
+			waiting_mask[num_blocked_packets++] = 1;
 		} else if (!waiting_mask[n]) {
 			continue;
 		}
@@ -241,10 +241,10 @@ inline int PacketStream::getNextPacket(Packet& np, uint64_t frame, int num)
 
 inline int PacketStream::getPacketBlock(PacketBlock& block, uint64_t frame)
 {
-	class BlockLock
+	class Sync
 	{
 	public:
-		BlockLock(Cond& c, bool& i, volatile bool& s)
+		Sync(Cond& c, bool& i, volatile bool& s)
 			: cond(c), in_get_block(i), stopped(s), l(c.getMutex())
 		{
 			while (in_get_block && !stopped)
@@ -252,7 +252,7 @@ inline int PacketStream::getPacketBlock(PacketBlock& block, uint64_t frame)
 			in_get_block = true;
 		}
 
-		~BlockLock()
+		~Sync()
 		{
 			in_get_block = false;
 			cond.signal();
@@ -263,7 +263,7 @@ inline int PacketStream::getPacketBlock(PacketBlock& block, uint64_t frame)
 		bool& in_get_block;
 		volatile bool& stopped;
 		MutexLock l;
-	} b(block_cond, in_get_block, stopped);
+	} s(block_cond, in_get_block, stopped);
 
 	if (stopped)
 		return 0;
@@ -297,7 +297,7 @@ inline int PacketStream::getPacketBlock(PacketBlock& block, uint64_t frame)
 
 inline bool PacketStream::hasPendingPacket()
 {
-	return (nb_blocked_packets > 0);
+	return (num_blocked_packets > 0);
 }
 
 PacketStream::PacketStream(genericSocket *s, GeneralData *d, FramePolicy fp,
@@ -306,16 +306,16 @@ PacketStream::PacketStream(genericSocket *s, GeneralData *d, FramePolicy fp,
 	: socket(s),
 	  general_data(d),
 	  frame_policy(fp),
-	  nb_packets(MaxBufferFrames * general_data->packetsPerFrame),
+	  tot_num_packets(MaxBufferFrames * general_data->packetsPerFrame),
 	  packets_caught(0),
 	  frames_caught(0),
 	  last_frame(0),
-	  nb_blocked_packets(0),
+	  num_blocked_packets(0),
 	  odd_numbering(false),
 	  first_packet(true),
 	  stopped(false),
 	  read_idx(0),
-	  write_sem(nb_packets),
+	  write_sem(tot_num_packets),
 	  read_sem(0),
 	  in_get_block(false),
 	  cpu_aff_mask(cpu_mask)
@@ -366,7 +366,7 @@ void PacketStream::initMem(unsigned long node_mask, int max_node)
 	packet_len += header_pad;
 	misalign = packet_len % data_align;
 	packet_len += misalign ? (data_align - misalign) : 0;
-	packet.alloc(packet_len * nb_packets, node_mask, max_node);
+	packet.alloc(packet_len * tot_num_packets, node_mask, max_node);
 }
 
 void PacketStream::initThread()
@@ -474,11 +474,11 @@ inline void DefaultFrameAssembler::expand4Bits(char *dst, char *src,
 		FILE_LOG(logWARNING) << "len misalignment: "
 				     << "src_size=" << src_size << ", "
 				     << "blk=" << blk;
-	int nb_blocks = src_size / blk;
+	int num_blocks = src_size / blk;
 	const __m128i *src128 = (const __m128i *) src;
 	__m128i *dst128 = (__m128i *) dst;
 	const __m128i mask = _mm_set1_epi8(0xf);
-	for (int i = 0; i < nb_blocks; ++i) {
+	for (int i = 0; i < num_blocks; ++i) {
 		__m128i pack4_raw = _mm_load_si128(src128++);
 		__m128i pack4_shr = _mm_srli_epi16(pack4_raw, 4);
 		__m128i ilace8_0 = _mm_and_si128(pack4_raw, mask);
@@ -614,10 +614,10 @@ DualPortFrameAssembler::PortsMask
 EigerRawFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
 				      char *buf)
 {
-	const int nb_ports = 2;
+	const int num_ports = 2;
 	const int image_size = assembler[0]->getImageSize();
 	PortsMask mask;
-	for (int i = 0; i < nb_ports; ++i, buf += image_size) {
+	for (int i = 0; i < num_ports; ++i, buf += image_size) {
 		int ret = assembler[i]->assembleFrame(frame, recv_header, buf);
 		mask.set(i, (ret == 0));
 	}
@@ -655,7 +655,7 @@ protected:
 	static const int chip_size = 256;
 	static const int chip_gap = 2;
 	static const int port_chips = 2;
-	static const int nb_ports = 2;
+	static const int num_ports = 2;
 
 	struct Geometry {
 		float pixel_size;
@@ -685,7 +685,7 @@ EigerStdFrameAssembler::Helper::Helper(GeneralData *gd, bool f)
 	src.line_size = port_chips * src.chip_size;
 	dst.pixel_size = getDstPixelBytes();
 	dst.chip_size = (chip_size + chip_gap) * dst.pixel_size;
-	dst.line_size = nb_ports * gd->nPixelsX * dst.pixel_size;
+	dst.line_size = num_ports * gd->nPixelsX * dst.pixel_size;
 	if (flipped) {
 		src.offset = (packet_lines - 1) * src.line_size;
 		src.line_size *= -1;
@@ -711,7 +711,7 @@ public:
 	virtual void assemblePackets(PacketBlock block[2]);
 
 private:
-	static const int half_module_chips = nb_ports * port_chips;
+	static const int half_module_chips = num_ports * port_chips;
 	static const int block_len = sizeof(__m128i);
 	static const int block_bits = block_len * 8;
 	static const int gap_bits = chip_gap * 8;
@@ -727,8 +727,8 @@ private:
 	struct Worker {
 		Expand4BitsHelper& h;
 
-		bool v[nb_ports], valid_data;
-		const __m128i *s[nb_ports], *src128;
+		bool v[num_ports], valid_data;
+		const __m128i *s[num_ports], *src128;
 		__m128i *dst128;
 		int dest_misalign;
 		int shift_l;
@@ -878,7 +878,7 @@ inline void Expand4BitsHelper::Worker::assemblePackets(PacketBlock block[2])
 			return;
 		for (int l = 0; l < h.packet_lines; ++l) {
 			int chip_count = 0;
-			for (int p = 0; p < h.nb_ports; ++p) {
+			for (int p = 0; p < h.num_ports; ++p) {
 				valid_data = v[p];
 				src128 = s[p];
 				for (int c = 0; c < h.port_chips; ++c) {
@@ -920,11 +920,11 @@ void CopyHelper::assemblePackets(PacketBlock block[2])
 	for (int i = 0; i < frame_packets; ++i, packet += idx_inc) {
 		Packet *line_packet[2] = {&block[0][packet],
 					  &block[1][packet]};
-		char *s[nb_ports] = {line_packet[0]->buf + src.offset,
+		char *s[num_ports] = {line_packet[0]->buf + src.offset,
 				     line_packet[1]->buf + src.offset};
 		for (int l = 0; l < packet_lines; ++l) {
 			char *ld = d;
-			for (int p = 0; p < nb_ports; ++p) {
+			for (int p = 0; p < num_ports; ++p) {
 				char *ls = s[p];
 				for (int c = 0; c < port_chips; ++c) {
 					if (line_packet[p]->valid)
@@ -973,7 +973,7 @@ EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
 {
 	PortsMask mask;
 
-	const int nb_ports = 2;
+	const int num_ports = 2;
 
 	helper->startNewFrame(buf);
 
@@ -986,7 +986,7 @@ EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
 	det_header->packetNumber = 0;
 
 	PacketBlock block[2] = {packets_per_frame, packets_per_frame};
-	for (int i = 0; i < nb_ports; ++i) {
+	for (int i = 0; i < num_ports; ++i) {
 		PacketStream *ps = a[i]->packet_stream;
 		int packet_count = ps->getPacketBlock(block[i], frame);
 		if (packet_count == 0)
@@ -1005,7 +1005,7 @@ EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
 
 	FramePolicy policy = a[0]->frame_policy;
 	bool fp_partial = (policy == slsReceiverDefs::DISCARD_PARTIAL_FRAMES);
-	if (fp_partial && (mask.count() != nb_ports))
+	if (fp_partial && (mask.count() != num_ports))
 		return PortsMask();
 
 	if (mask.any())
