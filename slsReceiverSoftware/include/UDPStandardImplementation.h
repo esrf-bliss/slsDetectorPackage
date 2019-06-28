@@ -216,6 +216,14 @@ private:
 	typedef FrameAssembler::MutexLock MutexLock;
 	typedef FrameAssembler::DualPortFrameAssembler DualPortFrameAssembler;
 
+	struct ListenerStatistics {
+		uint64_t packets_caught;
+		uint64_t frames_caught;
+		uint64_t last_frame;
+
+		void reset();
+	};
+
     /**
 	 * Delete and free member parameters
 	 */
@@ -286,6 +294,9 @@ private:
 
 	/** Listener Objects that listen to UDP and push into fifo */
 	std::vector <Listener*> listener;
+
+	/** Listener Statistics */
+	std::vector <ListenerStatistics> listenerStatistics;
 
 	/** DataProcessor Objects that pull from fifo and process data */
 	std::vector <DataProcessor*> dataProcessor;

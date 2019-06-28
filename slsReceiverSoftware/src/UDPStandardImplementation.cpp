@@ -69,7 +69,7 @@ void UDPStandardImplementation::InitializeMembers() {
 
 uint64_t UDPStandardImplementation::getTotalFramesCaught() const {
 	if (passiveMode)
-		return 0;
+		return getFramesCaught();
 
 	uint64_t sum = 0;
 	uint32_t flagsum = 0;
@@ -87,21 +87,17 @@ uint64_t UDPStandardImplementation::getTotalFramesCaught() const {
 }
 
 uint64_t UDPStandardImplementation::getFramesCaught() const {
-	if (passiveMode)
-		return 0;
 
 	uint64_t sum = 0;
-	uint32_t flagsum = 0;
 
-	for (std::vector<DataProcessor*>::const_iterator it = dataProcessor.begin(); it != dataProcessor.end(); ++it) {
-		flagsum += ((*it)->GetAcquisitionStartedFlag() ? 1 : 0);
-		sum += (*it)->GetNumFramesCaught();
+	for (std::vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it) {
+		uint64_t f = (*it)->GetNumFramesCaught();
+		if (f == 0)
+			return 0;
+		sum += f;
 	}
 
-	//no data processed
-	if (flagsum != dataProcessor.size()) return 0;
-
-	return (sum/dataProcessor.size());
+	return (sum/listener.size());
 }
 
 int64_t UDPStandardImplementation::getAcquisitionIndex() const {
@@ -422,6 +418,8 @@ int UDPStandardImplementation::setDetectorType(const detectorType d) {
 	    }
 	}
 
+	listenerStatistics.resize(numThreads);
+
 	//set up writer and callbacks
 	for (std::vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it)
 		(*it)->SetGeneralData(generalData);
@@ -462,6 +460,10 @@ void UDPStandardImplementation::setDetectorPositionId(const int i){
 void UDPStandardImplementation::resetAcquisitionCount() {
 	for (std::vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it)
 		(*it)->ResetParametersforNewAcquisition();
+
+	for (std::vector<ListenerStatistics>::iterator it = listenerStatistics.begin(); 
+	     it != listenerStatistics.end(); ++it)
+		(*it).reset();
 
 	for (std::vector<DataProcessor*>::const_iterator it = dataProcessor.begin(); it != dataProcessor.end(); ++it)
 		(*it)->ResetParametersforNewAcquisition();
@@ -568,26 +570,30 @@ void UDPStandardImplementation::stopReceiver(){
 	FILE_LOG(logINFO)  << "Status: " << runStatusType(status);
 
 
-	if (!passiveMode) {	//statistics
-		uint64_t tot = 0;
-		for (int i = 0; i < numThreads; i++) {
-			tot += dataProcessor[i]->GetNumFramesCaught();
-
-			uint64_t missingpackets = numberOfFrames*generalData->packetsPerFrame-listener[i]->GetPacketsCaught();
-			if ((int)missingpackets > 0) {
-				cprintf(RED, "\n[Port %d]\n",udpPortNum[i]);
-				cprintf(RED, "Missing Packets\t\t: %lld\n",(long long int)missingpackets);
-				cprintf(RED, "Complete Frames\t\t: %lld\n",(long long int)dataProcessor[i]->GetNumFramesCaught());
-				cprintf(RED, "Last Frame Caught\t: %lld\n",(long long int)listener[i]->GetLastFrameIndexCaught());
-			}else{
-				cprintf(GREEN, "\n[Port %d]\n",udpPortNum[i]);
-				cprintf(GREEN, "Missing Packets\t\t: %lld\n",(long long int)missingpackets);
-				cprintf(GREEN, "Complete Frames\t\t: %lld\n",(long long int)dataProcessor[i]->GetNumFramesCaught());
-				cprintf(GREEN, "Last Frame Caught\t: %lld\n",(long long int)listener[i]->GetLastFrameIndexCaught());
-			}
+	//statistics
+	uint64_t tot = 0;
+	uint64_t tot_num_packets = numberOfFrames * generalData->packetsPerFrame;
+	for (int i = 0; i < numThreads; i++) {
+		ListenerStatistics& ls = listenerStatistics[i];
+		tot += ls.frames_caught;
+		uint64_t missingpackets = tot_num_packets - ls.packets_caught;
+		if ((int)missingpackets > 0) {
+			cprintf(RED, "\n[Port %d]\n",udpPortNum[i]);
+			cprintf(RED, "Missing Packets\t\t: %lld\n",(long long int)missingpackets);
+			cprintf(RED, "Complete Frames\t\t: %lld\n",(long long int)ls.frames_caught);
+			cprintf(RED, "Last Frame Caught\t: %lld\n",(long long int)ls.last_frame);
+		}else{
+			cprintf(GREEN, "\n[Port %d]\n",udpPortNum[i]);
+			cprintf(GREEN, "Missing Packets\t\t: %lld\n",(long long int)missingpackets);
+			cprintf(GREEN, "Complete Frames\t\t: %lld\n",(long long int)ls.frames_caught);
+			cprintf(GREEN, "Last Frame Caught\t: %lld\n",(long long int)ls.last_frame);
 		}
+	}
+
+	if (!passiveMode) {
 		if(!activated)
 			cprintf(RED,"Note: Deactivated Receiver\n");
+
 		//callback
 		if (acquisitionFinishedCallBack)
 			acquisitionFinishedCallBack((tot/numThreads), pAcquisitionFinished);
@@ -640,6 +646,16 @@ void UDPStandardImplementation::startReadout(){
 		status = TRANSMITTING;
 		FILE_LOG(logINFO) << "Status: Transmitting";
 	}
+
+	// statistics
+	for (int i = 0; i < numThreads; ++i) {
+		Listener *l = listener[i];
+		ListenerStatistics& ls = listenerStatistics[i];
+		ls.packets_caught = l->GetPacketsCaught();
+		ls.frames_caught = l->GetNumFramesCaught();
+		ls.last_frame = l->GetLastFrameIndexCaught();
+	}
+
 	//shut down udp sockets so as to make listeners push dummy (end) packets for processors
 	shutDownUDPSockets();
 }
@@ -904,4 +920,12 @@ int UDPStandardImplementation::getImage(receiver_image_data& image_data)
 						       image_data.buffer);
 	bool got_data = image_data.portsMask.any();
 	return got_data ? OK : FAIL;
+}
+
+/* statistics */
+void UDPStandardImplementation::ListenerStatistics::reset()
+{
+	packets_caught = 0;
+	frames_caught = 0;
+	last_frame = 0;
 }

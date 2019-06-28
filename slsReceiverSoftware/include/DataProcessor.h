@@ -83,12 +83,6 @@ class DataProcessor : private virtual slsReceiverDefs, public ThreadObject {
 	uint64_t GetNumTotalFramesCaught();
 
 	/**
-	 * Get Frames Complete Caught for each real time acquisition (eg. for each scan)
-	 * @return number of frames caught for each scan
-	 */
-	uint64_t GetNumFramesCaught();
-
-	/**
 	 * Gets Actual Current Frame Index (that has not been subtracted from firstAcquisitionIndex) thats been processed for an entire  acquisition (including all scans)
 	 * @return -1 if no frames have been caught, else current frame index (represents all scans too)
 	 */
@@ -361,9 +355,6 @@ class DataProcessor : private virtual slsReceiverDefs, public ThreadObject {
 	//for statistics
 	/**Number of complete frames caught for an entire acquisition (including all scans) */
 	uint64_t numTotalFramesCaught;
-
-	/** Number of complete frames caught for each real time acquisition (eg. for each scan) */
-	uint64_t numFramesCaught;
 
 	/** Frame Number of latest processed frame number of an entire Acquisition (including all scans) */
 	uint64_t currentFrameIndex;

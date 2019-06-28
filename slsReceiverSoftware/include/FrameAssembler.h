@@ -222,6 +222,10 @@ class PacketStream {
 	bool hasPendingPacket();
 	void stop();
 
+	int getNumPacketsCaught();
+	uint64_t getNumFramesCaught();
+	uint64_t getLastFrameIndex();
+
  private:
 	friend class PacketBlock;
 
@@ -244,6 +248,9 @@ class PacketStream {
 	GeneralData *general_data;
 	FramePolicy frame_policy;
 	const int nb_packets;
+	volatile int packets_caught;
+	volatile uint64_t frames_caught;
+	volatile uint64_t last_frame;
 	int header_pad;
 	int packet_len;
 	MmapMem packet;
@@ -283,6 +290,10 @@ class DefaultFrameAssembler {
 
 	bool hasPendingPacket();
 	int getImageSize();
+
+	int getNumPacketsCaught();
+	uint64_t getNumFramesCaught();
+	uint64_t getLastFrameIndex();
 
  protected:
 	friend class EigerStdFrameAssembler;

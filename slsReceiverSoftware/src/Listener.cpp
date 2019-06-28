@@ -50,8 +50,6 @@ Listener::Listener(int ind, detectorType dtype, Fifo*& f, volatile runStatus* s,
 		measurementStartedFlag(false),
 		firstAcquisitionIndex(0),
 		firstMeasurementIndex(0),
-		numPacketsCaught(0),
-		lastCaughtFrameIndex(0),
 		currentFrameIndex(0),
 		udpSocketAlive(0),
 		numPacketsStatistic(0),
@@ -100,11 +98,15 @@ bool Listener::GetMeasurementStartedFlag(){
 }
 
 uint64_t Listener::GetPacketsCaught() {
-	return numPacketsCaught;
+	return frameAssembler ? frameAssembler->getNumPacketsCaught() : 0;
+}
+
+uint64_t Listener::GetNumFramesCaught() {
+	return frameAssembler ? frameAssembler->getNumFramesCaught() : 0;
 }
 
 uint64_t Listener::GetLastFrameIndexCaught() {
-	return lastCaughtFrameIndex;
+	return frameAssembler ? frameAssembler->getLastFrameIndex() : 0;
 }
 
 /** setters */
@@ -127,14 +129,12 @@ void Listener::ResetParametersforNewAcquisition() {
 	acquisitionStartedFlag = false;
 	firstAcquisitionIndex = 0;
 	currentFrameIndex = 0;
-	lastCaughtFrameIndex = 0;
 }
 
 
 void Listener::ResetParametersforNewMeasurement() {
     runningFlag = false;
 	measurementStartedFlag = false;
-	numPacketsCaught = 0;
 	firstMeasurementIndex = 0;
 	numPacketsStatistic = 0;
 	numFramesStatistic = 0;
@@ -455,10 +455,7 @@ int Listener::ListenToAnImage(sls_receiver_header* recv_header, char* buf) {
 
 	//update parameters
 	numpackets = recv_header->detHeader.packetNumber;
-	numPacketsCaught += numpackets;
 	numPacketsStatistic += numpackets;
-
-	lastCaughtFrameIndex = fnum;
 
 	if (!measurementStartedFlag)
 		RecordFirstIndices(fnum);

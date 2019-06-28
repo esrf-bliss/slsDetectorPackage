@@ -78,6 +78,12 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	uint64_t GetPacketsCaught();
 
 	/**
+	 * Get Frames Complete Caught for each real time acquisition (eg. for each scan)
+	 * @return number of frames caught for each scan
+	 */
+	uint64_t GetNumFramesCaught();
+
+	/**
 	 * Get Last Frame index caught
 	 * @return last frame index caught
 	 */
@@ -294,14 +300,6 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 
 	/** Frame Number of First Frame for each real time acquisition (eg. for each scan) */
 	uint64_t firstMeasurementIndex;
-
-
-	// for acquisition summary
-	/** Number of complete Packets caught for each real time acquisition (eg. for each scan (start& stop of receiver)) */
-	volatile uint64_t numPacketsCaught;
-
-	/** Last Frame Index caught  from udp network */
-	uint64_t lastCaughtFrameIndex;
 
 
 	// parameters to acquire image

@@ -269,6 +269,7 @@ inline int PacketStream::getPacketBlock(PacketBlock& block, uint64_t frame)
 		return 0;
 
 	int pnum;
+	bool full_frame = true;
 	for (pnum = 0; pnum < block.len; ++pnum) {
 		Packet& p = block[pnum];
 		int idx = getNextPacket(p, frame, pnum);
@@ -278,12 +279,18 @@ inline int PacketStream::getPacketBlock(PacketBlock& block, uint64_t frame)
 		}
 		if (p.valid)
 			continue;
+		full_frame = false;
 		while (++pnum < block.len)
 			block[pnum].valid = false;
 		if (canDiscardFrame(pnum))
 			return 0;
 		break;
 	}
+
+	if (full_frame)
+		++frames_caught;
+	if (frame > last_frame)
+		last_frame = frame;
 
 	return pnum;
 }
@@ -300,6 +307,9 @@ PacketStream::PacketStream(genericSocket *s, GeneralData *d, FramePolicy fp,
 	  general_data(d),
 	  frame_policy(fp),
 	  nb_packets(MaxBufferFrames * general_data->packetsPerFrame),
+	  packets_caught(0),
+	  frames_caught(0),
+	  last_frame(0),
 	  nb_blocked_packets(0),
 	  odd_numbering(false),
 	  first_packet(true),
@@ -328,6 +338,21 @@ void PacketStream::stop()
 	write_sem.post();
 	read_sem.post();
 	block_cond.signal();
+}
+
+inline int PacketStream::getNumPacketsCaught()
+{
+	return packets_caught;
+}
+
+inline uint64_t PacketStream::getNumFramesCaught()
+{
+	return frames_caught;
+}
+
+inline uint64_t PacketStream::getLastFrameIndex()
+{
+	return last_frame;
 }
 
 void PacketStream::initMem(unsigned long node_mask, int max_node)
@@ -387,6 +412,7 @@ void PacketStream::threadFunction()
 		if (ret < 0)
 			break;
 		read_sem.post();
+		++packets_caught;
 	}
 }
 
@@ -534,6 +560,21 @@ int DefaultFrameAssembler::assembleFrame(uint64_t frame,
 	det_header->packetNumber = num_packets;
 
 	return 0;
+}
+
+int DefaultFrameAssembler::getNumPacketsCaught()
+{
+	return packet_stream->getNumPacketsCaught();
+}
+
+uint64_t DefaultFrameAssembler::getNumFramesCaught()
+{
+	return packet_stream->getNumFramesCaught();
+}
+
+uint64_t DefaultFrameAssembler::getLastFrameIndex()
+{
+	return packet_stream->getLastFrameIndex();
 }
 
 
