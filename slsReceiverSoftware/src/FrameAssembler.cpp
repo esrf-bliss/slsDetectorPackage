@@ -116,13 +116,13 @@ inline void Packet::setInvalid()
  */
 
 inline PacketBlock::PacketBlock(int l)
-	: len(l), ps(NULL), idx(-1)
+	: len(l), ps(NULL)
 {
 }
 
 inline PacketBlock::~PacketBlock()
 {
-	if (ps && (idx >= 0))
+	if (ps)
 		ps->releasePacketBlock(*this);
 }
 
@@ -144,11 +144,13 @@ inline void PacketStream::releasePacketBlock(PacketBlock& block)
 {
 	MutexLock l(block_cond.getMutex());
 
-	int n = getIndexDiff(block.idx, read_idx);
-	for (int i = 0; (i < block.len) && block[i].valid; ++i, ++n)
-		waiting_mask[n] = 0;
-	if (block.idx != read_idx)
-		return;
+	int *si = block.idx;
+	for (int i = 0; i < block.len; ++i, ++si) {
+		if (block[i].valid) {
+			int n = getIndexDiff(*si, read_idx);
+			waiting_mask[n] = 0;
+		}
+	}
 	while (num_blocked_packets && !waiting_mask[0]) {
 		write_sem.post();
 		--num_blocked_packets;
@@ -192,6 +194,7 @@ inline int PacketStream::getNextPacket(Packet& np, uint64_t frame, int num)
 	for (int i = 0; (i < tot_num_packets) && !stopped; ++i, incIndex(idx)) {
 		int n = getIndexDiff(idx, read_idx);
 		if (n == num_blocked_packets) {
+			// release the mutex while waiting for packets
 			Mutex& mutex = block_cond.getMutex();
 			mutex.unlock();
 			read_sem.wait();
@@ -268,31 +271,24 @@ inline int PacketStream::getPacketBlock(PacketBlock& block, uint64_t frame)
 	if (stopped)
 		return 0;
 
-	int pnum;
-	bool full_frame = true;
-	for (pnum = 0; pnum < block.len; ++pnum) {
-		Packet& p = block[pnum];
-		int idx = getNextPacket(p, frame, pnum);
-		if (pnum == 0) {
-			block.ps = this;
-			block.idx = idx;
-		}
+	int pnum = 0;
+	block.ps = this;
+	int *si = block.idx;
+	for (int i = 0; i < block.len; ++i, ++si) {
+		Packet& p = block[i];
+		*si = getNextPacket(p, frame, i);
 		if (p.valid)
-			continue;
-		full_frame = false;
-		while (++pnum < block.len)
-			block[pnum].valid = false;
-		if (canDiscardFrame(pnum))
-			return 0;
-		break;
+			++pnum;
 	}
 
+	bool full_frame = (pnum == block.len);
 	if (full_frame)
 		++frames_caught;
 	if (frame > last_frame)
 		last_frame = frame;
 
-	return pnum;
+	bool ok = (full_frame || !canDiscardFrame(pnum));
+	return ok ? pnum : 0;
 }
 
 inline bool PacketStream::hasPendingPacket()

@@ -200,7 +200,7 @@ struct PacketBlock {
 private:
 	friend class PacketStream;
 	PacketStream *ps;
-	int idx;
+	int idx[MaxBufferPackets];
 };
 
 
