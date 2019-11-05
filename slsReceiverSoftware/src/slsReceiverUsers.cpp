@@ -61,3 +61,7 @@ void slsReceiverUsers::setFifoNodeAffinity(unsigned long fifo_node_mask, int max
 int slsReceiverUsers::getImage(slsReceiverDefs::receiver_image_data& image_data) {
 	return receiver->getImage(image_data);
 }
+
+void slsReceiverUsers::clearAllBuffers() {
+	receiver->clearAllBuffers();
+}

@@ -104,6 +104,11 @@ public:
 	 */
 	int getImage(slsReceiverDefs::receiver_image_data& image_data);
 
+	/**
+	 * Clear all buffers
+	 */
+	void clearAllBuffers();
+
 	//receiver object
 	slsReceiver* receiver;
 };

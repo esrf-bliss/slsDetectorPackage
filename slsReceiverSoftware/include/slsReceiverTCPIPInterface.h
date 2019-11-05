@@ -108,6 +108,11 @@ class slsReceiverTCPIPInterface : private virtual slsReceiverDefs {
 	 */
 	int getImage(receiver_image_data& image_data);
 
+	/**
+	 * Clear all buffers
+	 */
+	void clearAllBuffers();
+
  private:
 
 	/**

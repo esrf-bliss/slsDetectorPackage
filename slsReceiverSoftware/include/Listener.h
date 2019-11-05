@@ -173,6 +173,11 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
     static FrameAssembler::DualPortFrameAssembler *
       CreateDualPortFrameAssembler(Listener *listener[2]);
 
+    /**
+     * Clear all buffers
+     */
+    void ClearAllBuffers();
+
  private:
 
 	/**

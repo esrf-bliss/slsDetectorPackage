@@ -814,6 +814,11 @@ class UDPInterface {
 	 */
 	virtual int getImage(slsReceiverDefs::receiver_image_data& image_data) = 0;
 
+	/**
+	 * Clear all buffers
+	 */
+	virtual void clearAllBuffers() = 0;
+
 
  protected:
  private:

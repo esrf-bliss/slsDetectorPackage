@@ -209,6 +209,11 @@ class UDPStandardImplementation: private virtual slsReceiverDefs, public UDPBase
 	 */
 	int getImage(receiver_image_data& image_data);
 
+	/**
+	 * Clear all buffers
+	 */
+	void clearAllBuffers();
+
 
 private:
 	typedef FrameAssembler::Cond Cond;

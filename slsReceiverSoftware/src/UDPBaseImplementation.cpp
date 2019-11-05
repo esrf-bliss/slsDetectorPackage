@@ -850,4 +850,10 @@ int UDPBaseImplementation::getImage(slsReceiverDefs::receiver_image_data& image_
 	return FAIL;
 }
 
+void UDPBaseImplementation::clearAllBuffers()
+{
+	FILE_LOG(logERROR) << __AT__ << " doing nothing...";
+	FILE_LOG(logERROR) << __AT__ << " must be overridden by child classes";
+}
+
 //#endif

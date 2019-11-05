@@ -49,7 +49,8 @@ void MmappedRegion::alloc(size_t size, unsigned long node_mask, int max_node)
 			throw bad_mmap_alloc("Could not bind packet memory");
 		}
 	}
-	memset(ptr, 0, len);
+
+	clear();
 }
 
 void MmappedRegion::release()
@@ -65,6 +66,10 @@ inline char *MmappedRegion::getPtr()
 	return ptr;
 }
 
+void MmappedRegion::clear()
+{
+	memset(ptr, 0, len);
+}
 
 /**
  * Semaphore
@@ -336,6 +341,11 @@ void PacketStream::stop()
 	block_cond.signal();
 }
 
+void PacketStream::clearBuffer()
+{
+	packet.clear();
+}
+
 inline int PacketStream::getNumPacketsCaught()
 {
 	return packets_caught;
@@ -573,6 +583,11 @@ uint64_t DefaultFrameAssembler::getLastFrameIndex()
 	return packet_stream->getLastFrameIndex();
 }
 
+
+void DefaultFrameAssembler::clearBuffers()
+{
+	packet_stream->clearBuffer();
+}
 
 /**
  * DualPortFrameAssembler

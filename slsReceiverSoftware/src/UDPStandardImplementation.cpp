@@ -929,3 +929,9 @@ void UDPStandardImplementation::ListenerStatistics::reset()
 	frames_caught = 0;
 	last_frame = 0;
 }
+
+void UDPStandardImplementation::clearAllBuffers()
+{
+	for (std::vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it)
+		(*it)->ClearAllBuffers();
+}

@@ -723,6 +723,11 @@ class UDPBaseImplementation : protected virtual slsReceiverDefs, public UDPInter
 	 */
 	int getImage(slsReceiverDefs::receiver_image_data& image_data);
 
+	/**
+	 * Clear all buffers
+	 */
+	void clearAllBuffers();
+
  protected:
 
 	/*************************************************************************

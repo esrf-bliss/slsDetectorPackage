@@ -3004,3 +3004,7 @@ int slsReceiverTCPIPInterface::getImage(slsReceiverDefs::receiver_image_data& im
 {
 	return receiverBase->getImage(image_data);
 }
+
+void slsReceiverTCPIPInterface::clearAllBuffers() {
+	receiverBase->clearAllBuffers();
+}

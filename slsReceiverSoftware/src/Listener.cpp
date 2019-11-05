@@ -254,6 +254,7 @@ void Listener::ShutDownUDPSocket() {
 		    sem_wait(&semaphore_socket);
 		if (frameAssembler)
 			delete frameAssembler;
+		frameAssembler = NULL;
         delete udpSocket;
         udpSocket = 0;
 	    sem_destroy(&semaphore_socket);
@@ -283,6 +284,7 @@ int Listener::CreateDummySocketForUDPSocketBufferSize(uint32_t s) {
         udpSocket->ShutDownSocket();
 	if (frameAssembler)
 		delete frameAssembler;
+	frameAssembler = NULL;
         delete udpSocket;
         udpSocket = 0;
     }
@@ -401,6 +403,11 @@ DualPortFrameAssembler *Listener::CreateDualPortFrameAssembler(Listener *listene
 	return fa;
 }
 
+void Listener::ClearAllBuffers()
+{
+	if (frameAssembler)
+		frameAssembler->clearBuffers();
+}
 
 void Listener::StopListening(char* buf) {
 	uint32_t* byte_count = (uint32_t *) buf;

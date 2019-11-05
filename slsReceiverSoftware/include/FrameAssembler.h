@@ -53,6 +53,8 @@ public:
 	void release();
 	char *getPtr();
 
+	void clear();
+
 private:
 	char *ptr;
 	size_t len;
@@ -225,6 +227,8 @@ class PacketStream {
 	uint64_t getNumFramesCaught();
 	uint64_t getLastFrameIndex();
 
+	void clearBuffer();
+
  private:
 	friend class PacketBlock;
 
@@ -293,6 +297,8 @@ class DefaultFrameAssembler {
 	int getNumPacketsCaught();
 	uint64_t getNumFramesCaught();
 	uint64_t getLastFrameIndex();
+
+	void clearBuffers();
 
  protected:
 	friend class EigerStdFrameAssembler;
