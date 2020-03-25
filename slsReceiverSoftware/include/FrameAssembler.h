@@ -192,12 +192,12 @@ struct Packet {
 
 struct PacketBlock {
 	Packet packet[MaxBufferPackets];
-	const int len;
+	const unsigned int len;
 
 	PacketBlock(int l);
 	~PacketBlock();
 
-	Packet& operator[](int i);
+	Packet& operator[](unsigned int i);
 
 private:
 	friend class PacketStream;
@@ -218,7 +218,7 @@ class PacketStream {
 		     unsigned long node_mask, int max_node);
 	~PacketStream();
 
-	int getPacketBlock(PacketBlock& block, uint64_t frame);
+	unsigned int getPacketBlock(PacketBlock& block, uint64_t frame);
 
 	bool hasPendingPacket();
 	void stop();
@@ -243,7 +243,7 @@ class PacketStream {
 	void threadFunction();
 
 	bool canDiscardFrame(int received_packets);
-	int getNextPacket(Packet& np, uint64_t frame, int pnum);
+	int getNextPacket(Packet& np, uint64_t frame, unsigned int pnum);
 
 	void releasePacketBlock(PacketBlock& block);
 
@@ -251,9 +251,10 @@ class PacketStream {
 	GeneralData *general_data;
 	FramePolicy frame_policy;
 	const int tot_num_packets;
-	volatile int packets_caught;
-	volatile uint64_t frames_caught;
-	volatile uint64_t last_frame;
+	Mutex mutex;
+	int packets_caught;
+	uint64_t frames_caught;
+	uint64_t last_frame;
 	int header_pad;
 	int packet_len;
 	MmappedRegion packet;
@@ -261,7 +262,7 @@ class PacketStream {
 	std::bitset<MaxBufferPackets> waiting_mask;
 	bool odd_numbering;
 	bool first_packet;
-	volatile bool stopped;
+	bool stopped;
 	int read_idx;
 	Semaphore write_sem;
 	Semaphore read_sem;
@@ -311,7 +312,6 @@ class DefaultFrameAssembler {
 	PacketStreamPtr packet_stream;
 	GeneralData *general_data;
 	FramePolicy frame_policy;
-	volatile bool stopped;
 	bool expand_4bits;
 };
 

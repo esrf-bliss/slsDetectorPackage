@@ -131,7 +131,7 @@ inline PacketBlock::~PacketBlock()
 		ps->releasePacketBlock(*this);
 }
 
-inline Packet& PacketBlock::operator [](int i)
+inline Packet& PacketBlock::operator [](unsigned int i)
 {
 	return packet[i];
 }
@@ -150,7 +150,7 @@ inline void PacketStream::releasePacketBlock(PacketBlock& block)
 	MutexLock l(block_cond.getMutex());
 
 	int *si = block.idx;
-	for (int i = 0; i < block.len; ++i, ++si) {
+	for (unsigned int i = 0; i < block.len; ++i, ++si) {
 		if (block[i].valid) {
 			int n = getIndexDiff(*si, read_idx);
 			waiting_mask[n] = 0;
@@ -191,7 +191,8 @@ inline bool PacketStream::canDiscardFrame(int received_packets)
 		 !received_packets));
 }
 
-inline int PacketStream::getNextPacket(Packet& np, uint64_t frame, int num)
+inline int PacketStream::getNextPacket(Packet& np, uint64_t frame,
+				       unsigned int num)
 {
 	GeneralData& gd = *general_data;
 
@@ -221,7 +222,7 @@ inline int PacketStream::getNextPacket(Packet& np, uint64_t frame, int num)
 			packet_frame = header->frameNumber;
 			packet_number = header->packetNumber;
 		} else {
-			int thread_idx;
+			int thread_idx = 0;
 			if (first_packet && 
 			    (gd.myDetectorType == slsReceiverDefs::GOTTHARD)) {
 				odd_numbering = gd.SetOddStartingPacket(thread_idx, p);
@@ -247,12 +248,13 @@ inline int PacketStream::getNextPacket(Packet& np, uint64_t frame, int num)
 	return -1;
 }
 
-inline int PacketStream::getPacketBlock(PacketBlock& block, uint64_t frame)
+inline unsigned int PacketStream::getPacketBlock(PacketBlock& block,
+						 uint64_t frame)
 {
 	class Sync
 	{
 	public:
-		Sync(Cond& c, bool& i, volatile bool& s)
+		Sync(Cond& c, bool& i, bool& s)
 			: cond(c), in_get_block(i), stopped(s), l(c.getMutex())
 		{
 			while (in_get_block && !stopped)
@@ -269,17 +271,17 @@ inline int PacketStream::getPacketBlock(PacketBlock& block, uint64_t frame)
 	private:
 		Cond& cond;
 		bool& in_get_block;
-		volatile bool& stopped;
+		bool& stopped;
 		MutexLock l;
 	} s(block_cond, in_get_block, stopped);
 
 	if (stopped)
 		return 0;
 
-	int pnum = 0;
+	unsigned int pnum = 0;
 	block.ps = this;
 	int *si = block.idx;
-	for (int i = 0; i < block.len; ++i, ++si) {
+	for (unsigned int i = 0; i < block.len; ++i, ++si) {
 		Packet& p = block[i];
 		*si = getNextPacket(p, frame, i);
 		if (p.valid)
@@ -287,10 +289,13 @@ inline int PacketStream::getPacketBlock(PacketBlock& block, uint64_t frame)
 	}
 
 	bool full_frame = (pnum == block.len);
-	if (full_frame)
-		++frames_caught;
-	if (frame > last_frame)
-		last_frame = frame;
+	{
+		MutexLock l(mutex);
+		if (full_frame)
+			++frames_caught;
+		if (frame > last_frame)
+			last_frame = frame;
+	}
 
 	bool ok = (full_frame || !canDiscardFrame(pnum));
 	return ok ? pnum : 0;
@@ -335,10 +340,11 @@ PacketStream::~PacketStream()
 
 void PacketStream::stop()
 {
+	MutexLock l(block_cond.getMutex());
 	stopped = true;
+	block_cond.signal();
 	write_sem.post();
 	read_sem.post();
-	block_cond.signal();
 }
 
 void PacketStream::clearBuffer()
@@ -348,16 +354,19 @@ void PacketStream::clearBuffer()
 
 inline int PacketStream::getNumPacketsCaught()
 {
+	MutexLock l(mutex);
 	return packets_caught;
 }
 
 inline uint64_t PacketStream::getNumFramesCaught()
 {
+	MutexLock l(mutex);
 	return frames_caught;
 }
 
 inline uint64_t PacketStream::getLastFrameIndex()
 {
+	MutexLock l(mutex);
 	return last_frame;
 }
 
@@ -409,16 +418,22 @@ void PacketStream::threadFunction()
 						 "cpu affinity mask");
 	}
 
-	for (int write_idx = 0; !stopped; incIndex(write_idx)) {
+	for (int write_idx = 0; true; incIndex(write_idx)) {
 		write_sem.wait();
-		if (stopped)
-			break;
+		{
+			MutexLock l(block_cond.getMutex());
+			if (stopped)
+				break;
+		}
 		char *p = packetPtr(write_idx);
 		int ret = socket->ReceiveDataOnly(p);
 		if (ret < 0)
 			break;
 		read_sem.post();
-		++packets_caught;
+		{
+			MutexLock l(mutex);
+			++packets_caught;
+		}
 	}
 }
 
@@ -435,7 +450,7 @@ DefaultFrameAssembler::DefaultFrameAssembler(genericSocket *s, GeneralData *d,
 	: packet_stream(new PacketStream(s, d, fp, cpu_mask,
 					 node_mask, max_node)),
 	  general_data(d),
-	  frame_policy(fp), stopped(false), expand_4bits(e4b)
+	  frame_policy(fp), expand_4bits(e4b)
 {
 }
 
@@ -446,7 +461,6 @@ DefaultFrameAssembler::~DefaultFrameAssembler()
 
 void DefaultFrameAssembler::stop()
 {
-	stopped = true;
 	packet_stream->stop();
 }
 
@@ -476,10 +490,11 @@ inline void DefaultFrameAssembler::expand4Bits(char *dst, char *src,
 	}
 
 	const int blk = sizeof(__m128i);
-	if ((src_size % blk) != 0)
+	if ((src_size % blk) != 0) {
 		FILE_LOG(logWARNING) << "len misalignment: "
 				     << "src_size=" << src_size << ", "
 				     << "blk=" << blk;
+	}
 	int num_blocks = src_size / blk;
 	const __m128i *src128 = (const __m128i *) src;
 	__m128i *dst128 = (__m128i *) dst;
