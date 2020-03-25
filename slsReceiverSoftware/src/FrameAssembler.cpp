@@ -594,7 +594,7 @@ void DefaultFrameAssembler::clearBuffers()
  */
 
 DualPortFrameAssembler::DualPortFrameAssembler(DefaultFrameAssembler *a[2])
-	: assembler({a[0], a[1]})
+	: assembler{a[0], a[1]}
 {}
 
 DualPortFrameAssembler::~DualPortFrameAssembler()
@@ -643,6 +643,7 @@ EigerRawFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
 class EigerStdFrameAssembler::Helper {
 public:
 	Helper(GeneralData *gd, bool f);
+	virtual ~Helper() {}
 
 	float getSrcPixelBytes()
 	{
@@ -655,12 +656,7 @@ public:
 		return getSrcPixelBytes() * factor;
 	}
 
-	void startNewFrame(char *d)
-	{
-		buf = d;
-	}
-
-	virtual void assemblePackets(PacketBlock block[2]) = 0;
+	virtual void assemblePackets(PacketBlock block[2], char *buf) = 0;
 
 protected:
 	static const int chip_size = 256;
@@ -683,7 +679,6 @@ protected:
 	Geometry dst;
 	int first_idx;
 	int idx_inc;
-	char *buf;
 };
 
 EigerStdFrameAssembler::Helper::Helper(GeneralData *gd, bool f)
@@ -719,7 +714,7 @@ class Expand4BitsHelper : public EigerStdFrameAssembler::Helper {
 public:
 	Expand4BitsHelper(GeneralData *gd, bool flipped);
 
-	virtual void assemblePackets(PacketBlock block[2]);
+	virtual void assemblePackets(PacketBlock block[2], char *buf) override;
 
 private:
 	static const int half_module_chips = num_ports * port_chips;
@@ -749,12 +744,12 @@ private:
 		Worker(Expand4BitsHelper& helper);
 
 		int load_packet(PacketBlock block[2], int packet);
-		void load_dst128();
+		void load_dst128(char *buf);
 		void load_shift_store128();
 		void pad_dst128();
 		void sync_dst128();
 
-		void assemblePackets(PacketBlock block[2]);
+		void assemblePackets(PacketBlock block[2], char *buf);
 	};
 };
 
@@ -791,9 +786,9 @@ inline int Expand4BitsHelper::Worker::load_packet(PacketBlock block[2],
 	return 0;
 }
 
-inline void Expand4BitsHelper::Worker::load_dst128()
+inline void Expand4BitsHelper::Worker::load_dst128(char *buf)
 {
-	char *d = h.buf + h.dst.offset;
+	char *d = buf + h.dst.offset;
 	dest_misalign = ((unsigned long) d & 15);
 	dst128 = (__m128i *) (d - dest_misalign);
 	shift_l = dest_misalign * 8;
@@ -879,11 +874,12 @@ inline void Expand4BitsHelper::Worker::sync_dst128()
 	}
 }
 
-inline void Expand4BitsHelper::Worker::assemblePackets(PacketBlock block[2])
+inline void Expand4BitsHelper::Worker::assemblePackets(PacketBlock block[2],
+						       char *buf)
 {
 	const int& hm_chips = h.half_module_chips;
 	int packet = h.first_idx;
-	load_dst128();
+	load_dst128(buf);
 	for (int i = 0; i < h.frame_packets; ++i, packet += h.idx_inc) {
 		if (load_packet(block, packet) < 0)
 			return;
@@ -905,10 +901,10 @@ inline void Expand4BitsHelper::Worker::assemblePackets(PacketBlock block[2])
 	sync_dst128();
 }
 
-void Expand4BitsHelper::assemblePackets(PacketBlock block[2])
+void Expand4BitsHelper::assemblePackets(PacketBlock block[2], char *buf)
 {
 	Worker w(*this);
-	w.assemblePackets(block);
+	w.assemblePackets(block, buf);
 }
 
 /**
@@ -921,10 +917,10 @@ public:
 		: Helper(gd, flipped)
 	{}
 	
-	virtual void assemblePackets(PacketBlock block[2]);
+	virtual void assemblePackets(PacketBlock block[2], char *buf) override;
 };
 
-void CopyHelper::assemblePackets(PacketBlock block[2])
+void CopyHelper::assemblePackets(PacketBlock block[2], char *buf)
 {
 	int packet = first_idx;
 	char *d = buf + dst.offset;
@@ -986,8 +982,6 @@ EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
 
 	const int num_ports = 2;
 
-	helper->startNewFrame(buf);
-
 	DefaultFrameAssembler **a = assembler;
 	bool header_empty = true;
 	const int packets_per_frame = a[0]->general_data->packetsPerFrame;
@@ -1020,7 +1014,7 @@ EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
 		return PortsMask();
 
 	if (mask.any())
-		helper->assemblePackets(block);
+		helper->assemblePackets(block, buf);
 
 	return mask;
 }
