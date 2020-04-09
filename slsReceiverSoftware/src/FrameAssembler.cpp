@@ -5,6 +5,7 @@
  ***********************************************/
 
 #include "FrameAssembler.h"
+#include "Timestamp.h"
 
 #include <emmintrin.h>
 
@@ -299,7 +300,8 @@ PacketStream::PacketStream(genericSocket *s, GeneralData *d, FramePolicy fp,
 	  write_sem(tot_num_packets),
 	  read_sem(0),
 	  in_get_block(false),
-	  cpu_aff_mask(cpu_mask)
+	  cpu_aff_mask(cpu_mask),
+	  packet_delay_stat(1e6)
 {
 	initMem(node_mask, max_node);
 	initThread();
@@ -311,6 +313,10 @@ PacketStream::~PacketStream()
 	void *r;
 	pthread_join(thread, &r);
 	usleep(5000);	// give reader thread time to exit getPacket
+	std::ostringstream os;
+	os << "[" << socket->getPortNumber() << "]: "
+	   << "packet_delay_stat=" << packet_delay_stat.calcLinRegress();
+	std::cout << os.str() << std::endl;
 }
 
 void PacketStream::stop()
@@ -393,6 +399,8 @@ void PacketStream::threadFunction()
 						 "cpu affinity mask");
 	}
 
+	Timestamp t0;
+
 	for (int write_idx = 0; true; incIndex(write_idx)) {
 		write_sem.wait();
 		{
@@ -404,6 +412,17 @@ void PacketStream::threadFunction()
 		int ret = socket->ReceiveDataOnly(p);
 		if (ret < 0)
 			break;
+
+		DetHeader *header = (DetHeader *) p;
+		long frame_packets = general_data->packetsPerFrame;
+		long packet_idx = ((header->frameNumber - 1) * frame_packets
+				   + header->packetNumber);
+		Timestamp t;
+		t.latchNow();
+		if (packet_idx == 0)
+			t0 = t;
+		packet_delay_stat.add(packet_idx, t - t0);
+
 		read_sem.post();
 		{
 			MutexLock l(mutex);

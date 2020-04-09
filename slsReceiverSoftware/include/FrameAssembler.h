@@ -17,6 +17,7 @@
 #include <numaif.h>
 
 #include "ThreadUtils.h"
+#include "Stats.h"
 
 namespace FrameAssembler
 {
@@ -160,6 +161,7 @@ class PacketStream {
 	bool in_get_block;
 	Cond block_cond;
 	cpu_set_t cpu_aff_mask;
+	XYStat packet_delay_stat;
 	pthread_t thread;
 };
 
