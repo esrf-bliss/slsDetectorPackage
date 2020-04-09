@@ -72,31 +72,6 @@ void MmappedRegion::clear()
 }
 
 /**
- * Semaphore
- */
-
-Semaphore::Semaphore(int n)
-{
-	if (sem_init(&sem, 0, n) != 0)
-		throw std::runtime_error("Could not init sem");
-}
-
-Semaphore::~Semaphore()
-{
-	sem_destroy(&sem);
-}
-
-inline void Semaphore::post()
-{
-	sem_post(&sem);
-}
-
-inline void Semaphore::wait()
-{
-	sem_wait(&sem);
-}
-
-/**
  * Packet
  */
 
