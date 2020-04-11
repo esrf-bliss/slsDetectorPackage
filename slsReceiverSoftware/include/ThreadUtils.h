@@ -85,14 +85,46 @@ class MutexLock
 {
  public:
 	MutexLock(Mutex& m)
-	: mutex(m)
-	{ mutex.lock(); }
+		: mutex(m), locked(false)
+	{ lock(); }
 
 	~MutexLock()
-	{ mutex.unlock(); }
+	{ unlock(); }
+
+	void lock()
+	{
+		if (locked)
+			return;
+		mutex.lock();
+		locked = true;
+	}
+
+	void unlock()
+	{
+		if (!locked)
+			return;
+		mutex.unlock();
+		locked = false;
+	}
+
+private:
+	Mutex& mutex;
+	bool locked;
+};
+
+
+class MutexUnlock
+{
+ public:
+	MutexUnlock(MutexLock& l)
+		: lock(l)
+	{ lock.unlock(); }
+
+	~MutexUnlock()
+	{ lock.lock(); }
 
  private:
-	Mutex& mutex;
+	MutexLock& lock;
 };
 
 
@@ -129,6 +161,12 @@ class Cond
 	{
 		if (pthread_cond_signal(&cond) != 0)
 			throw std::runtime_error("Could not signal cond");
+	}
+
+	void broadcast()
+	{
+		if (pthread_cond_broadcast(&cond) != 0)
+			throw std::runtime_error("Could not broadcast cond");
 	}
 
  private:
