@@ -11,6 +11,7 @@
 #include "genericSocket.h"
 
 #include <vector>
+#include <map>
 #include <memory>
 
 #include <sys/mman.h>
@@ -124,11 +125,16 @@ struct Packet {
 struct PacketBlock {
 	Packet packet[MaxBufferPackets];
 	const unsigned int len;
+	int valid_packets;
 
-	PacketBlock(int l);
+	PacketBlock(int l, PacketStream *s);
 	~PacketBlock();
 
 	Packet& operator[](unsigned int i);
+
+	void setValid(unsigned int i, int bidx, DetHeader *header, char *buf,
+		      uint64_t packet_frame, uint32_t packet_number);
+	void setInvalid(unsigned int i);
 
 private:
 	friend class PacketStream;
@@ -149,7 +155,7 @@ class PacketStream {
 		     unsigned long node_mask, int max_node);
 	~PacketStream();
 
-	unsigned int getPacketBlock(PacketBlock& block, uint64_t frame);
+	PacketBlock *getPacketBlock(uint64_t frame);
 
 	bool hasPendingPacket();
 	void stop();
@@ -163,6 +169,11 @@ class PacketStream {
  private:
 	friend class PacketBlock;
 
+	struct WriterData;
+	typedef std::map<uint64_t, PacketBlock *> PacketBlockMap;
+	typedef PacketBlockMap::iterator MapIterator;
+	typedef PacketBlockMap::value_type FramePacketBlock;
+
 	void initMem(unsigned long node_mask, int max_node);
 	char *packetPtr(int idx);
 	int getIndex(int index);
@@ -174,9 +185,11 @@ class PacketStream {
 	void threadFunction();
 
 	bool canDiscardFrame(int received_packets);
-	int getNextPacket(Packet& np, uint64_t frame, unsigned int pnum);
 
-	void releasePacketBlock(PacketBlock& block);
+	void releasePacketBlock(PacketBlock *block);
+
+	void addPacketBlock(WriterData *wd);
+	bool processPacket(WriterData *wd);
 
 	genericSocket *socket;
 	GeneralData *general_data;
@@ -196,11 +209,10 @@ class PacketStream {
 	bool stopped;
 	int read_idx;
 	Semaphore write_sem;
-	Semaphore read_sem;
-	bool in_get_block;
 	Cond block_cond;
 	cpu_set_t cpu_aff_mask;
 	XYStat packet_delay_stat;
+	PacketBlockMap packet_block_map;
 	pthread_t thread;
 };
 

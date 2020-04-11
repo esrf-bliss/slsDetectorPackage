@@ -96,20 +96,34 @@ inline void Packet::setInvalid()
  * PacketBlock
  */
 
-inline PacketBlock::PacketBlock(int l)
-	: len(l), ps(NULL)
+inline PacketBlock::PacketBlock(int l, PacketStream *s)
+	: len(l), valid_packets(0), ps(s)
 {
 }
 
 inline PacketBlock::~PacketBlock()
 {
 	if (ps)
-		ps->releasePacketBlock(*this);
+		ps->releasePacketBlock(this);
 }
 
 inline Packet& PacketBlock::operator [](unsigned int i)
 {
 	return packet[i];
+}
+
+inline void PacketBlock::setValid(unsigned int i, int bidx,
+				  DetHeader *header, char *buf,
+				  uint64_t packet_frame, uint32_t packet_number)
+{
+	packet[i].setValid(header, buf, packet_frame, packet_number);
+	idx[i] = bidx;
+}
+
+inline void PacketBlock::setInvalid(unsigned int i)
+{
+	packet[i].setInvalid();
+	idx[i] = -1;
 }
 
 /**
@@ -121,13 +135,13 @@ inline char *PacketStream::packetPtr(int idx)
 	return packet.getPtr() + idx * packet_len + header_pad;
 }
 
-inline void PacketStream::releasePacketBlock(PacketBlock& block)
+inline void PacketStream::releasePacketBlock(PacketBlock *block)
 {
 	MutexLock l(block_cond.getMutex());
 
-	int *si = block.idx;
-	for (unsigned int i = 0; i < block.len; ++i, ++si) {
-		if (block[i].valid) {
+	int *si = block->idx;
+	for (unsigned int i = 0; i < block->len; ++i, ++si) {
+		if ((*block)[i].valid) {
 			int n = getIndexDiff(*si, read_idx);
 			waiting_mask[n] = 0;
 		}
@@ -167,104 +181,33 @@ inline bool PacketStream::canDiscardFrame(int received_packets)
 		 !received_packets));
 }
 
-inline int PacketStream::getNextPacket(Packet& np, uint64_t frame,
-				       unsigned int num)
+inline PacketBlock *PacketStream::getPacketBlock(uint64_t frame)
 {
-	GeneralData& gd = *general_data;
-
-	int idx = read_idx;
-	for (int i = 0; (i < tot_num_packets) && !stopped; ++i, incIndex(idx)) {
-		int n = getIndexDiff(idx, read_idx);
-		if (n == num_blocked_packets) {
-			// release the mutex while waiting for packets
-			Mutex& mutex = block_cond.getMutex();
-			mutex.unlock();
-			read_sem.wait();
-			mutex.lock();
-			if (stopped)
+	MutexLock bl(block_cond.getMutex());
+	MapIterator it;
+	bool too_old = false;
+	while (!stopped) {
+		if (!packet_block_map.empty()) {
+			it = packet_block_map.begin();
+			too_old = (it->first > frame);
+			if (too_old)
 				break;
-			waiting_mask[num_blocked_packets++] = 1;
-		} else if (!waiting_mask[n]) {
-			continue;
 		}
-
-		char *p = packetPtr(idx);
-		p += gd.emptyHeader;
-		DetHeader *header = reinterpret_cast<DetHeader *>(p);
-		uint64_t packet_frame, packet_bid;
-		uint32_t packet_number, packet_subframe;
-
-		if (gd.standardheader) {
-			packet_frame = header->frameNumber;
-			packet_number = header->packetNumber;
-		} else {
-			int thread_idx = 0;
-			if (first_packet && 
-			    (gd.myDetectorType == slsReceiverDefs::GOTTHARD)) {
-				odd_numbering = gd.SetOddStartingPacket(thread_idx, p);
-				first_packet = false;
-			}
-			gd.GetHeaderInfo(thread_idx, p, odd_numbering,
-					 packet_frame, packet_number,
-					 packet_subframe, packet_bid);
-		}
-
-		if (packet_frame < frame) {
-			continue;
-		} else if (packet_frame > frame) {
+		it = packet_block_map.find(frame);
+		if (it != packet_block_map.end())
 			break;
-		} else if (packet_number == num) {
-			np.setValid(header, p + sizeof(DetHeader),
-				    packet_frame, packet_number);
-			return idx;
-		}
+		block_cond.wait();
 	}
+	if (stopped || too_old)
+		return NULL;
 
-	np.setInvalid();
-	return -1;
-}
+	PacketBlock *block = it->second;
+	packet_block_map.erase(it);
 
-inline unsigned int PacketStream::getPacketBlock(PacketBlock& block,
-						 uint64_t frame)
-{
-	class Sync
-	{
-	public:
-		Sync(Cond& c, bool& i, bool& s)
-			: cond(c), in_get_block(i), stopped(s), l(c.getMutex())
-		{
-			while (in_get_block && !stopped)
-				cond.wait();
-			in_get_block = true;
-		}
+	bl.unlock();
 
-		~Sync()
-		{
-			in_get_block = false;
-			cond.signal();
-		}
-
-	private:
-		Cond& cond;
-		bool& in_get_block;
-		bool& stopped;
-		MutexLock l;
-	} s(block_cond, in_get_block, stopped);
-
-	if (stopped)
-		return 0;
-
-	unsigned int pnum = 0;
-	block.ps = this;
-	int *si = block.idx;
-	for (unsigned int i = 0; i < block.len; ++i, ++si) {
-		Packet& p = block[i];
-		*si = getNextPacket(p, frame, i);
-		if (p.valid)
-			++pnum;
-	}
-
-	bool full_frame = (pnum == block.len);
+	int pnum = block->valid_packets;
+	bool full_frame = (pnum == block->len);
 	{
 		MutexLock l(mutex);
 		if (full_frame)
@@ -272,9 +215,11 @@ inline unsigned int PacketStream::getPacketBlock(PacketBlock& block,
 		if (frame > last_frame)
 			last_frame = frame;
 	}
-
-	bool ok = (full_frame || !canDiscardFrame(pnum));
-	return ok ? pnum : 0;
+	if (!full_frame && canDiscardFrame(pnum)) {
+		delete block;
+		return NULL;
+	}
+	return block;
 }
 
 inline bool PacketStream::hasPendingPacket()
@@ -298,8 +243,6 @@ PacketStream::PacketStream(genericSocket *s, GeneralData *d, FramePolicy fp,
 	  stopped(false),
 	  read_idx(0),
 	  write_sem(tot_num_packets),
-	  read_sem(0),
-	  in_get_block(false),
 	  cpu_aff_mask(cpu_mask),
 	  packet_delay_stat(1e6)
 {
@@ -313,6 +256,16 @@ PacketStream::~PacketStream()
 	void *r;
 	pthread_join(thread, &r);
 	usleep(5000);	// give reader thread time to exit getPacket
+	{
+		MutexLock l(block_cond.getMutex());
+		while (!packet_block_map.empty()) {
+			MapIterator it = packet_block_map.begin();
+			PacketBlock *block = it->second;
+			packet_block_map.erase(it);
+			MutexUnlock u(l);
+			delete block;
+		}
+	}
 	std::ostringstream os;
 	os << "[" << socket->getPortNumber() << "]: "
 	   << "packet_delay_stat=" << packet_delay_stat.calcLinRegress();
@@ -323,9 +276,8 @@ void PacketStream::stop()
 {
 	MutexLock l(block_cond.getMutex());
 	stopped = true;
-	block_cond.signal();
+	block_cond.broadcast();
 	write_sem.post();
-	read_sem.post();
 }
 
 void PacketStream::clearBuffer()
@@ -389,6 +341,119 @@ void *PacketStream::threadFunctionStatic(void *data)
 	return NULL;
 }
 
+struct PacketStream::WriterData {
+	const uint32_t frame_packets;
+	PacketStream *ps;
+	Timestamp t0;
+	AutoPtr<PacketBlock> block;
+	uint64_t frame;
+	uint32_t last_packet;
+	int idx;
+
+	WriterData(uint32_t packets, PacketStream *s)
+		: frame_packets(packets), ps(s),
+		  block(NULL), frame(0), last_packet(-1), idx(0)
+	{}
+
+	FramePacketBlock finishPacketBlock()
+	{
+		while (++last_packet != frame_packets)
+			(*block)[last_packet].setInvalid();
+		return FramePacketBlock(frame, block.forget());
+	}
+
+	bool oldPacketBlock(uint64_t packet_frame)
+	{
+		return (block && (packet_frame != frame));
+	}
+
+	bool addPacket(DetHeader *header, char *buf,
+		       uint64_t packet_frame, uint32_t packet_number)
+	{
+		if (!block) {
+			block = new PacketBlock(frame_packets, ps);
+			frame = packet_frame;
+			last_packet = -1;
+		} else if (packet_frame != frame) {
+			throw std::runtime_error("Frame packet mismatch");
+		}
+		while (++last_packet != packet_number)
+			block->setInvalid(last_packet);
+		block->setValid(last_packet, idx, header, buf, packet_frame,
+				packet_number);
+		++block->valid_packets;
+		ps->incIndex(idx);
+		return (last_packet == (frame_packets - 1));
+	}
+};
+
+inline void PacketStream::addPacketBlock(WriterData *wd)
+{
+	FramePacketBlock frame_block = wd->finishPacketBlock();
+	MutexLock l(block_cond.getMutex());
+	int waiting_packets = getIndexDiff(wd->idx, read_idx);
+	if (waiting_packets == 0)
+		waiting_packets = tot_num_packets;
+	while (num_blocked_packets < waiting_packets)
+		waiting_mask[num_blocked_packets++] = 1;
+	packet_block_map.insert(frame_block);
+	block_cond.broadcast();
+}
+
+inline bool PacketStream::processPacket(WriterData *wd)
+{
+	char *p = packetPtr(wd->idx);
+	int ret = socket->ReceiveDataOnly(p);
+	if (ret < 0)
+		return false;
+
+	GeneralData& gd = *general_data;
+	p += gd.emptyHeader;
+	DetHeader *header = reinterpret_cast<DetHeader *>(p);
+	uint64_t packet_frame, packet_bid;
+	uint32_t packet_number, packet_subframe;
+
+	if (gd.standardheader) {
+		packet_frame = header->frameNumber;
+		packet_number = header->packetNumber;
+	} else {
+		int thread_idx = 0;
+		if (first_packet &&
+		    (gd.myDetectorType == slsReceiverDefs::GOTTHARD)) {
+			odd_numbering = gd.SetOddStartingPacket(thread_idx, p);
+			first_packet = false;
+		}
+		gd.GetHeaderInfo(thread_idx, p, odd_numbering,
+				 packet_frame, packet_number,
+				 packet_subframe, packet_bid);
+	}
+
+	if (wd->oldPacketBlock(packet_frame))
+		addPacketBlock(wd);
+
+	char *data = p + sizeof(DetHeader);
+	bool ready = wd->addPacket(header, data, packet_frame, packet_number);
+	if (ready)
+		addPacketBlock(wd);
+
+	{
+		Timestamp t;
+		t.latchNow();
+		long packet_idx = ((packet_frame - 1) * wd->frame_packets
+				   + packet_number);
+		if (packet_idx == 0)
+			wd->t0 = t;
+		packet_delay_stat.add(packet_idx, t - wd->t0);
+	}
+
+	{
+		MutexLock l(mutex);
+		++packets_caught;
+	}
+
+	return true;
+}
+
 void PacketStream::threadFunction()
 {
 	if (CPU_COUNT(&cpu_aff_mask) != 0) {
@@ -399,35 +464,19 @@ void PacketStream::threadFunction()
 						 "cpu affinity mask");
 	}
 
-	Timestamp t0;
+	const uint32_t frame_packets = general_data->packetsPerFrame;
+	WriterData wd(frame_packets, this);
 
-	for (int write_idx = 0; true; incIndex(write_idx)) {
+	while (true) {
 		write_sem.wait();
 		{
 			MutexLock l(block_cond.getMutex());
 			if (stopped)
 				break;
 		}
-		char *p = packetPtr(write_idx);
-		int ret = socket->ReceiveDataOnly(p);
-		if (ret < 0)
+
+		if (!processPacket(&wd))
 			break;
-
-		DetHeader *header = (DetHeader *) p;
-		long frame_packets = general_data->packetsPerFrame;
-		long packet_idx = ((header->frameNumber - 1) * frame_packets
-				   + header->packetNumber);
-		Timestamp t;
-		t.latchNow();
-		if (packet_idx == 0)
-			t0 = t;
-		packet_delay_stat.add(packet_idx, t - t0);
-
-		read_sem.post();
-		{
-			MutexLock l(mutex);
-			++packets_caught;
-		}
 	}
 }
 
@@ -520,15 +569,14 @@ int DefaultFrameAssembler::assembleFrame(uint64_t frame,
 
 	recv_header->packetsMask.reset();
 
-	PacketBlock block(packets_per_frame);
-	int num_packets = packet_stream->getPacketBlock(block, frame);
-	if (num_packets == 0)
+	AutoPtr<PacketBlock> block = packet_stream->getPacketBlock(frame);
+	if (!block || (block->valid_packets == 0))
 		return -1;
 
-	for (int i = 0; i < num_packets; ++i) {
-		Packet& packet = block[i];
+	for (int i = 0; i < packets_per_frame; ++i) {
+		Packet& packet = (*block)[i];
 		if (!packet.valid)
-			break;
+			continue;
 
 		int pnum = packet.number;
 
@@ -572,7 +620,7 @@ int DefaultFrameAssembler::assembleFrame(uint64_t frame,
 
 	if (header_empty)
 		det_header->frameNumber = frame;
-	det_header->packetNumber = num_packets;
+	det_header->packetNumber = block->valid_packets;
 
 	return 0;
 }
@@ -665,7 +713,7 @@ public:
 		return getSrcPixelBytes() * factor;
 	}
 
-	virtual void assemblePackets(PacketBlock block[2], char *buf) = 0;
+	virtual void assemblePackets(PacketBlock *block[2], char *buf) = 0;
 
 protected:
 	static const int chip_size = 256;
@@ -723,7 +771,7 @@ class Expand4BitsHelper : public EigerStdFrameAssembler::Helper {
 public:
 	Expand4BitsHelper(GeneralData *gd, bool flipped);
 
-	virtual void assemblePackets(PacketBlock block[2], char *buf) override;
+	virtual void assemblePackets(PacketBlock *block[2], char *buf) override;
 
 private:
 	static const int half_module_chips = num_ports * port_chips;
@@ -752,13 +800,13 @@ private:
 
 		Worker(Expand4BitsHelper& helper);
 
-		int load_packet(PacketBlock block[2], int packet);
+		int load_packet(PacketBlock *block[2], int packet);
 		void load_dst128(char *buf);
 		void load_shift_store128();
 		void pad_dst128();
 		void sync_dst128();
 
-		void assemblePackets(PacketBlock block[2], char *buf);
+		void assemblePackets(PacketBlock *block[2], char *buf);
 	};
 };
 
@@ -779,11 +827,11 @@ inline Expand4BitsHelper::Worker::Worker(Expand4BitsHelper& helper)
 {
 }
 
-inline int Expand4BitsHelper::Worker::load_packet(PacketBlock block[2],
+inline int Expand4BitsHelper::Worker::load_packet(PacketBlock *block[2],
 						  int packet)
 {
-	Packet& p0 = block[0][packet];
-	Packet& p1 = block[1][packet];
+	Packet& p0 = (*block[0])[packet];
+	Packet& p1 = (*block[1])[packet];
 	s[0] = (const __m128i *) (p0.buf + h.src.offset);
 	s[1] = (const __m128i *) (p1.buf + h.src.offset);
 	if ((((unsigned long) s[0] | (unsigned long) s[1]) & 15) != 0) {
@@ -883,7 +931,7 @@ inline void Expand4BitsHelper::Worker::sync_dst128()
 	}
 }
 
-inline void Expand4BitsHelper::Worker::assemblePackets(PacketBlock block[2],
+inline void Expand4BitsHelper::Worker::assemblePackets(PacketBlock *block[2],
 						       char *buf)
 {
 	const int& hm_chips = h.half_module_chips;
@@ -910,7 +958,7 @@ inline void Expand4BitsHelper::Worker::assemblePackets(PacketBlock block[2],
 	sync_dst128();
 }
 
-void Expand4BitsHelper::assemblePackets(PacketBlock block[2], char *buf)
+void Expand4BitsHelper::assemblePackets(PacketBlock *block[2], char *buf)
 {
 	Worker w(*this);
 	w.assemblePackets(block, buf);
@@ -926,16 +974,16 @@ public:
 		: Helper(gd, flipped)
 	{}
 	
-	virtual void assemblePackets(PacketBlock block[2], char *buf) override;
+	virtual void assemblePackets(PacketBlock *block[2], char *buf) override;
 };
 
-void CopyHelper::assemblePackets(PacketBlock block[2], char *buf)
+void CopyHelper::assemblePackets(PacketBlock *block[2], char *buf)
 {
 	int packet = first_idx;
 	char *d = buf + dst.offset;
 	for (int i = 0; i < frame_packets; ++i, packet += idx_inc) {
-		Packet *line_packet[2] = {&block[0][packet],
-					  &block[1][packet]};
+		Packet *line_packet[2] = {&(*block[0])[packet],
+					  &(*block[1])[packet]};
 		char *s[num_ports] = {line_packet[0]->buf + src.offset,
 				     line_packet[1]->buf + src.offset};
 		for (int l = 0; l < packet_lines; ++l) {
@@ -999,10 +1047,11 @@ EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
 	det_header->frameNumber = frame;
 	det_header->packetNumber = 0;
 
-	PacketBlock block[2] = {packets_per_frame, packets_per_frame};
+	AutoPtr<PacketBlock> block[2];
 	for (int i = 0; i < num_ports; ++i) {
 		PacketStream *ps = a[i]->packet_stream;
-		int packet_count = ps->getPacketBlock(block[i], frame);
+		block[i] = ps->getPacketBlock(frame);
+		int packet_count = (block[i] && block[i]->valid_packets);
 		if (packet_count == 0)
 			continue;
 		mask.set(i, true);
@@ -1010,7 +1059,7 @@ EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
 
 		//write header
 		if (header_empty) {
-			Packet& p = block[i][0];
+			Packet& p = (*block[i])[0];
 			const int det_header_len = sizeof(*det_header);
 			memcpy(det_header, p.header, det_header_len);
 			header_empty = false;
@@ -1022,8 +1071,10 @@ EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
 	if (fp_partial && (mask.count() != num_ports))
 		return PortsMask();
 
-	if (mask.any())
-		helper->assemblePackets(block, buf);
+	if (mask.any()) {
+		PacketBlock *blocks[2] = { block[0], block[1] };
+		helper->assemblePackets(blocks, buf);
+	}
 
 	return mask;
 }
