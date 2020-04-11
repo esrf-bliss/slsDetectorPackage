@@ -11,6 +11,7 @@
 #include "genericSocket.h"
 
 #include <vector>
+#include <queue>
 #include <map>
 #include <memory>
 
@@ -109,37 +110,69 @@ private:
 class PacketStream;
 
 const int MaxBufferFrames = 4;
-const int MaxBufferPackets = MaxBufferFrames * 512;
 
 struct Packet {
-	bool valid;
-	DetHeader *header;
-	uint64_t frame;
-	int number;
-	char *buf;
+	struct StreamInfo {
+		GeneralData *gd;
+		bool odd_numbering;
+		bool first_packet;
 
-	void setValid(DetHeader *h, char *b, uint64_t f, int n);
-	void setInvalid();
+		StreamInfo(GeneralData *d)
+			: gd(d), odd_numbering(false), first_packet(true)
+		{}
+	};
+
+	char *buffer;
+	StreamInfo *stream_info;
+	bool std;
+	DetHeader *header;
+	char *data;
+	uint64_t non_std_frame;
+	uint32_t non_std_number;
+
+	Packet();
+	Packet(char *b, StreamInfo *si);
+
+	GeneralData *gd()
+	{ return stream_info->gd; }
+
+	bool valid()
+	{ return buffer; }
+
+	uint64_t frame()
+	{ return std ? header->frameNumber : non_std_frame; }
+
+	uint32_t number()
+	{ return std ? header->packetNumber : non_std_number; }
+
+	uint32_t size_adjust()
+	{
+		if (gd()->myDetectorType != slsReceiverDefs::GOTTHARD)
+			return 0;
+		return ((number() == 0) ? -2 : 2);
+	}
 };
 
 struct PacketBlock {
-	Packet packet[MaxBufferPackets];
-	const unsigned int len;
+	std::vector<Packet> packet;
 	int valid_packets;
+
+	int size()
+	{ return packet.size(); }
 
 	PacketBlock(int l, PacketStream *s);
 	~PacketBlock();
 
 	Packet& operator[](unsigned int i);
 
-	void setValid(unsigned int i, int bidx, DetHeader *header, char *buf,
-		      uint64_t packet_frame, uint32_t packet_number);
-	void setInvalid(unsigned int i);
+	void addPacket(Packet& p);
+
+	bool full_frame()
+	{ return valid_packets == size(); }
 
 private:
 	friend class PacketStream;
 	PacketStream *ps;
-	int idx[MaxBufferPackets];
 };
 
 
@@ -175,10 +208,6 @@ class PacketStream {
 	typedef PacketBlockMap::value_type FramePacketBlock;
 
 	void initMem(unsigned long node_mask, int max_node);
-	char *packetPtr(int idx);
-	int getIndex(int index);
-	void incIndex(int& index);
-	int getIndexDiff(int a, int b);
 
 	void initThread();
 	static void *threadFunctionStatic(void *data);
@@ -188,8 +217,8 @@ class PacketStream {
 
 	void releasePacketBlock(PacketBlock *block);
 
-	void addPacketBlock(WriterData *wd);
-	bool processPacket(WriterData *wd);
+	void addPacketBlock(FramePacketBlock frame_block);
+	bool processOnePacket(WriterData *wd);
 
 	genericSocket *socket;
 	GeneralData *general_data;
@@ -199,16 +228,13 @@ class PacketStream {
 	int packets_caught;
 	uint64_t frames_caught;
 	uint64_t last_frame;
+	Packet::StreamInfo stream_info;
 	int header_pad;
 	int packet_len;
 	MmappedRegion packet;
-	int num_blocked_packets;
-	std::bitset<MaxBufferPackets> waiting_mask;
-	bool odd_numbering;
-	bool first_packet;
+	Cond free_cond;
+	std::queue<char *> free_queue;
 	bool stopped;
-	int read_idx;
-	Semaphore write_sem;
 	Cond block_cond;
 	cpu_set_t cpu_aff_mask;
 	XYStat packet_delay_stat;

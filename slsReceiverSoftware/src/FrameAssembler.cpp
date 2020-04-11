@@ -76,19 +76,45 @@ void MmappedRegion::clear()
  * Packet
  */
 
-inline void Packet::setValid(DetHeader *h, char *b, uint64_t f,
-					   int n)
+inline Packet::Packet()
 {
-	valid = true;
-	header = h;
-	buf = b;
-	frame = f;
-	number = n;
+	buffer = NULL;
 }
 
-inline void Packet::setInvalid()
+inline Packet::Packet(char *b, StreamInfo *si)
 {
-	valid = false;
+	buffer = b;
+	stream_info = si;
+	GeneralData *gd = stream_info->gd;
+	std = gd->standardheader;
+	char *start = buffer + gd->emptyHeader;
+	header = reinterpret_cast<DetHeader *>(start);
+	data = start + sizeof(DetHeader);
+
+	bool is_gotthard = (gd->myDetectorType == slsReceiverDefs::GOTTHARD);
+	bool& first_packet = stream_info->first_packet;
+	if (is_gotthard && first_packet) {
+		// Gotthard data:
+		//   1st packet: CACA + CACA, (640 - 1) * 2 bytes data
+		//   2nd packet: (1 + 640) * 2 bytes data
+		data += 4;
+	}
+
+	if (!std) {
+		uint64_t packet_bid;
+		uint32_t packet_subframe;
+		bool& odd_numbering = stream_info->odd_numbering;
+
+		int thread_idx = 0;
+		if (is_gotthard && first_packet) {
+			odd_numbering = gd->SetOddStartingPacket(thread_idx,
+								 start);
+			first_packet = false;
+		}
+		gd->GetHeaderInfo(thread_idx, start, odd_numbering,
+				  non_std_frame, non_std_number,
+				  packet_subframe, packet_bid);
+	}
 }
 
 
@@ -97,7 +123,7 @@ inline void Packet::setInvalid()
  */
 
 inline PacketBlock::PacketBlock(int l, PacketStream *s)
-	: len(l), valid_packets(0), ps(s)
+	: packet(l), valid_packets(0), ps(s)
 {
 }
 
@@ -112,64 +138,26 @@ inline Packet& PacketBlock::operator [](unsigned int i)
 	return packet[i];
 }
 
-inline void PacketBlock::setValid(unsigned int i, int bidx,
-				  DetHeader *header, char *buf,
-				  uint64_t packet_frame, uint32_t packet_number)
+inline void PacketBlock::addPacket(Packet& p)
 {
-	packet[i].setValid(header, buf, packet_frame, packet_number);
-	idx[i] = bidx;
-}
-
-inline void PacketBlock::setInvalid(unsigned int i)
-{
-	packet[i].setInvalid();
-	idx[i] = -1;
+	packet[p.number()] = p;
+	++valid_packets;
 }
 
 /**
  * PacketStream
  */
 
-inline char *PacketStream::packetPtr(int idx)
-{
-	return packet.getPtr() + idx * packet_len + header_pad;
-}
-
 inline void PacketStream::releasePacketBlock(PacketBlock *block)
 {
-	MutexLock l(block_cond.getMutex());
+	MutexLock l(free_cond.getMutex());
 
-	int *si = block->idx;
-	for (unsigned int i = 0; i < block->len; ++i, ++si) {
-		if ((*block)[i].valid) {
-			int n = getIndexDiff(*si, read_idx);
-			waiting_mask[n] = 0;
-		}
+	for (unsigned int i = 0; i < block->size(); ++i) {
+		Packet& p = (*block)[i];
+		if (p.valid())
+			free_queue.push(p.buffer);
 	}
-	while (num_blocked_packets && !waiting_mask[0]) {
-		write_sem.post();
-		--num_blocked_packets;
-		waiting_mask >>= 1;
-		incIndex(read_idx);
-	}
-}
-
-inline int PacketStream::getIndex(int index)
-{
-	return index % tot_num_packets;
-}
-
-inline int PacketStream::getIndexDiff(int a, int b)
-{
-	int n = a - b;
-	if (n < 0)
-		n += tot_num_packets;
-	return n;
-}
-
-inline void PacketStream::incIndex(int& index)
-{
-	index = getIndex(index + 1);
+	free_cond.signal();
 }
 
 inline bool PacketStream::canDiscardFrame(int received_packets)
@@ -185,20 +173,19 @@ inline PacketBlock *PacketStream::getPacketBlock(uint64_t frame)
 {
 	MutexLock bl(block_cond.getMutex());
 	MapIterator it;
-	bool too_old = false;
 	while (!stopped) {
 		if (!packet_block_map.empty()) {
 			it = packet_block_map.begin();
-			too_old = (it->first > frame);
+			bool too_old = (it->first > frame);
 			if (too_old)
-				break;
+				return NULL;
 		}
 		it = packet_block_map.find(frame);
 		if (it != packet_block_map.end())
 			break;
 		block_cond.wait();
 	}
-	if (stopped || too_old)
+	if (stopped)
 		return NULL;
 
 	PacketBlock *block = it->second;
@@ -206,8 +193,7 @@ inline PacketBlock *PacketStream::getPacketBlock(uint64_t frame)
 
 	bl.unlock();
 
-	int pnum = block->valid_packets;
-	bool full_frame = (pnum == block->len);
+	bool full_frame = block->full_frame();
 	{
 		MutexLock l(mutex);
 		if (full_frame)
@@ -215,7 +201,7 @@ inline PacketBlock *PacketStream::getPacketBlock(uint64_t frame)
 		if (frame > last_frame)
 			last_frame = frame;
 	}
-	if (!full_frame && canDiscardFrame(pnum)) {
+	if (!full_frame && canDiscardFrame(block->valid_packets)) {
 		delete block;
 		return NULL;
 	}
@@ -224,7 +210,8 @@ inline PacketBlock *PacketStream::getPacketBlock(uint64_t frame)
 
 inline bool PacketStream::hasPendingPacket()
 {
-	return (num_blocked_packets > 0);
+	MutexLock l(free_cond.getMutex());
+	return (free_queue.size() != tot_num_packets);
 }
 
 PacketStream::PacketStream(genericSocket *s, GeneralData *d, FramePolicy fp,
@@ -237,12 +224,8 @@ PacketStream::PacketStream(genericSocket *s, GeneralData *d, FramePolicy fp,
 	  packets_caught(0),
 	  frames_caught(0),
 	  last_frame(0),
-	  num_blocked_packets(0),
-	  odd_numbering(false),
-	  first_packet(true),
+	  stream_info(general_data),
 	  stopped(false),
-	  read_idx(0),
-	  write_sem(tot_num_packets),
 	  cpu_aff_mask(cpu_mask),
 	  packet_delay_stat(1e6)
 {
@@ -266,18 +249,39 @@ PacketStream::~PacketStream()
 			delete block;
 		}
 	}
-	std::ostringstream os;
-	os << "[" << socket->getPortNumber() << "]: "
-	   << "packet_delay_stat=" << packet_delay_stat.calcLinRegress();
-	std::cout << os.str() << std::endl;
+
+	std::ostringstream heading;
+	heading << "[" << socket->getPortNumber() << "]: ";
+
+	{
+		std::ostringstream msg;
+		msg << heading.str()
+		    << "packet_delay_stat=" << packet_delay_stat.calcLinRegress();
+		std::cout << msg.str() << std::endl;
+	}
+	{
+		if (hasPendingPacket()) {
+			MutexLock l(free_cond.getMutex());
+			std::ostringstream error;
+			error << heading.str() << "Missing free packets: "
+			      << "expected " << tot_num_packets << ", "
+			      << "got " << free_queue.size();
+			std::cout << error.str() << std::endl;
+		}
+	}
 }
 
 void PacketStream::stop()
 {
-	MutexLock l(block_cond.getMutex());
 	stopped = true;
-	block_cond.broadcast();
-	write_sem.post();
+	{
+		MutexLock l(block_cond.getMutex());
+		block_cond.broadcast();
+	}
+	{
+		MutexLock l(free_cond.getMutex());
+		free_cond.signal();
+	}
 }
 
 void PacketStream::clearBuffer()
@@ -315,6 +319,11 @@ void PacketStream::initMem(unsigned long node_mask, int max_node)
 	misalign = packet_len % data_align;
 	packet_len += misalign ? (data_align - misalign) : 0;
 	packet.alloc(packet_len * tot_num_packets, node_mask, max_node);
+
+	for (int i = 0; i < tot_num_packets; ++i) {
+		char *p = packet.getPtr() + i * packet_len + header_pad;
+		free_queue.push(p);
+	}
 }
 
 void PacketStream::initThread()
@@ -347,18 +356,14 @@ struct PacketStream::WriterData {
 	Timestamp t0;
 	AutoPtr<PacketBlock> block;
 	uint64_t frame;
-	uint32_t last_packet;
-	int idx;
 
 	WriterData(uint32_t packets, PacketStream *s)
 		: frame_packets(packets), ps(s),
-		  block(NULL), frame(0), last_packet(-1), idx(0)
+		  block(NULL), frame(0)
 	{}
 
 	FramePacketBlock finishPacketBlock()
 	{
-		while (++last_packet != frame_packets)
-			(*block)[last_packet].setInvalid();
 		return FramePacketBlock(frame, block.forget());
 	}
 
@@ -367,80 +372,56 @@ struct PacketStream::WriterData {
 		return (block && (packet_frame != frame));
 	}
 
-	bool addPacket(DetHeader *header, char *buf,
-		       uint64_t packet_frame, uint32_t packet_number)
+	void addPacket(Packet& packet)
 	{
+		if (oldPacketBlock(packet.frame()))
+			ps->addPacketBlock(finishPacketBlock());
+
 		if (!block) {
 			block = new PacketBlock(frame_packets, ps);
-			frame = packet_frame;
-			last_packet = -1;
-		} else if (packet_frame != frame) {
+			frame = packet.frame();
+		} else if (packet.frame() != frame) {
 			throw std::runtime_error("Frame packet mismatch");
 		}
-		while (++last_packet != packet_number)
-			block->setInvalid(last_packet);
-		block->setValid(last_packet, idx, header, buf, packet_frame,
-				packet_number);
-		++block->valid_packets;
-		ps->incIndex(idx);
-		return (last_packet == (frame_packets - 1));
+		block->addPacket(packet);
+
+		if (packet.number() == (frame_packets - 1))
+			ps->addPacketBlock(finishPacketBlock());
 	}
 };
 
-inline void PacketStream::addPacketBlock(WriterData *wd)
+inline void PacketStream::addPacketBlock(FramePacketBlock frame_block)
 {
-	FramePacketBlock frame_block = wd->finishPacketBlock();
 	MutexLock l(block_cond.getMutex());
-	int waiting_packets = getIndexDiff(wd->idx, read_idx);
-	if (waiting_packets == 0)
-		waiting_packets = tot_num_packets;
-	while (num_blocked_packets < waiting_packets)
-		waiting_mask[num_blocked_packets++] = 1;
 	packet_block_map.insert(frame_block);
 	block_cond.broadcast();
 }
 
-inline bool PacketStream::processPacket(WriterData *wd)
+inline bool PacketStream::processOnePacket(WriterData *wd)
 {
-	char *p = packetPtr(wd->idx);
-	int ret = socket->ReceiveDataOnly(p);
-	if (ret < 0)
+	MutexLock l(free_cond.getMutex());
+	while (!stopped && free_queue.empty())
+		free_cond.wait();
+	if (stopped)
 		return false;
-
-	GeneralData& gd = *general_data;
-	p += gd.emptyHeader;
-	DetHeader *header = reinterpret_cast<DetHeader *>(p);
-	uint64_t packet_frame, packet_bid;
-	uint32_t packet_number, packet_subframe;
-
-	if (gd.standardheader) {
-		packet_frame = header->frameNumber;
-		packet_number = header->packetNumber;
-	} else {
-		int thread_idx = 0;
-		if (first_packet &&
-		    (gd.myDetectorType == slsReceiverDefs::GOTTHARD)) {
-			odd_numbering = gd.SetOddStartingPacket(thread_idx, p);
-			first_packet = false;
-		}
-		gd.GetHeaderInfo(thread_idx, p, odd_numbering,
-				 packet_frame, packet_number,
-				 packet_subframe, packet_bid);
+	char *p = free_queue.front();
+	{
+		MutexUnlock u(l);
+		int ret = socket->ReceiveDataOnly(p);
+		if (ret < 0)
+			return false;
 	}
+	free_queue.pop();
+	l.unlock();
 
-	if (wd->oldPacketBlock(packet_frame))
-		addPacketBlock(wd);
-
-	char *data = p + sizeof(DetHeader);
-	bool ready = wd->addPacket(header, data, packet_frame, packet_number);
-	if (ready)
-		addPacketBlock(wd);
+	Packet packet(p, &stream_info);
+	wd->addPacket(packet);
 
 	{
 		Timestamp t;
 		t.latchNow();
-		long packet_idx = ((packet_frame - 1) * wd->frame_packets
-				   + packet_number);
+		long packet_idx = ((packet.frame() - 1) * wd->frame_packets
+				   + packet.number());
 		if (packet_idx == 0)
 			wd->t0 = t;
 		packet_delay_stat.add(packet_idx, t - wd->t0);
@@ -468,14 +449,7 @@ void PacketStream::threadFunction()
 	WriterData wd(frame_packets, this);
 
 	while (true) {
-		write_sem.wait();
-		{
-			MutexLock l(block_cond.getMutex());
-			if (stopped)
-				break;
-		}
-
-		if (!processPacket(&wd))
+		if (!processOnePacket(&wd))
 			break;
 	}
 }
@@ -573,33 +547,26 @@ int DefaultFrameAssembler::assembleFrame(uint64_t frame,
 	if (!block || (block->valid_packets == 0))
 		return -1;
 
+	uint32_t prev_adjust = 0;
 	for (int i = 0; i < packets_per_frame; ++i) {
 		Packet& packet = (*block)[i];
-		if (!packet.valid)
+		if (!packet.valid())
 			continue;
 
-		int pnum = packet.number;
+		int pnum = packet.number();
 
 		//copy packet
 		char *dst = buf + pnum * dst_dsize;
 		bool last_packet = (pnum == (packets_per_frame - 1));
 		uint32_t copy_dsize = last_packet ? last_dsize : src_dsize;
-		if (general_data->myDetectorType == slsReceiverDefs::GOTTHARD) {
-			// Gotthard data:
-			//   1st packet: CACA + CACA, (640 - 1) * 2 bytes data
-			//   2nd packet: (1 + 640) * 2 bytes data
-			if (pnum == 0) {
-				packet.buf += 4;
-				copy_dsize -= 2;
-			} else {
-				dst -= 2;
-				copy_dsize += 2;
-			}
-		}
+		uint32_t size_adjust = packet.size_adjust();
+		copy_dsize += size_adjust;
+		dst += prev_adjust;
+		prev_adjust = size_adjust;
 		if (do_expand_4bits)
-			expand4Bits(dst, packet.buf, copy_dsize);
+			expand4Bits(dst, packet.data, copy_dsize);
 		else
-			memcpy(dst, packet.buf, copy_dsize);
+			memcpy(dst, packet.data, copy_dsize);
 
 		recv_header->packetsMask[pnum] = 1;
 
@@ -832,14 +799,14 @@ inline int Expand4BitsHelper::Worker::load_packet(PacketBlock *block[2],
 {
 	Packet& p0 = (*block[0])[packet];
 	Packet& p1 = (*block[1])[packet];
-	s[0] = (const __m128i *) (p0.buf + h.src.offset);
-	s[1] = (const __m128i *) (p1.buf + h.src.offset);
+	s[0] = (const __m128i *) (p0.data + h.src.offset);
+	s[1] = (const __m128i *) (p1.data + h.src.offset);
 	if ((((unsigned long) s[0] | (unsigned long) s[1]) & 15) != 0) {
 		FILE_LOG(logERROR) << "Missaligned src";
 		return -1;
 	}
-	v[0] = p0.valid;
-	v[1] = p1.valid;
+	v[0] = p0.valid();
+	v[1] = p1.valid();
 	return 0;
 }
 
@@ -984,14 +951,14 @@ void CopyHelper::assemblePackets(PacketBlock *block[2], char *buf)
 	for (int i = 0; i < frame_packets; ++i, packet += idx_inc) {
 		Packet *line_packet[2] = {&(*block[0])[packet],
 					  &(*block[1])[packet]};
-		char *s[num_ports] = {line_packet[0]->buf + src.offset,
-				     line_packet[1]->buf + src.offset};
+		char *s[num_ports] = {line_packet[0]->data + src.offset,
+				      line_packet[1]->data + src.offset};
 		for (int l = 0; l < packet_lines; ++l) {
 			char *ld = d;
 			for (int p = 0; p < num_ports; ++p) {
 				char *ls = s[p];
 				for (int c = 0; c < port_chips; ++c) {
-					if (line_packet[p]->valid)
+					if (line_packet[p]->valid())
 						memcpy(ld, ls, src.chip_size);
 					else
 						memset(ld, 0xff, src.chip_size);
