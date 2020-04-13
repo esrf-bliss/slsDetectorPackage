@@ -224,7 +224,7 @@ int Listener::CreateUDPSockets() {
 		return FAIL;
 	}
 
-	frameAssembler = new DefaultFrameAssembler(udpSocket, generalData, cpuMask, fifoNodeMask, maxNode,
+	frameAssembler = DefaultFrameAssemblerBase::create(udpSocket, generalData, cpuMask, fifoNodeMask, maxNode,
 					     *frameDiscardMode, !doUdpRead);
 
 	udpSocketAlive = true;
@@ -390,8 +390,8 @@ DualPortFrameAssembler *Listener::CreateDualPortFrameAssembler(Listener *listene
 		return NULL;
 	}
 
-	DefaultFrameAssembler *a[2] = {listener[0]->frameAssembler,
-				       listener[1]->frameAssembler};
+	DefaultFrameAssemblerBase *a[2] = {listener[0]->frameAssembler,
+					   listener[1]->frameAssembler};
 	DualPortFrameAssembler *fa;
 	GeneralData *gd = listener[0]->generalData;
 	if (gd->gapEnable) {

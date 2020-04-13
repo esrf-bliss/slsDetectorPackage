@@ -314,7 +314,7 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	uint64_t currentFrameIndex;
 
 	/** frame assembler **/
-	FrameAssembler::DefaultFrameAssembler *frameAssembler;
+	FrameAssembler::DefaultFrameAssemblerBase *frameAssembler;
 
 	/** if the udp socket is connected */
 	volatile bool udpSocketAlive;

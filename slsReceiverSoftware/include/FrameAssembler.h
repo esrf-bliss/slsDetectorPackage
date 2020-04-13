@@ -104,75 +104,140 @@ private:
 };
 
 /**
- *@short Packet helper classes
+ *@short StdPacket 
  */
 
-class PacketStream;
-
-const int MaxBufferFrames = 4;
-
-struct Packet {
+struct StdPacket {
 	struct StreamInfo {
 		GeneralData *gd;
-		bool odd_numbering;
-		bool first_packet;
-
 		StreamInfo(GeneralData *d)
-			: gd(d), odd_numbering(false), first_packet(true)
+			: gd(d)
 		{}
 	};
 
 	char *buffer;
-	StreamInfo *stream_info;
-	bool std;
-	DetHeader *header;
-	char *data;
-	uint64_t non_std_frame;
-	uint32_t non_std_number;
+	char *start;
 
-	Packet();
-	Packet(char *b, StreamInfo *si);
+	StdPacket();
+	StdPacket(char *b, StreamInfo *si);
 
-	GeneralData *gd()
-	{ return stream_info->gd; }
+	bool valid()
+	{ return buffer; }
+
+	DetHeader *header()
+	{ return reinterpret_cast<DetHeader *>(start); }
+	
+	uint64_t frame()
+	{ return header()->frameNumber; }
+
+	uint32_t number()
+	{ return header()->packetNumber; }
+
+	char *data()
+	{ return start + sizeof(DetHeader); }
+
+	uint32_t sizeAdjust()
+	{ return 0; }
+
+	void initDetHeader(DetHeader *det_header);
+};
+
+/**
+ *@short LegacyPacket class
+ */
+
+struct LegacyPacket {
+	struct StreamInfo {
+		GeneralData *gd;
+		bool odd_numbering;
+		StreamInfo(GeneralData *d)
+			: gd(d), odd_numbering(true)
+		{}
+	};
+
+	char *buffer;
+	char *data_ptr;
+	uint64_t packet_frame;
+	uint32_t packet_number;
+	GeneralData *general_data;
+
+	LegacyPacket();
+	LegacyPacket(char *b, StreamInfo *si);
 
 	bool valid()
 	{ return buffer; }
 
 	uint64_t frame()
-	{ return std ? header->frameNumber : non_std_frame; }
+	{ return packet_frame; }
 
 	uint32_t number()
-	{ return std ? header->packetNumber : non_std_number; }
+	{ return packet_number; }
 
-	uint32_t size_adjust()
+	char *data()
+	{ return data_ptr; }
+
+	uint32_t sizeAdjust()
+	{ return 0; }
+
+	void initDetHeader(DetHeader *det_header);
+};
+
+/**
+ *@short GotthardPacket class
+ */
+
+struct GotthardPacket : public LegacyPacket {
+	struct StreamInfo : public LegacyPacket::StreamInfo {
+		bool first_packet;
+
+		StreamInfo(GeneralData *d)
+			: LegacyPacket::StreamInfo(d), first_packet(true)
+		{}
+
+		LegacyPacket::StreamInfo *checkInit(char *b);
+	};
+
+	GotthardPacket();
+	GotthardPacket(char *b, StreamInfo *si);
+
+	uint32_t sizeAdjust()
 	{
-		if (gd()->myDetectorType != slsReceiverDefs::GOTTHARD)
-			return 0;
+		// Gotthard data:
+		//   1st packet: CACA + CACA, (640 - 1) * 2 bytes data
+		//   2nd packet: (1 + 640) * 2 bytes data
 		return ((number() == 0) ? -2 : 2);
 	}
 };
 
+
+/**
+ *@short Packet Block: reference packets in a frame
+ */
+
+template <class P>
+class PacketStream;
+
+template <class P>
 struct PacketBlock {
-	std::vector<Packet> packet;
+	std::vector<P> packet;
 	int valid_packets;
 
 	int size()
 	{ return packet.size(); }
 
-	PacketBlock(int l, PacketStream *s);
+	PacketBlock(int l, PacketStream<P> *s);
 	~PacketBlock();
 
-	Packet& operator[](unsigned int i);
+	P& operator[](unsigned int i);
 
-	void addPacket(Packet& p);
+	void addPacket(P& p);
 
 	bool full_frame()
 	{ return valid_packets == size(); }
 
 private:
-	friend class PacketStream;
-	PacketStream *ps;
+	friend class PacketStream<P>;
+	PacketStream<P> *ps;
 };
 
 
@@ -180,6 +245,7 @@ private:
  *@short manages packet stream with buffer & parallel read functionality
  */
 
+template <class P>
 class PacketStream {
 
  public:
@@ -188,7 +254,7 @@ class PacketStream {
 		     unsigned long node_mask, int max_node);
 	~PacketStream();
 
-	PacketBlock *getPacketBlock(uint64_t frame);
+	PacketBlock<P> *getPacketBlock(uint64_t frame);
 
 	bool hasPendingPacket();
 	void stop();
@@ -200,12 +266,13 @@ class PacketStream {
 	void clearBuffer();
 
  private:
-	friend class PacketBlock;
+	typedef typename P::StreamInfo StreamInfo;
+	friend class PacketBlock<P>;
 
 	struct WriterData;
-	typedef std::map<uint64_t, PacketBlock *> PacketBlockMap;
-	typedef PacketBlockMap::iterator MapIterator;
-	typedef PacketBlockMap::value_type FramePacketBlock;
+	typedef std::map<uint64_t, PacketBlock<P> *> PacketBlockMap;
+	typedef typename PacketBlockMap::iterator MapIterator;
+	typedef typename PacketBlockMap::value_type FramePacketBlock;
 
 	void initMem(unsigned long node_mask, int max_node);
 
@@ -215,7 +282,7 @@ class PacketStream {
 
 	bool canDiscardFrame(int received_packets);
 
-	void releasePacketBlock(PacketBlock *block);
+	void releasePacketBlock(PacketBlock<P> *block);
 
 	void addPacketBlock(FramePacketBlock frame_block);
 	bool processOnePacket(WriterData *wd);
@@ -228,7 +295,7 @@ class PacketStream {
 	int packets_caught;
 	uint64_t frames_caught;
 	uint64_t last_frame;
-	Packet::StreamInfo stream_info;
+	StreamInfo stream_info;
 	int header_pad;
 	int packet_len;
 	MmappedRegion packet;
@@ -249,7 +316,43 @@ class PacketStream {
 
 class EigerStdFrameAssembler;
 
-class DefaultFrameAssembler {
+class DefaultFrameAssemblerBase {
+
+ public:
+	DefaultFrameAssemblerBase(GeneralData *d, bool e4b);
+	virtual ~DefaultFrameAssemblerBase();
+
+	GeneralData *getGeneralData();
+	bool doExpand4Bits();
+
+	virtual int assembleFrame(uint64_t frame, RecvHeader *header,
+				  char *buf) = 0;
+
+	virtual void stop() = 0;
+
+	virtual bool hasPendingPacket() = 0;
+	virtual int getImageSize() = 0;
+
+	virtual int getNumPacketsCaught() = 0;
+	virtual uint64_t getNumFramesCaught() = 0;
+	virtual uint64_t getLastFrameIndex() = 0;
+
+	virtual void clearBuffers() = 0;
+
+	static
+	DefaultFrameAssemblerBase *create(genericSocket *s, GeneralData *d,
+					  cpu_set_t cpu_mask,
+					  unsigned long node_mask,
+					  int max_node, 
+					  FramePolicy fp, bool e4b);
+ protected:
+	GeneralData *general_data;
+	bool expand_4bits;
+};
+
+
+template <class P>
+class DefaultFrameAssembler : public DefaultFrameAssemblerBase {
 
  public:
 	DefaultFrameAssembler(genericSocket *s, GeneralData *d,
@@ -258,32 +361,34 @@ class DefaultFrameAssembler {
 			      FramePolicy fp, bool e4b);
 	~DefaultFrameAssembler();
 
-	int assembleFrame(uint64_t frame, RecvHeader *header, char *buf);
+	virtual int assembleFrame(uint64_t frame, RecvHeader *header,
+				  char *buf);
 
-	void stop();
+	virtual void stop();
 
-	bool hasPendingPacket();
-	int getImageSize();
+	virtual bool hasPendingPacket();
+	virtual int getImageSize();
 
-	int getNumPacketsCaught();
-	uint64_t getNumFramesCaught();
-	uint64_t getLastFrameIndex();
+	virtual int getNumPacketsCaught();
+	virtual uint64_t getNumFramesCaught();
+	virtual uint64_t getLastFrameIndex();
 
-	void clearBuffers();
+	virtual void clearBuffers();
 
  protected:
 	friend class EigerStdFrameAssembler;
 
-	typedef PacketStream *PacketStreamPtr;
+	typedef PacketStream<P> *PacketStreamPtr;
 
-	bool doExpand4Bits();
 	void expand4Bits(char *dst, char *src, int src_size);
 
 	PacketStreamPtr packet_stream;
-	GeneralData *general_data;
 	FramePolicy frame_policy;
-	bool expand_4bits;
 };
+
+typedef DefaultFrameAssembler<StdPacket> StdAssembler;
+typedef DefaultFrameAssembler<LegacyPacket> LegacyAssembler;
+typedef DefaultFrameAssembler<GotthardPacket> GotthardAssembler;
 
 
 /**
@@ -295,7 +400,7 @@ class DualPortFrameAssembler {
  public:
 	typedef std::bitset<2> PortsMask;
 
-	DualPortFrameAssembler(DefaultFrameAssembler *a[2]);
+	DualPortFrameAssembler(DefaultFrameAssemblerBase *a[2]);
 	virtual ~DualPortFrameAssembler();
 
 	virtual void stop();
@@ -306,7 +411,7 @@ class DualPortFrameAssembler {
  protected:
 	void stopAssemblers();
 
-	DefaultFrameAssembler *assembler[2];
+	DefaultFrameAssemblerBase *assembler[2];
 };
 
 
@@ -317,7 +422,7 @@ class DualPortFrameAssembler {
 class EigerRawFrameAssembler : public DualPortFrameAssembler {
 
 public:
-	EigerRawFrameAssembler(DefaultFrameAssembler *a[2]);
+	EigerRawFrameAssembler(DefaultFrameAssemblerBase *a[2]);
 
 	virtual PortsMask assembleFrame(uint64_t frame, RecvHeader *recv_header,
 					char *buf);
@@ -330,7 +435,7 @@ public:
 class EigerStdFrameAssembler : public DualPortFrameAssembler {
 
 public:
-	EigerStdFrameAssembler(DefaultFrameAssembler *a[2], bool flipped);
+	EigerStdFrameAssembler(DefaultFrameAssemblerBase *a[2], bool flipped);
 	~EigerStdFrameAssembler();
 
 	virtual PortsMask assembleFrame(uint64_t frame, RecvHeader *recv_header,
