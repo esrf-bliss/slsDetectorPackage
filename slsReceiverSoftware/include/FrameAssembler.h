@@ -103,8 +103,9 @@ private:
 	size_t len;
 };
 
+
 /**
- *@short StdPacket 
+ *@short StdPacket
  */
 
 struct StdPacket {
@@ -115,14 +116,26 @@ struct StdPacket {
 		{}
 	};
 
+	struct SoftHeader {
+		bool valid;
+	};
+
 	char *buffer;
 	char *start;
 
-	StdPacket();
 	StdPacket(char *b, StreamInfo *si);
 
+	SoftHeader *softHeader()
+	{ return reinterpret_cast<SoftHeader *>(buffer); }
+
+	void initSoftHeader()
+	{}
+
 	bool valid()
-	{ return buffer; }
+	{ return softHeader()->valid; }
+
+	char *networkBuffer()
+	{ return buffer + sizeof(SoftHeader); }
 
 	DetHeader *header()
 	{ return reinterpret_cast<DetHeader *>(start); }
@@ -155,23 +168,37 @@ struct LegacyPacket {
 		{}
 	};
 
+	struct SoftHeader {
+		bool valid;
+		uint64_t packet_frame;
+		uint32_t packet_number;
+	};
+
 	char *buffer;
 	char *data_ptr;
-	uint64_t packet_frame;
-	uint32_t packet_number;
-	GeneralData *general_data;
+	StreamInfo *stream_info;
 
-	LegacyPacket();
 	LegacyPacket(char *b, StreamInfo *si);
 
+	GeneralData *generalData()
+	{ return stream_info->gd; }
+
+	SoftHeader *softHeader()
+	{ return reinterpret_cast<SoftHeader *>(buffer); }
+
+	void initSoftHeader();
+
 	bool valid()
-	{ return buffer; }
+	{ return softHeader()->valid; }
 
 	uint64_t frame()
-	{ return packet_frame; }
+	{ return softHeader()->packet_frame; }
 
 	uint32_t number()
-	{ return packet_number; }
+	{ return softHeader()->packet_number; }
+
+	char *networkBuffer()
+	{ return buffer + sizeof(SoftHeader); }
 
 	char *data()
 	{ return data_ptr; }
@@ -218,26 +245,32 @@ template <class P>
 class PacketStream;
 
 template <class P>
-struct PacketBlock {
-	std::vector<P> packet;
-	int valid_packets;
-
-	int size()
-	{ return packet.size(); }
-
-	PacketBlock(int l, PacketStream<P> *s);
+class PacketBlock {
+public:
+	PacketBlock(PacketStream<P> *s, char *b);
 	~PacketBlock();
 
-	P& operator[](unsigned int i);
+	int getNbPackets()
+	{ return ps->getFramePackets(); }
 
-	void addPacket(P& p);
+	P operator[](unsigned int i);
 
-	bool full_frame()
-	{ return valid_packets == size(); }
+	void setValid(unsigned int i, bool valid);
+
+	void moveToGood(P& p);
+
+	bool hasFullFrame()
+	{ return valid_packets == getNbPackets(); }
+
+	int getValidPackets()
+	{ return valid_packets; }
 
 private:
 	friend class PacketStream<P>;
+
 	PacketStream<P> *ps;
+	char *buf;
+	int valid_packets;
 };
 
 
@@ -274,6 +307,8 @@ class PacketStream {
 	typedef typename PacketBlockMap::iterator MapIterator;
 	typedef typename PacketBlockMap::value_type FramePacketBlock;
 
+	uint32_t getFramePackets();
+	
 	void initMem(unsigned long node_mask, int max_node);
 
 	void initThread();
@@ -282,15 +317,14 @@ class PacketStream {
 
 	bool canDiscardFrame(int received_packets);
 
-	void releasePacketBlock(PacketBlock<P> *block);
-
+	PacketBlock<P> *getEmptyBlock();
 	void addPacketBlock(FramePacketBlock frame_block);
-	bool processOnePacket(WriterData *wd);
+	void releasePacketBlock(PacketBlock<P> *block);
 
 	genericSocket *socket;
 	GeneralData *general_data;
 	FramePolicy frame_policy;
-	const int tot_num_packets;
+	const int num_frames;
 	Mutex mutex;
 	int packets_caught;
 	uint64_t frames_caught;
