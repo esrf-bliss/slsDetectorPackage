@@ -278,16 +278,14 @@ PacketStream<P>::PacketStream(genericSocket *s, GeneralData *d, FramePolicy fp,
 	  packet_delay_stat(1e6)
 {
 	initMem(node_mask, max_node);
-	initThread();
+	thread = new WriterThread(this);
 }
 
 template <class P>
 PacketStream<P>::~PacketStream()
 {
 	stop();
-	void *r;
-	pthread_join(thread, &r);
-	usleep(5000);	// give reader thread time to exit getPacket
+	delete thread;
 	{
 		MutexLock l(block_cond.getMutex());
 		while (!packet_block_map.empty()) {
@@ -361,7 +359,7 @@ uint64_t PacketStream<P>::getLastFrameIndex()
 }
 
 template <class P>
-uint32_t PacketStream<P>::getFramePackets()
+uint32_t PacketStream<P>::getNbPacketFrames()
 {
 	return general_data->packetsPerFrame;
 }
@@ -379,7 +377,7 @@ void PacketStream<P>::initMem(unsigned long node_mask, int max_node)
 	packet_len += header_pad;
 	misalign = packet_len % data_align;
 	packet_len += misalign ? (data_align - misalign) : 0;
-	int frame_len = packet_len * getFramePackets();
+	int frame_len = packet_len * getNbPacketFrames();
 	packet.alloc(frame_len * num_frames, node_mask, max_node);
 
 	char *p = packet.getPtr() + header_pad;
@@ -388,45 +386,57 @@ void PacketStream<P>::initMem(unsigned long node_mask, int max_node)
 }
 
 template <class P>
-void PacketStream<P>::initThread()
+PacketBlock<P> *PacketStream<P>::getEmptyBlock()
 {
-	int ret;
-	ret = pthread_create(&thread, NULL, threadFunctionStatic, this);
-	if (ret != 0)
-		throw std::runtime_error("Could not start packet thread");
+	MutexLock l(free_cond.getMutex());
+	while (!stopped && free_queue.empty())
+		free_cond.wait();
+	if (stopped)
+		return NULL;
+	char *b = free_queue.front();
+	free_queue.pop();
+	l.unlock();
+	return new PacketBlock<P>(this, b);
+}
 
-	struct sched_param param;
-	param.sched_priority = 90;
-	ret = pthread_setschedparam(thread, SCHED_FIFO, &param);
-	if (ret != 0) {
+template <class P>
+void PacketStream<P>::addPacketBlock(FramePacketBlock frame_block)
+{
+	MutexLock l(block_cond.getMutex());
+	packet_block_map.insert(frame_block);
+	block_cond.broadcast();
+}
+
+
+template <class P>
+class PacketStream<P>::WriterThread {
+public:
+	WriterThread(PacketStream *s)
+		: ps(s), frame_packets(ps->getNbPacketFrames()),
+		  block(NULL), curr_frame(0), curr_packet(-1)
+	{
+		int ret;
+		ret = pthread_create(&thread, NULL, threadFunctionStatic, this);
+		if (ret != 0)
+			throw std::runtime_error("Could not start writer thread");
+
+		struct sched_param param;
+		param.sched_priority = 90;
+		ret = pthread_setschedparam(thread, SCHED_FIFO, &param);
+		if (ret != 0)
+			std::cerr << "Could not set packet thread RT priority!"
+				  << std::endl;
+	}
+
+	~WriterThread()
+	{
 		void *r;
 		pthread_join(thread, &r);
-		throw std::runtime_error("Could not set packet thread prio");
+		usleep(5000);	// give reader thread time to exit getPacket
 	}
-}
 
-template <class P>
-void *PacketStream<P>::threadFunctionStatic(void *data)
-{
-	PacketStream *ps = static_cast<PacketStream *>(data);
-	ps->threadFunction();
-	return NULL;
-}
-
-template <class P>
-struct PacketStream<P>::WriterData {
+private:
 	typedef AutoPtr<PacketBlock<P> > BlockPtr;
-	const uint32_t frame_packets;
-	PacketStream *ps;
-	Timestamp t0;
-	BlockPtr block;
-	uint64_t curr_frame;
-	uint32_t curr_packet;
-
-	WriterData(uint32_t packets, PacketStream *s)
-		: frame_packets(packets), ps(s),
-		  block(NULL), curr_frame(0), curr_packet(-1)
-	{}
 
 	bool checkBlock()
 	{
@@ -510,51 +520,42 @@ struct PacketStream<P>::WriterData {
 
 		return addPacket(packet);
 	}
-};
 
-template <class P>
-PacketBlock<P> *PacketStream<P>::getEmptyBlock()
-{
-	MutexLock l(free_cond.getMutex());
-	while (!stopped && free_queue.empty())
-		free_cond.wait();
-	if (stopped)
+	static void *threadFunctionStatic(void *data)
+	{
+		WriterThread *wt = static_cast<WriterThread *>(data);
+		wt->threadFunction();
 		return NULL;
-	char *b = free_queue.front();
-	free_queue.pop();
-	l.unlock();
-	return new PacketBlock<P>(this, b);
-}
-
-template <class P>
-void PacketStream<P>::addPacketBlock(FramePacketBlock frame_block)
-{
-	MutexLock l(block_cond.getMutex());
-	packet_block_map.insert(frame_block);
-	block_cond.broadcast();
-}
-
-template <class P>
-void PacketStream<P>::threadFunction()
-{
-	if (CPU_COUNT(&cpu_aff_mask) != 0) {
-		int size = sizeof(cpu_aff_mask);
-		int ret = sched_setaffinity(0, size, &cpu_aff_mask);
-		if (ret != 0)
-			throw std::runtime_error("Could not set packet "
-						 "cpu affinity mask");
 	}
 
-	WriterData wd(getFramePackets(), this);
+	void threadFunction()
+	{
+		cpu_set_t& cpu_aff_mask = ps->cpu_aff_mask;
+		if (CPU_COUNT(&cpu_aff_mask) != 0) {
+			int size = sizeof(cpu_aff_mask);
+			int ret = sched_setaffinity(0, size, &cpu_aff_mask);
+			if (ret != 0)
+				std::cerr << "Could not set writer thread "
+					  << "cpu affinity mask" << std::endl;
+		}
 
-	while (true) {
-		if (!wd.processOnePacket())
-			break;
+		while (true) {
+			if (!processOnePacket())
+				break;
 
-		MutexLock l(mutex);
-		++packets_caught;
+			MutexLock l(ps->mutex);
+			++ps->packets_caught;
+		}
 	}
-}
+
+	PacketStream *ps;
+	const uint32_t frame_packets;
+	Timestamp t0;
+	BlockPtr block;
+	uint64_t curr_frame;
+	uint32_t curr_packet;
+	pthread_t thread;
+};
 
 
 /**

@@ -251,7 +251,7 @@ public:
 	~PacketBlock();
 
 	int getNbPackets()
-	{ return ps->getFramePackets(); }
+	{ return ps->getNbPacketFrames(); }
 
 	P operator[](unsigned int i);
 
@@ -302,18 +302,14 @@ class PacketStream {
 	typedef typename P::StreamInfo StreamInfo;
 	friend class PacketBlock<P>;
 
-	struct WriterData;
+	struct WriterThread;
 	typedef std::map<uint64_t, PacketBlock<P> *> PacketBlockMap;
 	typedef typename PacketBlockMap::iterator MapIterator;
 	typedef typename PacketBlockMap::value_type FramePacketBlock;
 
-	uint32_t getFramePackets();
+	uint32_t getNbPacketFrames();
 	
 	void initMem(unsigned long node_mask, int max_node);
-
-	void initThread();
-	static void *threadFunctionStatic(void *data);
-	void threadFunction();
 
 	bool canDiscardFrame(int received_packets);
 
@@ -340,7 +336,7 @@ class PacketStream {
 	cpu_set_t cpu_aff_mask;
 	XYStat packet_delay_stat;
 	PacketBlockMap packet_block_map;
-	pthread_t thread;
+	WriterThread *thread;
 };
 
 
