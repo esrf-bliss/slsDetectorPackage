@@ -217,27 +217,39 @@ bool PacketStream<P>::canDiscardFrame(int received_packets)
 template <class P>
 PacketBlock<P> *PacketStream<P>::getPacketBlock(uint64_t frame)
 {
-	MutexLock bl(block_cond.getMutex());
-	MapIterator it;
-	while (!stopped) {
-		if (!packet_block_map.empty()) {
-			it = packet_block_map.begin();
-			bool too_old = (it->first > frame);
-			if (too_old)
-				return NULL;
+	class WaitingCountHelper {
+	public:
+		WaitingCountHelper(PacketStream *s) : ps(s)
+		{ ++ps->waiting_reader_count; }
+		~WaitingCountHelper()
+		{ --ps->waiting_reader_count; }
+	private:
+		PacketStream *ps;
+	};
+
+	PacketBlock<P> *block;
+	{
+		MutexLock bl(block_cond.getMutex());
+		WaitingCountHelper h(this);
+		MapIterator it;
+		while (!stopped) {
+			if (!packet_block_map.empty()) {
+				it = packet_block_map.begin();
+				bool too_old = (it->first > frame);
+				if (too_old)
+					return NULL;
+			}
+			it = packet_block_map.find(frame);
+			if (it != packet_block_map.end())
+				break;
+			block_cond.wait();
 		}
-		it = packet_block_map.find(frame);
-		if (it != packet_block_map.end())
-			break;
-		block_cond.wait();
+		if (stopped)
+			return NULL;
+
+		block = it->second;
+		packet_block_map.erase(it);
 	}
-	if (stopped)
-		return NULL;
-
-	PacketBlock<P> *block = it->second;
-	packet_block_map.erase(it);
-
-	bl.unlock();
 
 	bool full_frame = block->hasFullFrame();
 	{
@@ -274,6 +286,7 @@ PacketStream<P>::PacketStream(genericSocket *s, GeneralData *d, FramePolicy fp,
 	  last_frame(0),
 	  stream_info(general_data),
 	  stopped(false),
+	  waiting_reader_count(0),
 	  cpu_aff_mask(cpu_mask),
 	  packet_delay_stat(1e6)
 {
@@ -286,35 +299,59 @@ PacketStream<P>::~PacketStream()
 {
 	stop();
 	delete thread;
-	{
-		MutexLock l(block_cond.getMutex());
-		while (!packet_block_map.empty()) {
-			MapIterator it = packet_block_map.begin();
-			PacketBlock<P> *block = it->second;
-			packet_block_map.erase(it);
-			MutexUnlock u(l);
-			delete block;
-		}
+	releaseReadyPacketBlocks();
+	waitUsedPacketBlocks();
+	printStat();
+}
+
+template <class P>
+void PacketStream<P>::releaseReadyPacketBlocks()
+{
+	MutexLock l(block_cond.getMutex());
+	while (waiting_reader_count > 0)
+		usleep(5000);
+	while (!packet_block_map.empty()) {
+		MapIterator it = packet_block_map.begin();
+		PacketBlock<P> *block = it->second;
+		packet_block_map.erase(it);
+		MutexUnlock u(l);
+		delete block;
 	}
+}
 
-	std::ostringstream heading;
-	heading << "[" << socket->getPortNumber() << "]: ";
-
-	{
-		std::ostringstream msg;
-		msg << heading.str()
-		    << "packet_delay_stat=" << packet_delay_stat.calcLinRegress();
-		std::cout << msg.str() << std::endl;
+template <class P>
+void PacketStream<P>::waitUsedPacketBlocks()
+{
+	const double wait_reader_timeout = 1;
+	Timestamp t0;
+	t0.latchNow();
+	while (hasPendingPacket()) {
+		Timestamp t;
+		t.latchNow();
+		if (t - t0 > wait_reader_timeout)
+			break;
+		usleep(5000);
 	}
-
 	if (hasPendingPacket()) {
 		MutexLock l(free_cond.getMutex());
 		std::ostringstream error;
-		error << heading.str() << "Missing free frames: "
+		error << "[" << socket->getPortNumber() << "]: "
+		      << "Missing free frames after "
+		      << wait_reader_timeout << "sec: "
 		      << "expected " << num_frames << ", "
 		      << "got " << free_queue.size();
 		std::cout << error.str() << std::endl;
 	}
+}
+
+template <class P>
+void PacketStream<P>::printStat()
+{
+	MutexLock l(mutex);
+	std::ostringstream msg;
+	msg << "[" << socket->getPortNumber() << "]: "
+	    << "packet_delay_stat=" << packet_delay_stat.calcLinRegress();
+	std::cout << msg.str() << std::endl;
 }
 
 template <class P>
@@ -432,7 +469,6 @@ public:
 	{
 		void *r;
 		pthread_join(thread, &r);
-		usleep(5000);	// give reader thread time to exit getPacket
 	}
 
 private:
@@ -471,6 +507,7 @@ private:
 				   + packet.number());
 		if (packet_idx == 0)
 			t0 = t;
+		MutexLock l(ps->mutex);
 		ps->packet_delay_stat.add(packet_idx, t - t0);
 	}
 

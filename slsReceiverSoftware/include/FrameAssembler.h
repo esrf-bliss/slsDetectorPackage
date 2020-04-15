@@ -316,6 +316,9 @@ class PacketStream {
 	PacketBlock<P> *getEmptyBlock();
 	void addPacketBlock(FramePacketBlock frame_block);
 	void releasePacketBlock(PacketBlock<P> *block);
+	void releaseReadyPacketBlocks();
+	void waitUsedPacketBlocks();
+	void printStat();
 
 	genericSocket *socket;
 	GeneralData *general_data;
@@ -332,6 +335,7 @@ class PacketStream {
 	Cond free_cond;
 	std::queue<char *> free_queue;
 	bool stopped;
+	int waiting_reader_count;
 	Cond block_cond;
 	cpu_set_t cpu_aff_mask;
 	XYStat packet_delay_stat;
