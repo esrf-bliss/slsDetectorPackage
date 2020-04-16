@@ -5,6 +5,7 @@
  * from udp packets
  ***********************************************/
 
+#include "AutoPtr.h"
 #include "logger.h"
 #include "sls_receiver_defs.h"
 #include "GeneralData.h"
@@ -28,45 +29,6 @@ typedef slsReceiverDefs::sls_detector_header DetHeader;
 typedef slsReceiverDefs::sls_receiver_header RecvHeader;
 typedef slsReceiverDefs::frameDiscardPolicy FramePolicy;
 
-
-template <typename T>
-class AutoPtr
-{
-public:
-	AutoPtr(T *p = NULL) : ptr(p)
-	{}
-
-	~AutoPtr()
-	{ _delete(); }
-
-	AutoPtr& operator =(T *p)
-	{
-		_delete();
-		ptr = p;
-	}
-
-	T *forget()
-	{
-		T *p = ptr;
-		ptr = NULL;
-		return p;
-	}
-
-	operator T*() const
-	{ return ptr; }
-
-	T *operator ->() const
-	{ return ptr; }
-
-private:
-	void _delete()
-	{
-		delete ptr;
-		ptr = NULL;
-	}
-
-	T *ptr;
-};
 
 /**
  *@short Utility classes
