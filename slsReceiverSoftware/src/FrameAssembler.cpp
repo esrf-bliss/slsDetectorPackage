@@ -522,12 +522,15 @@ private:
 			curr_frame = packet_frame;
 		if (packet_frame != curr_frame) {
 			BlockPtr new_block = ps->getEmptyBlock();
-			if (!new_block)
-				return false;
-			new_block->moveToGood(packet);
+			if (new_block)
+				new_block->moveToGood(packet);
+			else
+				block->setValid(curr_packet, false);
 			setInvalidPacketsUntil(frame_packets);
 			ps->addPacketBlock(finishPacketBlock());
-			block = new_block;
+			if (!new_block)
+				return false;
+			block = new_block.forget();
 			curr_frame = packet_frame;
 			setInvalidPacketsUntil(packet_number);
 		} else if (packet_number != curr_packet) {
