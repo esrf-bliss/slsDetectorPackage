@@ -418,7 +418,7 @@ void PacketStream<P>::initMem(unsigned long node_mask, int max_node)
 	packet.alloc(frame_len * num_frames, node_mask, max_node);
 
 	char *p = packet.getPtr() + header_pad;
-	for (int i = 0; i < num_frames; ++i, p += frame_len)
+	for (unsigned int i = 0; i < num_frames; ++i, p += frame_len)
 		free_queue.push(p);
 }
 
@@ -1195,7 +1195,6 @@ EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
 
 	StdAssembler **a = reinterpret_cast<StdAssembler **>(assembler);
 	bool header_empty = true;
-	const int packets_per_frame = a[0]->getGeneralData()->packetsPerFrame;
 
 	DetHeader *det_header = &recv_header->detHeader;
 	det_header->frameNumber = frame;

@@ -51,11 +51,11 @@ Listener::Listener(int ind, detectorType dtype, Fifo*& f, volatile runStatus* s,
 		firstAcquisitionIndex(0),
 		firstMeasurementIndex(0),
 		currentFrameIndex(0),
+		frameAssembler(0),
 		udpSocketAlive(0),
 		numPacketsStatistic(0),
 		numFramesStatistic(0),
 		doUdpRead(do_udp_read),
-		frameAssembler(0),
 		fifoNodeMask(0),
 		maxNode(0)
 {
@@ -425,11 +425,6 @@ int Listener::ListenToAnImage(sls_receiver_header* recv_header, char* buf) {
 	int rc = 0;
 	uint64_t fnum = 0;
 	uint32_t numpackets = 0;
-	uint32_t hsize = generalData->headerSizeinPacket; //(includes empty header)
-	uint32_t esize = generalData->emptyHeader;
-	bool isHeaderEmpty = true;
-	sls_detector_header* det_header;
-	bool standardheader = generalData->standardheader;
 
 	// deactivated (eiger)
 	if (!(*activated)) {

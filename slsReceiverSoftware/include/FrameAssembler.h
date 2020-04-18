@@ -285,7 +285,7 @@ class PacketStream {
 	genericSocket *socket;
 	GeneralData *general_data;
 	FramePolicy frame_policy;
-	const int num_frames;
+	const unsigned int num_frames;
 	Mutex mutex;
 	int packets_caught;
 	uint64_t frames_caught;
