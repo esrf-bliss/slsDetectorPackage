@@ -28,31 +28,51 @@ typedef slsReceiverDefs::frameDiscardPolicy FramePolicy;
 
 
 /**
- *@short StdPacket
+ * Memory layout of each element of the packet buffer array
+ *
+ * < pad > < --------------------- buffer --------------------------- >
+ *         < soft_header > < ------------ network_buffer ------------ >
+ *                         < empty_header > < network_header > < data >
+ *
+ * Note: <pad> is calculated in order to have <data> aligned to 128-bits
  */
 
-struct StdPacket {
-	struct StreamInfo {
+/**
+ *@short The PacketData base struct
+ */
+
+struct PacketDataBase {
+	// An instance of <derived>::StreamData is included in the PacketStream
+	struct StreamData {
 		GeneralData *gd;
-		StreamInfo(GeneralData *d)
-			: gd(d)
+		StreamData(GeneralData *d) : gd(d)
 		{}
 	};
 
+	// An instance of <derived>::SoftHeader prepends each network packet
 	struct SoftHeader {
 		bool valid;
 	};
+};
+
+
+/**
+ *@short The Packet base struct
+ */
+
+template <class PD>
+struct Packet {
+	typedef typename PD::StreamData StreamData;
+	typedef typename PD::SoftHeader SoftHeader;
 
 	char *buffer;
-	char *start;
+	StreamData *stream_data;
 
-	StdPacket(char *b, StreamInfo *si);
+	Packet(char *b, StreamData *d) : buffer(b), stream_data(d)
+	{}
 
 	SoftHeader *softHeader()
 	{ return reinterpret_cast<SoftHeader *>(buffer); }
-
-	void initSoftHeader()
-	{}
 
 	bool valid()
 	{ return softHeader()->valid; }
@@ -60,8 +80,31 @@ struct StdPacket {
 	char *networkBuffer()
 	{ return buffer + sizeof(SoftHeader); }
 
+	char *networkHeader()
+	{ return networkBuffer() + generalData()->emptyHeader; }
+
+	GeneralData *generalData()
+	{ return stream_data->gd; }
+};
+
+/**
+ *@short StdPacket class
+ */
+
+struct StdPacketData : public PacketDataBase {
+};
+
+struct StdPacket : public Packet<StdPacketData> {
+	typedef Packet<StdPacketData> Base;
+
+	StdPacket(char *b, StreamData *sd) : Base(b, sd)
+	{}
+
+	void initSoftHeader()
+	{}
+
 	DetHeader *header()
-	{ return reinterpret_cast<DetHeader *>(start); }
+	{ return reinterpret_cast<DetHeader *>(networkHeader()); }
 	
 	uint64_t frame()
 	{ return header()->frameNumber; }
@@ -70,95 +113,90 @@ struct StdPacket {
 	{ return header()->packetNumber; }
 
 	char *data()
-	{ return start + sizeof(DetHeader); }
+	{ return networkHeader() + sizeof(DetHeader); }
 
 	uint32_t sizeAdjust()
 	{ return 0; }
 
-	void initDetHeader(DetHeader *det_header);
+	void fillDetHeader(DetHeader *det_header);
 };
 
 /**
  *@short LegacyPacket class
  */
 
-struct LegacyPacket {
-	struct StreamInfo {
-		GeneralData *gd;
+struct LegacyPacketData : public PacketDataBase {
+	struct StreamData : public PacketDataBase::StreamData {
 		bool odd_numbering;
-		StreamInfo(GeneralData *d)
-			: gd(d), odd_numbering(true)
+		StreamData(GeneralData *d)
+			: PacketDataBase::StreamData(d), odd_numbering(true)
 		{}
 	};
 
-	struct SoftHeader {
-		bool valid;
+	struct SoftHeader : public PacketDataBase::SoftHeader {
 		uint64_t packet_frame;
 		uint32_t packet_number;
 	};
+};
 
-	char *buffer;
-	char *data_ptr;
-	StreamInfo *stream_info;
+template <class PD>
+struct LegacyPacketImpl : public Packet<PD> {
+	typedef Packet<PD> Base;
 
-	LegacyPacket(char *b, StreamInfo *si);
-
-	GeneralData *generalData()
-	{ return stream_info->gd; }
-
-	SoftHeader *softHeader()
-	{ return reinterpret_cast<SoftHeader *>(buffer); }
-
+	LegacyPacketImpl(char *b, typename Base::StreamData *sd) : Base(b, sd)
+	{}
+	
 	void initSoftHeader();
 
-	bool valid()
-	{ return softHeader()->valid; }
-
 	uint64_t frame()
-	{ return softHeader()->packet_frame; }
+	{ return Base::softHeader()->packet_frame; }
 
 	uint32_t number()
-	{ return softHeader()->packet_number; }
-
-	char *networkBuffer()
-	{ return buffer + sizeof(SoftHeader); }
+	{ return Base::softHeader()->packet_number; }
 
 	char *data()
-	{ return data_ptr; }
+	{ return (Base::networkHeader()
+		  + Base::generalData()->headerSizeinPacket); }
 
 	uint32_t sizeAdjust()
 	{ return 0; }
 
-	void initDetHeader(DetHeader *det_header);
+	void fillDetHeader(DetHeader *det_header);
 };
+
+typedef LegacyPacketImpl<LegacyPacketData> LegacyPacket;	
 
 /**
  *@short GotthardPacket class
  */
 
-struct GotthardPacket : public LegacyPacket {
-	struct StreamInfo : public LegacyPacket::StreamInfo {
+struct GotthardPacketData : public LegacyPacketData {
+	struct StreamData : public LegacyPacketData::StreamData {
 		bool first_packet;
-
-		StreamInfo(GeneralData *d)
-			: LegacyPacket::StreamInfo(d), first_packet(true)
+		StreamData(GeneralData *d)
+			: LegacyPacketData::StreamData(d), first_packet(true)
 		{}
-
-		LegacyPacket::StreamInfo *checkInit(char *b);
 	};
-
-	GotthardPacket();
-	GotthardPacket(char *b, StreamInfo *si);
-
-	uint32_t sizeAdjust()
-	{
-		// Gotthard data:
-		//   1st packet: CACA + CACA, (640 - 1) * 2 bytes data
-		//   2nd packet: (1 + 640) * 2 bytes data
-		return ((number() == 0) ? -2 : 2);
-	}
 };
 
+struct GotthardPacket : public LegacyPacketImpl<GotthardPacketData> {
+	typedef LegacyPacketImpl<GotthardPacketData> Base;
+
+	GotthardPacket(char *b, StreamData *sd) : Base(b, sd)
+	{}
+
+	void initSoftHeader();
+
+	// Gotthard data:
+	//   1st packet: CACA + CACA, (640 - 1) * 2 bytes data
+	//   2nd packet: (1 + 640) * 2 bytes data
+
+	char *data()
+	{ return Base::data() + ((number() == 0) ? 4 : 0); }
+
+	uint32_t sizeAdjust()
+	{ return (number() == 0) ? -2 : 2; }
+};
 
 /**
  *@short Packet Block: reference packets in a frame
@@ -222,7 +260,7 @@ class PacketStream {
 	void clearBuffer();
 
  private:
-	typedef typename P::StreamInfo StreamInfo;
+	typedef typename P::StreamData StreamData;
 	friend class PacketBlock<P>;
 
 	struct WriterThread;
@@ -251,7 +289,7 @@ class PacketStream {
 	int packets_caught;
 	uint64_t frames_caught;
 	uint64_t last_frame;
-	StreamInfo stream_info;
+	StreamData stream_data;
 	int header_pad;
 	int packet_len;
 	MmappedRegion packet_buffer_array;

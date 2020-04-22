@@ -15,13 +15,7 @@ using namespace FrameAssembler;
  * StdPacket
  */
 
-inline StdPacket::StdPacket(char *b, StreamInfo *si)
-{
-	buffer = b;
-	start = networkBuffer() + si->gd->emptyHeader;
-}
-
-inline void StdPacket::initDetHeader(DetHeader *det_header)
+inline void StdPacket::fillDetHeader(DetHeader *det_header)
 {
 	memcpy(det_header, header(), sizeof(*det_header));
 }
@@ -30,33 +24,25 @@ inline void StdPacket::initDetHeader(DetHeader *det_header)
  * LegacyPacket
  */
 
-inline LegacyPacket::LegacyPacket(char *b, StreamInfo *si)
-{
-	buffer = b;
-	stream_info = si;
-	char *start = networkBuffer() + generalData()->emptyHeader;
-	data_ptr = start + generalData()->headerSizeinPacket;
-}
-
-inline void LegacyPacket::initSoftHeader()
+template <class F>
+void LegacyPacketImpl<F>::initSoftHeader()
 {
 	int thread_idx = 0;
-	bool& odd_numbering = stream_info->odd_numbering;
 	uint64_t packet_bid;
 	uint32_t packet_subframe;
-	char *start = buffer + sizeof(SoftHeader) + generalData()->emptyHeader;
-	generalData()->GetHeaderInfo(thread_idx, start, odd_numbering,
-				     softHeader()->packet_frame,
-				     softHeader()->packet_number,
-				     packet_subframe, packet_bid);
+	Base::generalData()->GetHeaderInfo(thread_idx, Base::networkHeader(),
+					   Base::stream_data->odd_numbering,
+					   Base::softHeader()->packet_frame,
+					   Base::softHeader()->packet_number,
+					   packet_subframe, packet_bid);
 }
 
-
-inline void LegacyPacket::initDetHeader(DetHeader *det_header)
+template <class F>
+void LegacyPacketImpl<F>::fillDetHeader(DetHeader *det_header)
 {
 	memset(det_header, 0, sizeof(*det_header));
 	det_header->frameNumber = frame();
-	det_header->detType = (uint8_t) generalData()->myDetectorType;
+	det_header->detType = (uint8_t) Base::generalData()->myDetectorType;
 	det_header->version = (uint8_t) SLS_DETECTOR_HEADER_VERSION;
 }
 
@@ -64,26 +50,17 @@ inline void LegacyPacket::initDetHeader(DetHeader *det_header)
  * GotthardPacket
  */
 
-LegacyPacket::StreamInfo *GotthardPacket::StreamInfo::checkInit(char *b)
+inline void GotthardPacket::initSoftHeader()
 {
-	char *start = b + gd->emptyHeader;
-	int thread_idx = 0;
-	if (first_packet) {
+	if (stream_data->first_packet) {
+		bool& odd_numbering = stream_data->odd_numbering;
+		GeneralData *gd = generalData();
+		int thread_idx = 0;
+		char *start = networkHeader();
 		odd_numbering = gd->SetOddStartingPacket(thread_idx, start);
-		first_packet = false;
+		stream_data->first_packet = false;
 	}
-	return this;
-}
-
-inline GotthardPacket::GotthardPacket(char *b, StreamInfo *si)
-	: LegacyPacket(b, si->checkInit(b))
-{
-	if (number() == 0) {
-		// Gotthard data:
-		//   1st packet: CACA + CACA, (640 - 1) * 2 bytes data
-		//   2nd packet: (1 + 640) * 2 bytes data
-		data_ptr += 4;
-	}
+	Base::initSoftHeader();
 }
 
 
@@ -107,7 +84,7 @@ PacketBlock<P>::~PacketBlock()
 template <class P>
 P PacketBlock<P>::operator [](unsigned int i)
 {
-	return P(buf + ps->packet_len * i, &ps->stream_info);
+	return P(buf + ps->packet_len * i, &ps->stream_data);
 }
 
 template <class P>
@@ -223,7 +200,7 @@ PacketStream<P>::PacketStream(genericSocket *s, GeneralData *d, FramePolicy fp,
 	  packets_caught(0),
 	  frames_caught(0),
 	  last_frame(0),
-	  stream_info(general_data),
+	  stream_data(general_data),
 	  stopped(false),
 	  waiting_reader_count(0),
 	  cpu_aff_mask(cpu_mask),
@@ -680,7 +657,7 @@ int DefaultFrameAssembler<P>::assembleFrame(uint64_t frame,
 
 		//write header
 		if (header_empty) {
-			packet.initDetHeader(det_header);
+			packet.fillDetHeader(det_header);
 			header_empty = false;
 		}
 	}
@@ -1152,7 +1129,7 @@ EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
 		//write header
 		if (header_empty) {
 			StdPacket p = (*block[i])[0];
-			p.initDetHeader(det_header);
+			p.fillDetHeader(det_header);
 			header_empty = false;
 		}
 	}
