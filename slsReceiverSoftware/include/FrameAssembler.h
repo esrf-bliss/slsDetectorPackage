@@ -14,11 +14,8 @@
 #include <vector>
 #include <queue>
 #include <map>
-#include <memory>
 
-#include <sys/mman.h>
-#include <numaif.h>
-
+#include "MmappedRegion.h"
 #include "ThreadUtils.h"
 #include "Stats.h"
 
@@ -28,42 +25,6 @@ namespace FrameAssembler
 typedef slsReceiverDefs::sls_detector_header DetHeader;
 typedef slsReceiverDefs::sls_receiver_header RecvHeader;
 typedef slsReceiverDefs::frameDiscardPolicy FramePolicy;
-
-
-/**
- *@short Utility classes
- */
-
-class bad_mmap_alloc : public std::bad_alloc {
-public:
-	bad_mmap_alloc(const char *m = "") : msg(m)
-	{}
-	virtual ~bad_mmap_alloc() throw()
-	{}
-	virtual const char* what() const throw()
-	{ return msg.c_str(); }
-private:
-	std::string msg;
-};
-
-class MmappedRegion
-{
-public:
-	MmappedRegion(size_t size = 0, unsigned long node_mask = 0,
-		      int max_node = 0);
-	~MmappedRegion();
-
-	void alloc(size_t size, unsigned long node_mask = 0,
-		   int max_node = 0);
-	void release();
-	char *getPtr();
-
-	void clear();
-
-private:
-	char *ptr;
-	size_t len;
-};
 
 
 /**
@@ -293,7 +254,7 @@ class PacketStream {
 	StreamInfo stream_info;
 	int header_pad;
 	int packet_len;
-	MmappedRegion packet;
+	MmappedRegion packet_buffer_array;
 	Cond free_cond;
 	std::queue<char *> free_queue;
 	bool stopped;
