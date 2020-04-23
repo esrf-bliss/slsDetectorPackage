@@ -12,10 +12,29 @@
 using namespace FrameAssembler;
 
 /**
- * StdPacket
+ * StdPacketImpl
  */
 
-inline void StdPacket::fillDetHeader(DetHeader *det_header)
+template <class PD>
+void Packet<PD>::checkConsistency(GeneralData *gd)
+{
+	typedef typename PD::EmptyHeader EmptyHeader;
+	if (gd->emptyHeader != EmptyHeader::size) {
+		std::ostringstream error;
+		error << "EmptyHeader size mismatch: "
+		      << "got " << gd->emptyHeader << ", "
+		      << "expected " << sizeof(EmptyHeader);
+		std::cerr << error.str() << std::endl;
+		throw std::runtime_error(error.str());
+	}
+}
+
+/**
+ * StdPacketImpl
+ */
+
+template <class PD>
+void StdPacketImpl<PD>::fillDetHeader(DetHeader *det_header)
 {
 	memcpy(det_header, header(), sizeof(*det_header));
 }
@@ -30,11 +49,11 @@ void LegacyPacketImpl<F>::initSoftHeader()
 	int thread_idx = 0;
 	uint64_t packet_bid;
 	uint32_t packet_subframe;
-	Base::generalData()->GetHeaderInfo(thread_idx, Base::networkHeader(),
-					   Base::stream_data->odd_numbering,
-					   Base::softHeader()->packet_frame,
-					   Base::softHeader()->packet_number,
-					   packet_subframe, packet_bid);
+	generalData()->GetHeaderInfo(thread_idx, Base::networkHeader(),
+				     stream_data->odd_numbering,
+				     Base::softHeader()->packet_frame,
+				     Base::softHeader()->packet_number,
+				     packet_subframe, packet_bid);
 }
 
 template <class F>
@@ -42,7 +61,7 @@ void LegacyPacketImpl<F>::fillDetHeader(DetHeader *det_header)
 {
 	memset(det_header, 0, sizeof(*det_header));
 	det_header->frameNumber = frame();
-	det_header->detType = (uint8_t) Base::generalData()->myDetectorType;
+	det_header->detType = (uint8_t) generalData()->myDetectorType;
 	det_header->version = (uint8_t) SLS_DETECTOR_HEADER_VERSION;
 }
 
@@ -206,6 +225,7 @@ PacketStream<P>::PacketStream(genericSocket *s, GeneralData *d, FramePolicy fp,
 	  cpu_aff_mask(cpu_mask),
 	  packet_delay_stat(1e6)
 {
+	P::checkConsistency(general_data);
 	initMem(node_mask, max_node);
 	thread = new WriterThread(this);
 }
@@ -256,7 +276,7 @@ void PacketStream<P>::waitUsedPacketBlocks()
 		      << wait_reader_timeout << "sec: "
 		      << "expected " << num_frames << ", "
 		      << "got " << free_queue.size();
-		std::cout << error.str() << std::endl;
+		std::cerr << error.str() << std::endl;
 	}
 }
 
@@ -370,8 +390,11 @@ public:
 	{
 		int ret;
 		ret = pthread_create(&thread, NULL, threadFunctionStatic, this);
-		if (ret != 0)
-			throw std::runtime_error("Could not start writer thread");
+		if (ret != 0) {
+			const char *error = "Could not start writer thread";
+			std::cerr << error << std::endl;
+			throw std::runtime_error(error);
+		}
 
 		struct sched_param param;
 		param.sched_priority = 90;
@@ -701,15 +724,23 @@ DefaultFrameAssemblerBase::create(genericSocket *s, GeneralData *d,
 				  FramePolicy fp, bool e4b)
 {
 	DefaultFrameAssemblerBase *a;
-	if (d->standardheader)
-		a = new StdAssembler(s, d, cpu_mask, node_mask, max_node,
-				     fp, e4b);
-	else if (d->myDetectorType == slsReceiverDefs::GOTTHARD)
+	switch (d->myDetectorType) {
+	case slsReceiverDefs::EIGER:
+		a = new EigerAssembler(s, d, cpu_mask, node_mask, max_node,
+				       fp, e4b);
+		break;
+	case slsReceiverDefs::JUNGFRAU:
+		a = new JungfrauAssembler(s, d, cpu_mask, node_mask, max_node,
+					  fp, e4b);
+		break;
+	case slsReceiverDefs::GOTTHARD:
 		a = new GotthardAssembler(s, d, cpu_mask, node_mask, max_node,
 					  fp, e4b);
-	else
+		break;
+	default:
 		a = new LegacyAssembler(s, d, cpu_mask, node_mask, max_node,
 					fp, e4b);
+	}
 	return a;
 }
 
@@ -766,8 +797,8 @@ EigerRawFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
 
 class EigerStdFrameAssembler::Helper {
 public:
-	typedef PacketBlock<StdPacket> StdBlock;
-	typedef PacketStream<StdPacket> StdStream;
+	typedef PacketBlock<EigerPacket> EigerBlock;
+	typedef PacketStream<EigerPacket> EigerStream;
 
 	Helper(GeneralData *gd, bool f);
 	virtual ~Helper() {}
@@ -783,7 +814,7 @@ public:
 		return getSrcPixelBytes() * factor;
 	}
 
-	virtual void assemblePackets(StdBlock *block[2], char *buf) = 0;
+	virtual void assemblePackets(EigerBlock *block[2], char *buf) = 0;
 
 protected:
 	static const int chip_size = 256;
@@ -841,7 +872,7 @@ class Expand4BitsHelper : public EigerStdFrameAssembler::Helper {
 public:
 	Expand4BitsHelper(GeneralData *gd, bool flipped);
 
-	virtual void assemblePackets(StdBlock *block[2], char *buf) override;
+	virtual void assemblePackets(EigerBlock *block[2], char *buf) override;
 
 private:
 	static const int half_module_chips = num_ports * port_chips;
@@ -870,13 +901,13 @@ private:
 
 		Worker(Expand4BitsHelper& helper);
 
-		int load_packet(StdBlock *block[2], int packet);
+		int load_packet(EigerBlock *block[2], int packet);
 		void load_dst128(char *buf);
 		void load_shift_store128();
 		void pad_dst128();
 		void sync_dst128();
 
-		void assemblePackets(StdBlock *block[2], char *buf);
+		void assemblePackets(EigerBlock *block[2], char *buf);
 	};
 };
 
@@ -897,11 +928,11 @@ inline Expand4BitsHelper::Worker::Worker(Expand4BitsHelper& helper)
 {
 }
 
-inline int Expand4BitsHelper::Worker::load_packet(StdBlock *block[2],
+inline int Expand4BitsHelper::Worker::load_packet(EigerBlock *block[2],
 						  int packet)
 {
-	StdPacket p0 = (*block[0])[packet];
-	StdPacket p1 = (*block[1])[packet];
+	EigerPacket p0 = (*block[0])[packet];
+	EigerPacket p1 = (*block[1])[packet];
 	s[0] = (const __m128i *) (p0.data() + h.src.offset);
 	s[1] = (const __m128i *) (p1.data() + h.src.offset);
 	if ((((unsigned long) s[0] | (unsigned long) s[1]) & 15) != 0) {
@@ -1001,7 +1032,7 @@ inline void Expand4BitsHelper::Worker::sync_dst128()
 	}
 }
 
-inline void Expand4BitsHelper::Worker::assemblePackets(StdBlock *block[2],
+inline void Expand4BitsHelper::Worker::assemblePackets(EigerBlock *block[2],
 						       char *buf)
 {
 	const int& hm_chips = h.half_module_chips;
@@ -1028,7 +1059,7 @@ inline void Expand4BitsHelper::Worker::assemblePackets(StdBlock *block[2],
 	sync_dst128();
 }
 
-void Expand4BitsHelper::assemblePackets(StdBlock *block[2], char *buf)
+void Expand4BitsHelper::assemblePackets(EigerBlock *block[2], char *buf)
 {
 	Worker w(*this);
 	w.assemblePackets(block, buf);
@@ -1044,16 +1075,16 @@ public:
 		: Helper(gd, flipped)
 	{}
 	
-	virtual void assemblePackets(StdBlock *block[2], char *buf) override;
+	virtual void assemblePackets(EigerBlock *block[2], char *buf) override;
 };
 
-void CopyHelper::assemblePackets(StdBlock *block[2], char *buf)
+void CopyHelper::assemblePackets(EigerBlock *block[2], char *buf)
 {
 	int packet = first_idx;
 	char *d = buf + dst.offset;
 	for (int i = 0; i < frame_packets; ++i, packet += idx_inc) {
-		StdPacket line_packet[2] = {(*block[0])[packet],
-					    (*block[1])[packet]};
+		EigerPacket line_packet[2] = {(*block[0])[packet],
+					      (*block[1])[packet]};
 		char *s[num_ports] = {line_packet[0].data() + src.offset,
 				      line_packet[1].data() + src.offset};
 		for (int l = 0; l < packet_lines; ++l) {
@@ -1085,8 +1116,11 @@ EigerStdFrameAssembler::EigerStdFrameAssembler(DefaultFrameAssemblerBase *a[2],
 	: DualPortFrameAssembler(a)
 {
 	GeneralData *gd = a[0]->getGeneralData();
-	if (!gd->tgEnable)
-		throw std::runtime_error("10 Giga not enabled!");
+	if (!gd->tgEnable) {
+		const char *error = "10 Giga not enabled!";
+		std::cerr << error << std::endl;
+		throw std::runtime_error(error);
+	}
 	
 	Helper *h;
 	if (a[0]->doExpand4Bits())
@@ -1109,16 +1143,16 @@ EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
 
 	const int num_ports = 2;
 
-	StdAssembler **a = reinterpret_cast<StdAssembler **>(assembler);
+	EigerAssembler **a = reinterpret_cast<EigerAssembler **>(assembler);
 	bool header_empty = true;
 
 	DetHeader *det_header = &recv_header->detHeader;
 	det_header->frameNumber = frame;
 	det_header->packetNumber = 0;
 
-	AutoPtr<Helper::StdBlock> block[2];
+	AutoPtr<Helper::EigerBlock> block[2];
 	for (int i = 0; i < num_ports; ++i) {
-		Helper::StdStream *ps = a[i]->packet_stream;
+		Helper::EigerStream *ps = a[i]->packet_stream;
 		block[i] = ps->getPacketBlock(frame);
 		int packet_count = block[i] ? block[i]->getValidPackets() : 0;
 		if (packet_count == 0)
@@ -1128,7 +1162,7 @@ EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
 
 		//write header
 		if (header_empty) {
-			StdPacket p = (*block[i])[0];
+			EigerPacket p = (*block[i])[0];
 			p.fillDetHeader(det_header);
 			header_empty = false;
 		}
@@ -1140,7 +1174,7 @@ EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
 		return PortsMask();
 
 	if (mask.any()) {
-		Helper::StdBlock *blocks[2] = { block[0], block[1] };
+		Helper::EigerBlock *blocks[2] = { block[0], block[1] };
 		helper->assemblePackets(blocks, buf);
 	}
 

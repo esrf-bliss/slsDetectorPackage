@@ -44,14 +44,18 @@ typedef slsReceiverDefs::frameDiscardPolicy FramePolicy;
 struct PacketDataBase {
 	// An instance of <derived>::StreamData is included in the PacketStream
 	struct StreamData {
-		GeneralData *gd;
-		StreamData(GeneralData *d) : gd(d)
+		StreamData(GeneralData */*d*/)
 		{}
 	};
 
 	// An instance of <derived>::SoftHeader prepends each network packet
 	struct SoftHeader {
 		bool valid;
+	};
+
+	// <derived>::EmptyHeader::size is used to pad before network header
+	struct EmptyHeader {
+		static const size_t size = 0;
 	};
 };
 
@@ -64,11 +68,11 @@ template <class PD>
 struct Packet {
 	typedef typename PD::StreamData StreamData;
 	typedef typename PD::SoftHeader SoftHeader;
+	typedef typename PD::EmptyHeader EmptyHeader;
 
 	char *buffer;
-	StreamData *stream_data;
 
-	Packet(char *b, StreamData *d) : buffer(b), stream_data(d)
+	Packet(char *b, StreamData */*sd*/) : buffer(b)
 	{}
 
 	SoftHeader *softHeader()
@@ -81,30 +85,37 @@ struct Packet {
 	{ return buffer + sizeof(SoftHeader); }
 
 	char *networkHeader()
-	{ return networkBuffer() + generalData()->emptyHeader; }
+	{ return networkBuffer() + EmptyHeader::size; }
 
-	GeneralData *generalData()
-	{ return stream_data->gd; }
+	static void checkConsistency(GeneralData *gd);
 };
 
 /**
  *@short StdPacket class
  */
 
-struct StdPacketData : public PacketDataBase {
+struct EigerPacketData : public PacketDataBase {
 };
 
-struct StdPacket : public Packet<StdPacketData> {
-	typedef Packet<StdPacketData> Base;
+struct JungfrauPacketData : public PacketDataBase {
+	struct EmptyHeader : public PacketDataBase::EmptyHeader {
+		static const size_t size = 6;
+	};
+};
 
-	StdPacket(char *b, StreamData *sd) : Base(b, sd)
+template <class PD>
+struct StdPacketImpl : public Packet<PD> {
+	typedef Packet<PD> Base;
+	typedef typename Base::StreamData StreamData;
+
+	StdPacketImpl(char *b, StreamData *sd) : Base(b, sd)
 	{}
 
 	void initSoftHeader()
 	{}
 
 	DetHeader *header()
-	{ return reinterpret_cast<DetHeader *>(networkHeader()); }
+	{ return reinterpret_cast<DetHeader *>(Base::networkHeader()); }
 	
 	uint64_t frame()
 	{ return header()->frameNumber; }
@@ -113,7 +124,7 @@ struct StdPacket : public Packet<StdPacketData> {
 	{ return header()->packetNumber; }
 
 	char *data()
-	{ return networkHeader() + sizeof(DetHeader); }
+	{ return Base::networkHeader() + sizeof(DetHeader); }
 
 	uint32_t sizeAdjust()
 	{ return 0; }
@@ -121,15 +132,20 @@ struct StdPacket : public Packet<StdPacketData> {
 	void fillDetHeader(DetHeader *det_header);
 };
 
+typedef StdPacketImpl<EigerPacketData> EigerPacket;	
+typedef StdPacketImpl<JungfrauPacketData> JungfrauPacket;
+
 /**
  *@short LegacyPacket class
  */
 
 struct LegacyPacketData : public PacketDataBase {
 	struct StreamData : public PacketDataBase::StreamData {
+		GeneralData *gd;
 		bool odd_numbering;
 		StreamData(GeneralData *d)
-			: PacketDataBase::StreamData(d), odd_numbering(true)
+			: PacketDataBase::StreamData(d),
+			  gd(d), odd_numbering(true)
 		{}
 	};
 
@@ -142,10 +158,17 @@ struct LegacyPacketData : public PacketDataBase {
 template <class PD>
 struct LegacyPacketImpl : public Packet<PD> {
 	typedef Packet<PD> Base;
+	typedef typename Base::StreamData StreamData;
 
-	LegacyPacketImpl(char *b, typename Base::StreamData *sd) : Base(b, sd)
+	StreamData *stream_data;
+
+	LegacyPacketImpl(char *b, StreamData *sd)
+		: Base(b, sd), stream_data(sd)
 	{}
 	
+	GeneralData *generalData()
+	{ return stream_data->gd; }
+
 	void initSoftHeader();
 
 	uint64_t frame()
@@ -155,8 +178,7 @@ struct LegacyPacketImpl : public Packet<PD> {
 	{ return Base::softHeader()->packet_number; }
 
 	char *data()
-	{ return (Base::networkHeader()
-		  + Base::generalData()->headerSizeinPacket); }
+	{ return (Base::networkHeader() + generalData()->headerSizeinPacket); }
 
 	uint32_t sizeAdjust()
 	{ return 0; }
@@ -381,7 +403,8 @@ class DefaultFrameAssembler : public DefaultFrameAssemblerBase {
 	FramePolicy frame_policy;
 };
 
-typedef DefaultFrameAssembler<StdPacket> StdAssembler;
+typedef DefaultFrameAssembler<EigerPacket> EigerAssembler;
+typedef DefaultFrameAssembler<JungfrauPacket> JungfrauAssembler;
 typedef DefaultFrameAssembler<LegacyPacket> LegacyAssembler;
 typedef DefaultFrameAssembler<GotthardPacket> GotthardAssembler;
 
