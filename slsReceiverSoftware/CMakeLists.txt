@@ -14,6 +14,8 @@ set(SOURCES
     src/DataProcessor.cpp
     src/DataStreamer.cpp
     src/Fifo.cpp
+    src/MmappedRegion.cpp
+    src/FrameAssembler.cpp
 )
 
 
@@ -39,6 +41,7 @@ add_definitions(
 
 include_directories(
     include
+    ${NUMA_INCLUDE_DIR}
 )
 
 add_library(zmq STATIC IMPORTED GLOBAL)
@@ -54,6 +57,7 @@ add_library(slsReceiverShared SHARED
 )
 target_link_libraries(slsReceiverShared
     PUBLIC zmq
+    PUBLIC ${NUMA_LIBRARY}
 )
 
 set(PUBLICHEADERS

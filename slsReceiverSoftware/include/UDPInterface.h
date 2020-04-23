@@ -807,6 +807,31 @@ class UDPInterface {
     virtual void registerCallBackRawDataModifyReady(void (*func)(char* ,
             char*, uint32_t &,void*),void *arg) = 0;
 
+	/**
+	 * Set the passive mode
+	 */
+	virtual void setPassiveMode(bool passive) = 0;
+
+	/**
+	 * Set receiver threads CPU affinity mask
+	 */
+	virtual void setThreadCPUAffinity(const slsReceiverDefs::CPUMaskList& cpu_masks) = 0;
+
+	/**
+	 * Set receiver fifo node affinity mask
+	 */
+	virtual void setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node) = 0;
+
+	/**
+	 * Get the next image
+	 */
+	virtual int getImage(slsReceiverDefs::receiver_image_data& image_data) = 0;
+
+	/**
+	 * Clear all buffers
+	 */
+	virtual void clearAllBuffers() = 0;
+
 
  protected:
  private:

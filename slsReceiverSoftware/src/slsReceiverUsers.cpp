@@ -45,3 +45,23 @@ void slsReceiverUsers::registerCallBackRawDataModifyReady(void (*func)(char* hea
 		char* datapointer, uint32_t& revDatasize, void*), void *arg){
 	receiver->registerCallBackRawDataModifyReady(func,arg);
 }
+
+void slsReceiverUsers::setPassiveMode(bool passive) {
+	receiver->setPassiveMode(passive);
+}
+
+void slsReceiverUsers::setThreadCPUAffinity(const slsReceiverDefs::CPUMaskList& cpu_masks) {
+	receiver->setThreadCPUAffinity(cpu_masks);
+}
+
+void slsReceiverUsers::setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node) {
+	receiver->setFifoNodeAffinity(fifo_node_mask, max_node);
+}
+
+int slsReceiverUsers::getImage(slsReceiverDefs::receiver_image_data& image_data) {
+	return receiver->getImage(image_data);
+}
+
+void slsReceiverUsers::clearAllBuffers() {
+	receiver->clearAllBuffers();
+}

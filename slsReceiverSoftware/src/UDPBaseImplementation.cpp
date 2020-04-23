@@ -29,6 +29,9 @@ UDPBaseImplementation::UDPBaseImplementation(){
 	rawDataReadyCallBack = NULL;
 	rawDataModifyReadyCallBack = NULL;
 	pRawDataReady = NULL;
+
+	//** passive receiver **//
+	passiveMode = false;
 }
 
 void UDPBaseImplementation::initializeMembers(){
@@ -849,4 +852,35 @@ void UDPBaseImplementation::registerCallBackRawDataModifyReady(void (*func)(char
     rawDataModifyReadyCallBack=func;
     pRawDataReady=arg;
 }
+
+void UDPBaseImplementation::setPassiveMode(bool passive)
+{
+	passiveMode = passive;
+	FILE_LOG(logINFO) << "Passive mode: " << passiveMode;
+}
+
+void UDPBaseImplementation::setThreadCPUAffinity(const CPUMaskList& cpu_masks) {
+	FILE_LOG(logERROR) << __AT__ << " doing nothing...";
+	FILE_LOG(logERROR) << __AT__ << " must be overridden by child classes";
+}
+
+void UDPBaseImplementation::setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node)
+{
+	FILE_LOG(logERROR) << __AT__ << " doing nothing...";
+	FILE_LOG(logERROR) << __AT__ << " must be overridden by child classes";
+}
+
+int UDPBaseImplementation::getImage(slsReceiverDefs::receiver_image_data& image_data)
+{
+	FILE_LOG(logERROR) << __AT__ << " doing nothing...";
+	FILE_LOG(logERROR) << __AT__ << " must be overridden by child classes";
+	return FAIL;
+}
+
+void UDPBaseImplementation::clearAllBuffers()
+{
+	FILE_LOG(logERROR) << __AT__ << " doing nothing...";
+	FILE_LOG(logERROR) << __AT__ << " must be overridden by child classes";
+}
+
 //#endif

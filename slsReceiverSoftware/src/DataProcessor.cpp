@@ -56,7 +56,6 @@ DataProcessor::DataProcessor(int ind, detectorType dtype, Fifo*& f,
 		firstAcquisitionIndex(0),
 		firstMeasurementIndex(0),
 		numTotalFramesCaught(0),
-		numFramesCaught(0),
 		currentFrameIndex(0),
 		rawDataReadyCallBack(dataReadycb),
 		rawDataModifyReadyCallBack(dataModifyReadycb),
@@ -98,10 +97,6 @@ uint64_t DataProcessor::GetNumTotalFramesCaught() {
 	return numTotalFramesCaught;
 }
 
-uint64_t DataProcessor::GetNumFramesCaught() {
-	return numFramesCaught;
-}
-
 uint64_t DataProcessor::GetActualProcessedAcquisitionIndex() {
 	return currentFrameIndex;
 }
@@ -139,7 +134,6 @@ void DataProcessor::ResetParametersforNewAcquisition() {
 
 void DataProcessor::ResetParametersforNewMeasurement(){
     runningFlag = false;
-	numFramesCaught = 0;
 	firstMeasurementIndex = 0;
 	measurementStartedFlag = false;
 
@@ -329,7 +323,6 @@ void DataProcessor::ProcessAnImage(char* buf) {
 	currentFrameIndex = fnum;
 	uint32_t nump = header->packetNumber;
 	if (nump == generalData->packetsPerFrame) {
-		numFramesCaught++;
 		numTotalFramesCaught++;
 	}
 

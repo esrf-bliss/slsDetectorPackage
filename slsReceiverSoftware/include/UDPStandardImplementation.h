@@ -14,7 +14,7 @@ class DataProcessor;
 class DataStreamer;
 class Fifo;
 
-
+#include "FrameAssembler.h"
 
 class UDPStandardImplementation: private virtual slsReceiverDefs, public UDPBaseImplementation {
  public:
@@ -212,7 +212,41 @@ class UDPStandardImplementation: private virtual slsReceiverDefs, public UDPBase
 	int restreamStop();
 
 
+	/**
+	 * Set receiver threads CPU affinity mask
+	 */
+	void setThreadCPUAffinity(const CPUMaskList& cpu_masks);
+
+	/**
+	 * Set receiver fifo node affinity mask
+	 */
+	void setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node);
+
+	/**
+	 * Get the next image
+	 * @return OK or FAIL
+	 */
+	int getImage(receiver_image_data& image_data);
+
+	/**
+	 * Clear all buffers
+	 */
+	void clearAllBuffers();
+
+
 private:
+	typedef FrameAssembler::Cond Cond;
+	typedef FrameAssembler::Mutex Mutex;
+	typedef FrameAssembler::MutexLock MutexLock;
+	typedef FrameAssembler::DualPortFrameAssembler DualPortFrameAssembler;
+
+	struct ListenerStatistics {
+		uint64_t packets_caught;
+		uint64_t frames_caught;
+		uint64_t last_frame;
+
+		void reset();
+	};
 
     /**
 	 * Delete and free member parameters
@@ -285,6 +319,9 @@ private:
 	/** Listener Objects that listen to UDP and push into fifo */
 	std::vector <Listener*> listener;
 
+	/** Listener Statistics */
+	std::vector <ListenerStatistics> listenerStatistics;
+
 	/** DataProcessor Objects that pull from fifo and process data */
 	std::vector <DataProcessor*> dataProcessor;
 
@@ -294,5 +331,9 @@ private:
 	/** Fifo Structure to store addresses of memory writes */
 	std::vector <Fifo*> fifo;
 
+	/** Frame memory assembler in passive mode */
+	DualPortFrameAssembler *frameAssembler;
+	Cond frameAssemblerBusyCond;
+	int frameAssemblerBusyCount;
 };
 

@@ -141,3 +141,24 @@ void slsReceiver::registerCallBackRawDataModifyReady(void (*func)(char*,
         char*, uint32_t &, void*),void *arg){
 	tcpipInterface->registerCallBackRawDataModifyReady(func,arg);
 }
+
+void slsReceiver::setPassiveMode(bool passive) {
+	tcpipInterface->setPassiveMode(passive);
+}
+
+void slsReceiver::setThreadCPUAffinity(const CPUMaskList& cpu_masks) {
+	tcpipInterface->setThreadCPUAffinity(cpu_masks);
+}
+
+void slsReceiver::setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node) {
+	tcpipInterface->setFifoNodeAffinity(fifo_node_mask, max_node);
+}
+
+int slsReceiver::getImage(slsReceiverDefs::receiver_image_data& image_data) {
+	return tcpipInterface->getImage(image_data);
+}
+
+void slsReceiver::clearAllBuffers() {
+	tcpipInterface->clearAllBuffers();
+}
+

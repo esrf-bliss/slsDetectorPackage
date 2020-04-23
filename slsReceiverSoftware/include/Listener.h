@@ -10,6 +10,7 @@
  */
 
 #include "ThreadObject.h"
+#include "FrameAssembler.h"
 
 class GeneralData;
 class Fifo;
@@ -36,11 +37,13 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	 * @param act pointer to activated
 	 * @param depaden pointer to deactivated padding enable
 	 * @param sm pointer to silent mode
+	 * @param flx pointer to flipped data across x axis
 	 */
-	Listener(int ind, detectorType dtype, Fifo*& f, runStatus* s,
-	        uint32_t* portno, char* e, uint64_t* nf, uint32_t* dr,
-	        uint64_t* us, uint64_t* as, uint32_t* fpf,
-			frameDiscardPolicy* fdp, bool* act, bool* depaden, bool* sm);
+	Listener(int ind, detectorType dtype, Fifo*& f, volatile runStatus* s,
+		 uint32_t* portno, char* e, uint64_t* nf, uint32_t* dr,
+		 uint64_t* us, uint64_t* as, uint32_t* fpf,
+		 frameDiscardPolicy* fdp, bool* act, bool* depaden, bool* sm, int* flx,
+		 bool do_udp_read);
 
 	/**
 	 * Destructor
@@ -73,6 +76,12 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	 * @return Packets caught in a real time acquisition
 	 */
 	uint64_t GetPacketsCaught();
+
+	/**
+	 * Get Frames Complete Caught for each real time acquisition (eg. for each scan)
+	 * @return number of frames caught for each scan
+	 */
+	uint64_t GetNumFramesCaught();
 
 	/**
 	 * Get Last Frame index caught
@@ -148,7 +157,26 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
      */
     void SetHardCodedPosition(uint16_t r, uint16_t c);
 
+    /**
+     * Set receiver threads CPU affinity mask
+     */
+    void SetThreadCPUAffinity(const cpu_set_t& cpu_mask);
 
+    /**
+     * Set receiver fifo node affinity mask
+     */
+    void SetFifoNodeAffinity(unsigned long fifo_node_mask, int max_node);
+
+    /**
+     * Create a dual-port frame assembler object listening on 2 Listeners' UDP ports
+     */
+    static FrameAssembler::DualPortFrameAssembler *
+      CreateDualPortFrameAssembler(Listener *listener[2]);
+
+    /**
+     * Clear all buffers
+     */
+    void ClearAllBuffers();
 
  private:
 
@@ -182,11 +210,12 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	/**
 	 * Listen to the UDP Socket for an image,
 	 * place them in the right order
-	 * @param buffer
-	 * @returns number of bytes of relevant data, can be image size or 0 (stop acquisition)
+	 * @param recv_header
+	 * @param buf
+	 * @returns number of bytes of relevant data (image size or 0, if stop acquisition)
 	 * or -1 to discard image
 	 */
-	uint32_t ListenToAnImage(char* buf);
+	int ListenToAnImage(sls_receiver_header* recv_header, char* buf);
 
 	/**
 	 * Print Fifo Statistics
@@ -213,7 +242,7 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	detectorType myDetectorType;
 
 	/** Receiver Status */
-	runStatus* status;
+	volatile runStatus* status;
 
 	/** UDP Socket - Detector to Receiver */
 	genericSocket* udpSocket;
@@ -251,6 +280,9 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
     /** Silent Mode */
     bool* silentMode;
 
+	/** Flipped Data across x axis*/
+	int* flippedDataX;
+
 	/** row hardcoded as 1D or 2d,
 	 * if detector does not send them yet or
 	 * missing packets/deactivated (eiger/jungfrau sends 2d pos) **/
@@ -275,28 +307,14 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	uint64_t firstMeasurementIndex;
 
 
-	// for acquisition summary
-	/** Number of complete Packets caught for each real time acquisition (eg. for each scan (start& stop of receiver)) */
-	volatile uint64_t numPacketsCaught;
-
-	/** Last Frame Index caught  from udp network */
-	uint64_t lastCaughtFrameIndex;
-
-
 	// parameters to acquire image
 	/** Current Frame Index, default value is 0
 	 * ( always check acquisitionStartedFlag for validity first)
 	 */
 	uint64_t currentFrameIndex;
 
-	/** True if there is a packet carry over from previous Image */
-	bool carryOverFlag;
-
-	/** Carry over packet buffer */
-	char* carryOverPacket;
-
-	/** Listening buffer for one packet - might be removed when we can peek and eiger fnum is in header */
-	char* listeningPacket;
+	/** frame assembler **/
+	FrameAssembler::DefaultFrameAssemblerBase *frameAssembler;
 
 	/** if the udp socket is connected */
 	volatile bool udpSocketAlive;
@@ -313,9 +331,15 @@ class Listener : private virtual slsReceiverDefs, public ThreadObject {
 	uint32_t numFramesStatistic;
 
 	/**
-	 * starting packet number is odd or evern, accordingly increment frame number
-	 * to get first packet number as 0
-	 * (pecific to gotthard, can vary between modules, hence defined here) */
-	bool oddStartingPacket;
+	 * Do read UDP socket
+	 */
+	bool doUdpRead;
+
+	/** frame assembler CPU affinity **/
+	cpu_set_t cpuMask;
+
+	/** Fifo node affinity **/
+	unsigned long fifoNodeMask;
+	int maxNode;
 };
 

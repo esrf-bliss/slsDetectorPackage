@@ -10,6 +10,8 @@
 #ifdef __cplusplus
 #include <bitset>
 #include <string>
+#include <sched.h>
+#include <vector>
 #endif
 #include "ansi.h"
 
@@ -179,6 +181,17 @@ public:
 	} sls_receiver_header;
 
 	typedef uint8_t bitset_storage[MAX_NUM_PACKETS/8];
+
+#define MAX_NUM_PORTS 2
+
+	struct receiver_image_data {
+		uint64_t frame;
+		sls_receiver_header header;
+		char *buffer;
+		std::bitset<MAX_NUM_PORTS> portsMask;
+	};
+
+	typedef std::vector<cpu_set_t> CPUMaskList;
 
 #endif
 	/**

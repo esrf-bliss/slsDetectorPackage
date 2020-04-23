@@ -95,6 +95,30 @@ class slsReceiver : private virtual slsReceiverDefs {
     void registerCallBackRawDataModifyReady(void (*func)(char* ,
             char*, uint32_t &,void*),void *arg);
 
+	/**
+	 * Set the passive mode
+	 */
+	void setPassiveMode(bool passive);
+
+	/**
+	 * Set receiver threads CPU affinity mask
+	 */
+	void setThreadCPUAffinity(const CPUMaskList& cpu_masks);
+
+	/**
+	 * Set receiver fifo node affinity mask
+	 */
+	void setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node);
+
+	/**
+	 * Get the next image
+	 */
+	int getImage(receiver_image_data& image_data);
+
+	/**
+	 * Clear all buffers
+	 */
+	void clearAllBuffers();
 
 
  private:

@@ -716,6 +716,31 @@ class UDPBaseImplementation : protected virtual slsReceiverDefs, public UDPInter
             char*, uint32_t &,void*),void *arg);
 
 
+	/**
+	 * Set the passive mode
+	 */
+	void setPassiveMode(bool passive);
+
+	/**
+	 * Set receiver threads CPU affinity mask
+	 */
+	void setThreadCPUAffinity(const CPUMaskList& cpu_masks);
+
+	/**
+	 * Set receiver fifo node affinity mask
+	 */
+	void setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node);
+
+	/**
+	 * Get the next image
+	 */
+	int getImage(slsReceiverDefs::receiver_image_data& image_data);
+
+	/**
+	 * Clear all buffers
+	 */
+	void clearAllBuffers();
+
  protected:
 
 	/*************************************************************************
@@ -759,7 +784,7 @@ class UDPBaseImplementation : protected virtual slsReceiverDefs, public UDPInter
 	/** Maximum Number of Listening Threads/ UDP Ports */
 	const static int MAX_NUMBER_OF_LISTENING_THREADS = 2;
 	/** Receiver Status */
-	runStatus status;
+	volatile runStatus status;
 	/** Activated/Deactivated */
 	bool activated;
 	/** Deactivated padding enable */
@@ -867,6 +892,8 @@ class UDPBaseImplementation : protected virtual slsReceiverDefs, public UDPInter
 
 	void *pRawDataReady;
 
+	/** Passive Receiver **/
+	bool passiveMode;
 
 
 private:

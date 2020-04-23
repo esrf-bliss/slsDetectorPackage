@@ -51,6 +51,9 @@ slsReceiverTCPIPInterface::slsReceiverTCPIPInterface(int pn):
 	rawDataModifyReadyCallBack = NULL;
 	pRawDataReady = NULL;
 
+	// passive mode
+	passiveMode = false;
+
 	// create socket
 	portNumber = (pn > 0 ? pn : DEFAULT_PORTNO + 2);
 	MySocketTCP* m = new MySocketTCP(portNumber);
@@ -800,8 +803,9 @@ int slsReceiverTCPIPInterface::set_detector_type(){
 					receiverBase->registerCallBackAcquisitionFinished(acquisitionFinishedCallBack,pAcquisitionFinished);
 				if(rawDataReadyCallBack)
 					receiverBase->registerCallBackRawDataReady(rawDataReadyCallBack,pRawDataReady);
-                if(rawDataModifyReadyCallBack)
-                    receiverBase->registerCallBackRawDataModifyReady(rawDataModifyReadyCallBack,pRawDataReady);
+				if(rawDataModifyReadyCallBack)
+					receiverBase->registerCallBackRawDataModifyReady(rawDataModifyReadyCallBack,pRawDataReady);
+				receiverBase->setPassiveMode(passiveMode);
 			}
 			myDetectorType = dr;
 			ret = receiverBase->setDetectorType(myDetectorType);
@@ -2987,8 +2991,6 @@ int slsReceiverTCPIPInterface::set_deactivated_receiver_padding_enable() {
 	return ret;
 }
 
-
-
 int slsReceiverTCPIPInterface::set_quad_type() {
 	ret = OK;
 	memset(mess, 0, sizeof(mess));
@@ -3040,3 +3042,25 @@ int slsReceiverTCPIPInterface::set_quad_type() {
 }
 
 
+void slsReceiverTCPIPInterface::setPassiveMode(bool passive)
+{
+	passiveMode = passive;
+	FILE_LOG(logINFO) << "Passive mode: " << passiveMode;
+}
+
+void slsReceiverTCPIPInterface::setThreadCPUAffinity(const CPUMaskList& cpu_masks) {
+	receiverBase->setThreadCPUAffinity(cpu_masks);
+}
+
+void slsReceiverTCPIPInterface::setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node) {
+	receiverBase->setFifoNodeAffinity(fifo_node_mask, max_node);
+}
+
+int slsReceiverTCPIPInterface::getImage(slsReceiverDefs::receiver_image_data& image_data)
+{
+	return receiverBase->getImage(image_data);
+}
+
+void slsReceiverTCPIPInterface::clearAllBuffers() {
+	receiverBase->clearAllBuffers();
+}

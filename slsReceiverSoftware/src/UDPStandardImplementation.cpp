@@ -31,6 +31,8 @@ UDPStandardImplementation::~UDPStandardImplementation() {
 
 
 void UDPStandardImplementation::DeleteMembers() {
+	if (frameAssembler)
+		delete frameAssembler;
 	if (generalData) { delete generalData; generalData=0;}
 	for (std::vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it)
 		delete(*it);
@@ -57,6 +59,8 @@ void UDPStandardImplementation::InitializeMembers() {
 
 	//** class objects ***
 	generalData = 0;
+	frameAssembler = 0;
+	frameAssemblerBusyCount = 0;
 }
 
 
@@ -64,6 +68,9 @@ void UDPStandardImplementation::InitializeMembers() {
 /*** Overloaded Functions called by TCP Interface ***/
 
 uint64_t UDPStandardImplementation::getTotalFramesCaught() const {
+	if (passiveMode)
+		return getFramesCaught();
+
 	uint64_t sum = 0;
 	uint32_t flagsum = 0;
 
@@ -80,21 +87,23 @@ uint64_t UDPStandardImplementation::getTotalFramesCaught() const {
 }
 
 uint64_t UDPStandardImplementation::getFramesCaught() const {
-	uint64_t sum = 0;
-	uint32_t flagsum = 0;
 
-	for (std::vector<DataProcessor*>::const_iterator it = dataProcessor.begin(); it != dataProcessor.end(); ++it) {
-		flagsum += ((*it)->GetAcquisitionStartedFlag() ? 1 : 0);
-		sum += (*it)->GetNumFramesCaught();
+	uint64_t sum = 0;
+
+	for (std::vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it) {
+		uint64_t f = (*it)->GetNumFramesCaught();
+		if (f == 0)
+			return 0;
+		sum += f;
 	}
 
-	//no data processed
-	if (flagsum != dataProcessor.size()) return 0;
-
-	return (sum/dataProcessor.size());
+	return (sum/listener.size());
 }
 
 int64_t UDPStandardImplementation::getAcquisitionIndex() const {
+	if (passiveMode)
+		return 0;
+
 	uint64_t sum = 0;
 	uint32_t flagsum = 0;
 
@@ -162,10 +171,9 @@ void UDPStandardImplementation::setFlippedData(int axis, int enable){
 
 int UDPStandardImplementation::setGapPixelsEnable(const bool b) {
 	if (gapPixelsEnable != b) {
-		gapPixelsEnable = b;
+		gapPixelsEnable = (passiveMode || (dynamicRange != 4)) ? b: 0;
 
-		// side effects
-		generalData->SetGapPixelsEnable(b, dynamicRange, quadEnable);
+		generalData->SetGapPixelsEnable(gapPixelsEnable);
 		// to update npixelsx, npixelsy in file writer
 		for (std::vector<DataProcessor*>::const_iterator it = dataProcessor.begin(); it != dataProcessor.end(); ++it)
 			(*it)->SetPixelDimension();
@@ -181,7 +189,7 @@ int UDPStandardImplementation::setQuad(const bool b) {
 	if (quadEnable != b) {
 		quadEnable = b;
 
-		generalData->SetGapPixelsEnable(gapPixelsEnable, dynamicRange, b);
+		generalData->SetQuadType(b);
 		// to update npixelsx, npixelsy in file writer
 		for (std::vector<DataProcessor*>::const_iterator it = dataProcessor.begin(); it != dataProcessor.end(); ++it)
 			(*it)->SetPixelDimension();
@@ -375,9 +383,7 @@ int UDPStandardImplementation::setDynamicRange(const uint32_t i) {
 	if (dynamicRange != i) {
 		dynamicRange = i;
 
-		//side effects
-		generalData->SetDynamicRange(i,tengigaEnable);
-		generalData->SetGapPixelsEnable(gapPixelsEnable, dynamicRange, quadEnable);
+		generalData->SetDynamicRange(dynamicRange);
 		// to update npixelsx, npixelsy in file writer
 		for (std::vector<DataProcessor*>::const_iterator it = dataProcessor.begin(); it != dataProcessor.end(); ++it)
 			(*it)->SetPixelDimension();
@@ -394,9 +400,7 @@ int UDPStandardImplementation::setDynamicRange(const uint32_t i) {
 int UDPStandardImplementation::setTenGigaEnable(const bool b) {
 	if (tengigaEnable != b) {
 		tengigaEnable = b;
-		//side effects
-		generalData->SetTenGigaEnable(b,dynamicRange);
-		generalData->SetGapPixelsEnable(gapPixelsEnable, dynamicRange, quadEnable);
+		generalData->SetTenGigaEnable(tengigaEnable);
 
 		if (SetupFifoStructure() == FAIL)
 			return FAIL;
@@ -450,6 +454,10 @@ int UDPStandardImplementation::setDetectorType(const detectorType d) {
 	default: break;
 	}
 	numThreads = generalData->threadsPerReceiver;
+	if (numThreads > MAX_NUM_PORTS) {
+		FILE_LOG(logERROR) << "Invalid numThreads: " << numThreads;
+		return FAIL;
+	}
 	fifoDepth = generalData->defaultFifoDepth;
 	udpSocketBufferSize = generalData->defaultUdpSocketBufferSize;
 	framesPerFile = generalData->maxFramesPerFile;
@@ -468,17 +476,20 @@ int UDPStandardImplementation::setDetectorType(const detectorType d) {
 
 	    try {
 	        Listener* l = new Listener(i, myDetectorType, fifo[i], &status,
-	                &udpPortNum[i], eth, &numberOfFrames, &dynamicRange,
-	                &udpSocketBufferSize, &actualUDPSocketBufferSize, &framesPerFile,
-					&frameDiscardMode, &activated, &deactivatedPaddingEnable, &silentMode);
+					   &udpPortNum[i], eth, &numberOfFrames, &dynamicRange,
+					   &udpSocketBufferSize, &actualUDPSocketBufferSize, &framesPerFile,
+					   &frameDiscardMode, &activated, &deactivatedPaddingEnable, &silentMode, &flippedDataX,
+					   !passiveMode);
 	        listener.push_back(l);
 
-	        DataProcessor* p = new DataProcessor(i, myDetectorType, fifo[i], &fileFormatType,
-	                fileWriteEnable, &dataStreamEnable, &gapPixelsEnable,
-	                &dynamicRange, &frameToGuiFrequency, &frameToGuiTimerinMS,
-					&framePadding, &activated, &deactivatedPaddingEnable, &silentMode, &quadEnable,
-	                rawDataReadyCallBack, rawDataModifyReadyCallBack, pRawDataReady);
-	        dataProcessor.push_back(p);
+		if (!passiveMode) {
+			DataProcessor* p = new DataProcessor(i, myDetectorType, fifo[i], &fileFormatType,
+	                	fileWriteEnable, &dataStreamEnable, &gapPixelsEnable,
+				&dynamicRange, &frameToGuiFrequency, &frameToGuiTimerinMS,
+				&framePadding, &activated, &deactivatedPaddingEnable, &silentMode, &quadEnable,
+				rawDataReadyCallBack, rawDataModifyReadyCallBack, pRawDataReady);
+			dataProcessor.push_back(p);
+		}
 	    }
 	    catch (...) {
 	         FILE_LOG(logERROR) << "Could not create listener/dataprocessor threads (index:" << i << ")";
@@ -491,6 +502,8 @@ int UDPStandardImplementation::setDetectorType(const detectorType d) {
 	            return FAIL;
 	    }
 	}
+
+	listenerStatistics.resize(numThreads);
 
 	//set up writer and callbacks
 	for (std::vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it)
@@ -532,6 +545,10 @@ void UDPStandardImplementation::setDetectorPositionId(const int i){
 void UDPStandardImplementation::resetAcquisitionCount() {
 	for (std::vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it)
 		(*it)->ResetParametersforNewAcquisition();
+
+	for (std::vector<ListenerStatistics>::iterator it = listenerStatistics.begin(); 
+	     it != listenerStatistics.end(); ++it)
+		(*it).reset();
 
 	for (std::vector<DataProcessor*>::const_iterator it = dataProcessor.begin(); it != dataProcessor.end(); ++it)
 		(*it)->ResetParametersforNewAcquisition();
@@ -620,7 +637,8 @@ void UDPStandardImplementation::stopReceiver(){
 				anycaught = true;
 		}
 		//to create virtual file & set files/acquisition to 0 (only hdf5 at the moment)
-		dataProcessor[0]->EndofAcquisition(anycaught, maxIndexCaught);
+		if (dataProcessor.size() > 0)
+			dataProcessor[0]->EndofAcquisition(anycaught, maxIndexCaught);
 	}
 
 	//wait for the processes (DataStreamer) to be done
@@ -637,26 +655,30 @@ void UDPStandardImplementation::stopReceiver(){
 	FILE_LOG(logINFO)  << "Status: " << runStatusType(status);
 
 
-	{	//statistics
-		uint64_t tot = 0;
-		for (int i = 0; i < numThreads; i++) {
-			tot += dataProcessor[i]->GetNumFramesCaught();
-
-			uint64_t missingpackets = numberOfFrames*generalData->packetsPerFrame-listener[i]->GetPacketsCaught();
-			if ((int)missingpackets > 0) {
-				cprintf(RED, "\n[Port %d]\n",udpPortNum[i]);
-				cprintf(RED, "Missing Packets\t\t: %lld\n",(long long int)missingpackets);
-				cprintf(RED, "Complete Frames\t\t: %lld\n",(long long int)dataProcessor[i]->GetNumFramesCaught());
-				cprintf(RED, "Last Frame Caught\t: %lld\n",(long long int)listener[i]->GetLastFrameIndexCaught());
-			}else{
-				cprintf(GREEN, "\n[Port %d]\n",udpPortNum[i]);
-				cprintf(GREEN, "Missing Packets\t\t: %lld\n",(long long int)missingpackets);
-				cprintf(GREEN, "Complete Frames\t\t: %lld\n",(long long int)dataProcessor[i]->GetNumFramesCaught());
-				cprintf(GREEN, "Last Frame Caught\t: %lld\n",(long long int)listener[i]->GetLastFrameIndexCaught());
-			}
+	//statistics
+	uint64_t tot = 0;
+	uint64_t tot_num_packets = numberOfFrames * generalData->packetsPerFrame;
+	for (int i = 0; i < numThreads; i++) {
+		ListenerStatistics& ls = listenerStatistics[i];
+		tot += ls.frames_caught;
+		uint64_t missingpackets = tot_num_packets - ls.packets_caught;
+		if ((int)missingpackets > 0) {
+			cprintf(RED, "\n[Port %d]\n",udpPortNum[i]);
+			cprintf(RED, "Missing Packets\t\t: %lld\n",(long long int)missingpackets);
+			cprintf(RED, "Complete Frames\t\t: %lld\n",(long long int)ls.frames_caught);
+			cprintf(RED, "Last Frame Caught\t: %lld\n",(long long int)ls.last_frame);
+		}else{
+			cprintf(GREEN, "\n[Port %d]\n",udpPortNum[i]);
+			cprintf(GREEN, "Missing Packets\t\t: %lld\n",(long long int)missingpackets);
+			cprintf(GREEN, "Complete Frames\t\t: %lld\n",(long long int)ls.frames_caught);
+			cprintf(GREEN, "Last Frame Caught\t: %lld\n",(long long int)ls.last_frame);
 		}
+	}
+
+	if (!passiveMode) {
 		if(!activated)
 			cprintf(RED,"Note: Deactivated Receiver\n");
+
 		//callback
 		if (acquisitionFinishedCallBack)
 			acquisitionFinishedCallBack((tot/numThreads), pAcquisitionFinished);
@@ -709,14 +731,34 @@ void UDPStandardImplementation::startReadout(){
 		status = TRANSMITTING;
 		FILE_LOG(logINFO) << "Status: Transmitting";
 	}
+
+	// statistics
+	for (int i = 0; i < numThreads; ++i) {
+		Listener *l = listener[i];
+		ListenerStatistics& ls = listenerStatistics[i];
+		ls.packets_caught = l->GetPacketsCaught();
+		ls.frames_caught = l->GetNumFramesCaught();
+		ls.last_frame = l->GetLastFrameIndexCaught();
+	}
+
 	//shut down udp sockets so as to make listeners push dummy (end) packets for processors
 	shutDownUDPSockets();
 }
 
 
 void UDPStandardImplementation::shutDownUDPSockets() {
+	if (frameAssembler) {
+		frameAssembler->stop();
+		MutexLock l(frameAssemblerBusyCond.getMutex());
+		while (frameAssemblerBusyCount > 0)
+			frameAssemblerBusyCond.wait();
+	}
 	for (std::vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it)
 		(*it)->ShutDownUDPSocket();
+	if (frameAssembler)
+		delete frameAssembler;
+	frameAssembler = 0;
+
 }
 
 
@@ -731,7 +773,8 @@ void UDPStandardImplementation::closeFiles() {
 			anycaught = true;
 	}
 	//to create virtual file & set files/acquisition to 0 (only hdf5 at the moment)
-	dataProcessor[0]->EndofAcquisition(anycaught, maxIndexCaught);
+	if (dataProcessor.size() > 0)
+		dataProcessor[0]->EndofAcquisition(anycaught, maxIndexCaught);
 }
 
 int UDPStandardImplementation::setUDPSocketBufferSize(const uint64_t s) {
@@ -822,9 +865,9 @@ int UDPStandardImplementation::SetupFifoStructure() {
             return FAIL;
 	    }
 		//set the listener & dataprocessor threads to point to the right fifo
-		if(listener.size())listener[i]->SetFifo(fifo[i]);
-		if(dataProcessor.size())dataProcessor[i]->SetFifo(fifo[i]);
-		if(dataStreamer.size())dataStreamer[i]->SetFifo(fifo[i]);
+		if(i < listener.size())listener[i]->SetFifo(fifo[i]);
+		if(i < dataProcessor.size())dataProcessor[i]->SetFifo(fifo[i]);
+		if(i < dataStreamer.size())dataStreamer[i]->SetFifo(fifo[i]);
 	}
 
 	FILE_LOG(logINFO) << "Memory Allocated Per Fifo: " << (double)( ((size_t)(generalData->imageSize) + 
@@ -865,6 +908,17 @@ int UDPStandardImplementation::CreateUDPSockets() {
 	}
 
 	FILE_LOG(logDEBUG) << "UDP socket(s) created successfully.";
+
+	if (passiveMode) {
+		if (numThreads != 2) {
+			FILE_LOG(logERROR) << "Invalid number of threads";
+			shutDownUDPSockets();
+			return FAIL;
+		}
+		Listener *l[2] = { listener[0], listener[1] };
+		frameAssembler = Listener::CreateDualPortFrameAssembler(l);
+	}
+
 	return OK;
 }
 
@@ -915,4 +969,71 @@ void UDPStandardImplementation::StartRunning() {
 		(*it)->StartRunning();
 		(*it)->Continue();
 	}
+}
+
+
+void UDPStandardImplementation::setThreadCPUAffinity(const CPUMaskList& cpu_masks) {
+	CPUMaskList::const_iterator mit = cpu_masks.begin();
+	for (std::vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it, ++mit)
+		(*it)->SetThreadCPUAffinity(*mit);
+}
+
+void UDPStandardImplementation::setFifoNodeAffinity(unsigned long fifo_node_mask, int max_node)
+{
+	for (std::vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it)
+		(*it)->SetFifoNodeAffinity(fifo_node_mask, max_node);
+}
+
+int UDPStandardImplementation::getImage(receiver_image_data& image_data)
+{
+	if (!passiveMode) {
+		FILE_LOG(logERROR) << "getImage: not in passiveMode";
+		return FAIL;
+	}
+
+	class Busy
+	{
+	public:
+		Busy(int& i, Cond& c)
+			: count(i), cond(c), mutex(c.getMutex())
+		{
+			MutexLock l(mutex);
+			++count;
+		}
+
+		~Busy()
+		{
+			MutexLock l(mutex);
+			--count;
+			cond.signal();
+		}
+
+	private:
+		int& count;
+		Cond& cond;
+		Mutex& mutex;
+	} b(frameAssemblerBusyCount, frameAssemblerBusyCond);
+
+	if (status != RUNNING)
+		return FAIL;
+
+	image_data.portsMask = frameAssembler->assembleFrame(image_data.frame,
+						       &image_data.header,
+						       image_data.buffer);
+	bool got_data = image_data.portsMask.any();
+	return got_data ? OK : FAIL;
+}
+
+/* statistics */
+void UDPStandardImplementation::ListenerStatistics::reset()
+{
+	packets_caught = 0;
+	frames_caught = 0;
+	last_frame = 0;
+}
+
+void UDPStandardImplementation::clearAllBuffers()
+{
+	for (std::vector<Listener*>::const_iterator it = listener.begin(); it != listener.end(); ++it)
+		(*it)->ClearAllBuffers();
 }
