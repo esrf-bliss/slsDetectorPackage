@@ -181,67 +181,13 @@ public:
 
 		//increase socket buffer size if its udp
 		if (p == UDP) {
-			uint64_t desired_size = buf_size;
-			uint64_t real_size = desired_size * 2; // kernel doubles this value for bookkeeping overhead
-			uint64_t ret_size = -1;
-			socklen_t optlen = sizeof(uint64_t);
-
-			// confirm if sufficient
-			if (getsockopt(sockfd.fd, SOL_SOCKET, SO_RCVBUF, &ret_size, &optlen) == -1) {
-				FILE_LOG(logWARNING) << "[Port " << port_number << "] "
-						"Could not get rx socket receive buffer size";
-			} else if (ret_size >= real_size) {
-				actual_udp_socket_buffer_size = ret_size;
-#ifdef VEBOSE
-				FILE_LOG(logINFO) << "[Port " << port_number << "] "
-						"UDP rx socket buffer size is sufficient (" << ret_size << ")";
-#endif
-			}
-
-			// not sufficient, enhance size
-			else {
-				// set buffer size (could not set)
-				if (setsockopt(sockfd.fd, SOL_SOCKET, SO_RCVBUF,
-						&desired_size, optlen) == -1) {
-					FILE_LOG(logWARNING) << "[Port " << port_number << "] "
-							"Could not set rx socket buffer size to "
-							<< desired_size << ". (No Root Privileges?)";
-				}
-				// confirm size
-				else if (getsockopt(sockfd.fd, SOL_SOCKET, SO_RCVBUF,
-						&ret_size, &optlen) == -1) {
-					FILE_LOG(logWARNING) << "[Port " << port_number << "] "
-							"Could not get rx socket buffer size";
-				}
-				else if (ret_size >= real_size) {
-					actual_udp_socket_buffer_size = ret_size;
-					FILE_LOG(logINFO) << "[Port " << port_number << "] "
-							"UDP rx socket buffer size modified to " << ret_size;
-				}
-				// buffer size too large
-				else {
-					actual_udp_socket_buffer_size = ret_size;
-					// force a value larger than system limit
-					// (if run in a privileged context (capability CAP_NET_ADMIN set))
-					int ret = setsockopt(sockfd.fd, SOL_SOCKET, SO_RCVBUFFORCE,
-							&desired_size, optlen);
-					getsockopt(sockfd.fd, SOL_SOCKET, SO_RCVBUF,
-							&ret_size, &optlen);
-					if (ret == -1) {
-						FILE_LOG(logWARNING) << "[Port " << port_number << "] "
-								"Could not force rx socket buffer size to "
-								<< desired_size << ".\n  Real size: " << ret_size <<
-								". (No Root Privileges?)\n"
-								"  To remove this warning: set rx_udpsocksize from client to <= " <<
-								(ret_size/2) << " (Real size:" << ret_size << ").";
-					} else {
-						FILE_LOG(logINFO) << "[Port " << port_number << "] "
-								"UDP rx socket buffer size modified to " << ret_size;
-					}
-				}
-			}
+			// double of buf_size should fit in a 32-bit signed integer
+			uint64_t max_buf_size_32 = 1LL << (31 - 1);
+			if (buf_size < max_buf_size_32)
+				setSocketBufferSize<uint32_t>(buf_size);
+			else
+				setSocketBufferSize<uint64_t>(buf_size);
 		}
-
 
 		if(bind(sockfd.fd,(struct sockaddr *) &serverAddress,sizeof(serverAddress))<0){
 			cprintf(RED, "Can not bind socket\n");
@@ -815,6 +761,81 @@ private:
 		/** new socket descriptor in TCP server from accept */
 		int newfd;
 	};
+
+	template <class buffer_size_t>
+	void setSocketBufferSize(buffer_size_t buf_size)
+	{
+		buffer_size_t desired_size = buf_size;
+		buffer_size_t real_size = desired_size * 2; // kernel doubles this value for bookkeeping overhead
+		buffer_size_t ret_size = -1;
+		socklen_t optlen = sizeof(buffer_size_t);
+
+		if (getsockopt(sockfd.fd, SOL_SOCKET, SO_RCVBUF, &ret_size, &optlen) == -1) {
+			FILE_LOG(logWARNING) << "[Port " << portno << "] "
+				"Could not get rx socket receive buffer size";
+			return;
+		}
+
+		// check if OS supports type
+		if (optlen != sizeof(buffer_size_t)) {
+			FILE_LOG(logWARNING) << "[Port " << portno << "] "
+					     << "Buffer size type mismatch with OS: "
+					     << "requested " << sizeof(buffer_size_t) << ", "
+					     << "got " << optlen;
+			return;
+		}
+
+		// confirm if current size is sufficient
+		if (ret_size >= real_size) {
+			actual_udp_socket_buffer_size = ret_size;
+			FILE_LOG(logINFO) << "[Port " << portno << "] "
+				"UDP rx socket buffer size is sufficient (" << ret_size << ")";
+			return;
+		}
+
+		// not sufficient, enhance size
+		// set buffer size (could not set)
+		if (setsockopt(sockfd.fd, SOL_SOCKET, SO_RCVBUF,
+			       &desired_size, optlen) == -1) {
+			FILE_LOG(logWARNING) << "[Port " << portno << "] "
+				"Could not set rx socket buffer size to "
+					     << desired_size << ". (No Root Privileges?)";
+			return;
+		}
+
+		// confirm size
+		if (getsockopt(sockfd.fd, SOL_SOCKET, SO_RCVBUF,
+			       &ret_size, &optlen) == -1) {
+			FILE_LOG(logWARNING) << "[Port " << portno << "] "
+				"Could not get rx socket buffer size";
+			return;
+		} else if (ret_size >= real_size) {
+			actual_udp_socket_buffer_size = ret_size;
+			FILE_LOG(logINFO) << "[Port " << portno << "] "
+				"UDP rx socket buffer size modified to " << ret_size;
+			return;
+		}
+
+		// buffer size too large
+		actual_udp_socket_buffer_size = ret_size;
+		// force a value larger than system limit
+		// (if run in a privileged context (capability CAP_NET_ADMIN set))
+		int ret = setsockopt(sockfd.fd, SOL_SOCKET, SO_RCVBUFFORCE,
+				     &desired_size, optlen);
+		getsockopt(sockfd.fd, SOL_SOCKET, SO_RCVBUF,
+			   &ret_size, &optlen);
+		if (ret == -1) {
+			FILE_LOG(logWARNING) << "[Port " << portno << "] "
+				"Could not force rx socket buffer size to "
+					     << desired_size << ".\n  Real size: " << ret_size <<
+				". (No Root Privileges?)\n"
+				"  To remove this warning: set rx_udpsocksize from client to <= " <<
+				(ret_size/2) << " (Real size:" << ret_size << ").";
+		} else {
+			FILE_LOG(logINFO) << "[Port " << portno << "] "
+				"UDP rx socket buffer size modified to " << ret_size;
+		}
+	}
 
 protected:
 	int portno;
