@@ -376,7 +376,6 @@ class DefaultFrameAssembler : public DefaultFrameAssemblerBase {
 			      cpu_set_t cpu_mask,
 			      unsigned long node_mask, int max_node, 
 			      FramePolicy fp, bool e4b);
-	~DefaultFrameAssembler();
 
 	virtual int assembleFrame(uint64_t frame, RecvHeader *header,
 				  char *buf);
@@ -395,7 +394,7 @@ class DefaultFrameAssembler : public DefaultFrameAssemblerBase {
  protected:
 	friend class EigerStdFrameAssembler;
 
-	typedef PacketStream<P> *PacketStreamPtr;
+	typedef AutoPtr<PacketStream<P> > PacketStreamPtr;
 
 	void expand4Bits(char *dst, char *src, int src_size);
 
@@ -454,7 +453,6 @@ class EigerStdFrameAssembler : public DualPortFrameAssembler {
 
 public:
 	EigerStdFrameAssembler(DefaultFrameAssemblerBase *a[2], bool flipped);
-	~EigerStdFrameAssembler();
 
 	virtual PortsMask assembleFrame(uint64_t frame, RecvHeader *recv_header,
 					char *buf);
@@ -462,7 +460,7 @@ public:
 	class Helper;
 
  protected:
-	Helper *helper;
+	AutoPtr<Helper> helper;
 };
 
 } // namespace FrameAssembler

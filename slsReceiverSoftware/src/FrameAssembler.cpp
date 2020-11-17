@@ -162,7 +162,7 @@ PacketBlock<P> *PacketStream<P>::getPacketBlock(uint64_t frame)
 		PacketStream *ps;
 	};
 
-	PacketBlock<P> *block;
+	AutoPtr<PacketBlock<P> > block;
 	{
 		MutexLock bl(block_cond.getMutex());
 		WaitingCountHelper h(this);
@@ -194,11 +194,9 @@ PacketBlock<P> *PacketStream<P>::getPacketBlock(uint64_t frame)
 		if (frame > last_frame)
 			last_frame = frame;
 	}
-	if (!full_frame && canDiscardFrame(block->getValidPackets())) {
-		delete block;
+	if (!full_frame && canDiscardFrame(block->getValidPackets()))
 		return NULL;
-	}
-	return block;
+	return block.forget();
 }
 
 template <class P>
@@ -580,12 +578,6 @@ DefaultFrameAssembler<P>::DefaultFrameAssembler(genericSocket *s,
 }
 
 template <class P>
-DefaultFrameAssembler<P>::~DefaultFrameAssembler()
-{
-	delete packet_stream;
-}
-
-template <class P>
 void DefaultFrameAssembler<P>::stop()
 {
 	packet_stream->stop();
@@ -662,6 +654,16 @@ int DefaultFrameAssembler<P>::assembleFrame(uint64_t frame,
 			continue;
 
 		int pnum = packet.number();
+		recv_header->packetsMask[pnum] = 1;
+
+		//write header
+		if (header_empty) {
+			packet.fillDetHeader(det_header);
+			header_empty = false;
+		}
+
+		if (!buf)
+			continue;
 
 		//copy packet
 		char *dst = buf + pnum * dst_dsize;
@@ -675,14 +677,6 @@ int DefaultFrameAssembler<P>::assembleFrame(uint64_t frame,
 			expand4Bits(dst, packet.data(), copy_dsize);
 		else
 			memcpy(dst, packet.data(), copy_dsize);
-
-		recv_header->packetsMask[pnum] = 1;
-
-		//write header
-		if (header_empty) {
-			packet.fillDetHeader(det_header);
-			header_empty = false;
-		}
 	}
 
 	if (header_empty)
@@ -783,9 +777,11 @@ EigerRawFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
 	const int num_ports = 2;
 	const int image_size = assembler[0]->getImageSize();
 	PortsMask mask;
-	for (int i = 0; i < num_ports; ++i, buf += image_size) {
+	for (int i = 0; i < num_ports; ++i) {
 		int ret = assembler[i]->assembleFrame(frame, recv_header, buf);
 		mask.set(i, (ret == 0));
+		if (buf)
+			buf += image_size;
 	}
 	return mask;
 }
@@ -1130,11 +1126,6 @@ EigerStdFrameAssembler::EigerStdFrameAssembler(DefaultFrameAssemblerBase *a[2],
 	helper = h;
 }
 
-EigerStdFrameAssembler::~EigerStdFrameAssembler()
-{
-	delete helper;
-}
-
 DualPortFrameAssembler::PortsMask
 EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
 				      char *buf)
@@ -1173,7 +1164,7 @@ EigerStdFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
 	if (fp_partial && (mask.count() != num_ports))
 		return PortsMask();
 
-	if (mask.any()) {
+	if (mask.any() && buf) {
 		Helper::EigerBlock *blocks[2] = { block[0], block[1] };
 		helper->assemblePackets(blocks, buf);
 	}
