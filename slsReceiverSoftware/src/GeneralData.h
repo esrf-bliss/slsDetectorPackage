@@ -51,6 +51,12 @@ class GeneralData {
     uint32_t vetoPacketSize{0};
     uint32_t vetoImageSize{0};
     uint32_t vetoHsize{0};
+    /** dynamic range */
+    uint32_t dynamicRange{0};
+    /** 10 Gigabit enable */
+    bool tgEnable{false};
+    /** gap pixels enable */
+    bool gapEnable{false};
 
     GeneralData(){};
     virtual ~GeneralData(){};
@@ -99,9 +105,8 @@ class GeneralData {
     /**
      * Setting dynamic range changes member variables
      * @param dr dynamic range
-     * @param tgEnable true if 10GbE is enabled, else false
      */
-    virtual void SetDynamicRange(int dr, bool tgEnable) {
+    virtual void SetDynamicRange(int dr) {
         LOG(logERROR) << "SetDynamicRange is a generic function that should be "
                          "overloaded by a derived class";
     };
@@ -109,10 +114,18 @@ class GeneralData {
     /**
      * Setting ten giga enable changes member variables
      * @param tgEnable true if 10GbE is enabled, else false
-     * @param dr dynamic range
      */
-    virtual void SetTenGigaEnable(bool tgEnable, int dr) {
+    virtual void SetTenGigaEnable(bool tgEnable) {
         LOG(logERROR) << "SetTenGigaEnable is a generic function that should "
+                         "be overloaded by a derived class";
+    };
+
+    /**
+     * Enable Gap Pixels changes member variables
+     * @param enable true if gap pixels enable, else false
+     */
+    virtual void SetGapPixelsEnable(bool b) {
+        LOG(logERROR) << "SetGapPixelsEnable is a generic function that should "
                          "be overloaded by a derived class";
     };
 
@@ -325,13 +338,8 @@ class EigerData : public GeneralData {
     /** Constructor */
     EigerData() {
         myDetectorType = slsDetectorDefs::EIGER;
-        nPixelsX = (256 * 2);
-        nPixelsY = 256;
         headerSizeinPacket = sizeof(slsDetectorDefs::sls_detector_header);
-        dataSize = 1024;
-        packetSize = headerSizeinPacket + dataSize;
-        packetsPerFrame = 256;
-        imageSize = dataSize * packetsPerFrame;
+        dynamicRange = 16;
         maxFramesPerFile = EIGER_MAX_FRAMES_PER_FILE;
         fifoBufferHeaderSize =
             FIFO_HEADER_NUMBYTES + sizeof(slsDetectorDefs::sls_receiver_header);
@@ -339,6 +347,7 @@ class EigerData : public GeneralData {
         threadsPerReceiver = 2;
         headerPacketSize = 40;
         standardheader = true;
+        UpdateImageSize();
     };
 
     /**
@@ -346,23 +355,48 @@ class EigerData : public GeneralData {
      * @param dr dynamic range
      * @param tgEnable true if 10GbE is enabled, else false
      */
-    void SetDynamicRange(int dr, bool tgEnable) {
-        packetsPerFrame = (tgEnable ? 4 : 16) * dr;
-        imageSize = dataSize * packetsPerFrame;
+    void SetDynamicRange(int dr) {
+        dynamicRange = dr;
         defaultFifoDepth = (dr == 32 ? 100 : 1000);
-    }
+        UpdateImageSize();
+    };
 
     /**
      * Setting ten giga enable changes member variables
      * @param tgEnable true if 10GbE is enabled, else false
      * @param dr dynamic range
      */
-    void SetTenGigaEnable(bool tgEnable, int dr) {
+    void SetTenGigaEnable(bool tg) {
+        tgEnable = tg;
+        UpdateImageSize();
+    };
+
+    /**
+     * Enable Gap Pixels changes member variables
+     * @param g enable true if gap pixels enable, else false
+     */
+    void SetGapPixelsEnable(bool g) {
+        gapEnable = g;
+        UpdateImageSize();
+    };
+
+  private:
+    /**
+     * Update member variables affecting image size
+     */
+    void UpdateImageSize() {
+        nPixelsX = 256 * 2;
+        nPixelsY = 256;
+        packetsPerFrame = (tgEnable ? 4 : 16) * dynamicRange;
         dataSize = (tgEnable ? 4096 : 1024);
         packetSize = headerSizeinPacket + dataSize;
-        packetsPerFrame = (tgEnable ? 4 : 16) * dr;
-        imageSize = dataSize * packetsPerFrame;
-    };
+        if (gapEnable) {
+            nPixelsX += 3;
+            nPixelsY += 1;
+        }
+        float bytes_per_pixel = float(dynamicRange) / 8;
+        imageSize = nPixelsX * nPixelsY * bytes_per_pixel;
+    }
 };
 
 class JungfrauData : public GeneralData {

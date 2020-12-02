@@ -218,7 +218,7 @@ if(SLS_USE_MOENCH)
     add_subdirectory(slsDetectorCalibration/moenchExecutables)
 endif(SLS_USE_MOENCH)
 
-if(SLS_MASTER_PROJECT)
+if(1)
     # Set install dir CMake packages
     set(CMAKE_INSTALL_DIR "share/cmake/${PROJECT_NAME}")
     # Set the list of exported targets

@@ -492,7 +492,7 @@ void ClientInterface::setDetectorType(detectorType arg) {
 
     try {
         myDetectorType = GENERIC;
-        receiver = sls::make_unique<Implementation>(arg);
+        receiver = sls::make_unique<Implementation>(arg, passiveMode);
         myDetectorType = arg;
     } catch (...) {
         throw RuntimeError("Could not set detector type");
@@ -1677,3 +1677,24 @@ int ClientInterface::set_streaming_hwm(Interface &socket) {
     impl()->setStreamingHwm(limit);
     return socket.Send(OK);
 }
+
+/** Passive mode functions */
+void ClientInterface::setPassiveMode(bool passive) { passiveMode = passive; }
+
+void ClientInterface::enableGap(bool enable) { impl()->enableGap(enable); }
+
+void ClientInterface::setThreadCPUAffinity(const CPUMaskList &cpu_masks) {
+    impl()->setThreadCPUAffinity(cpu_masks);
+}
+
+void ClientInterface::setBufferNodeAffinity(unsigned long buffer_node_mask,
+                                            int max_node) {
+    impl()->setBufferNodeAffinity(buffer_node_mask, max_node);
+}
+
+int ClientInterface::getImage(
+    slsDetectorDefs::receiver_image_data &image_data) {
+    return impl()->getImage(image_data);
+}
+
+void ClientInterface::clearAllBuffers() { impl()->clearAllBuffers(); }

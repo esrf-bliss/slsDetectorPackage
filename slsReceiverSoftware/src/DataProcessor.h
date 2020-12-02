@@ -69,12 +69,6 @@ class DataProcessor : private virtual slsDetectorDefs, public ThreadObject {
     bool GetStartedFlag();
 
     /**
-     * Get Frames Complete Caught
-     * @return number of frames
-     */
-    uint64_t GetNumFramesCaught();
-
-    /**
      * Gets Actual Current Frame Index (that has not been subtracted from
      * firstIndex) thats been processed
      * @return -1 if no frames have been caught, else current frame index
@@ -311,10 +305,6 @@ class DataProcessor : private virtual slsDetectorDefs, public ThreadObject {
 
     /** Frame Number of First Frame */
     std::atomic<uint64_t> firstIndex{0};
-
-    // for statistics
-    /** Number of complete frames caught */
-    uint64_t numFramesCaught{0};
 
     /** Frame Number of latest processed frame number */
     std::atomic<uint64_t> currentFrameIndex{0};

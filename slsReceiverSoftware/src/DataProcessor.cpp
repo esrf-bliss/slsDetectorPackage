@@ -46,8 +46,6 @@ DataProcessor::~DataProcessor() { delete file; }
 
 bool DataProcessor::GetStartedFlag() { return startedFlag; }
 
-uint64_t DataProcessor::GetNumFramesCaught() { return numFramesCaught; }
-
 uint64_t DataProcessor::GetCurrentFrameIndex() { return currentFrameIndex; }
 
 uint64_t DataProcessor::GetProcessedIndex() {
@@ -59,7 +57,6 @@ void DataProcessor::SetFifo(Fifo *f) { fifo = f; }
 void DataProcessor::ResetParametersforNewAcquisition() {
     StopRunning();
     startedFlag = false;
-    numFramesCaught = 0;
     firstIndex = 0;
     currentFrameIndex = 0;
     firstStreamerFrame = true;
@@ -229,9 +226,6 @@ uint64_t DataProcessor::ProcessAnImage(char *buf) {
     uint64_t fnum = header.frameNumber;
     currentFrameIndex = fnum;
     uint32_t nump = header.packetNumber;
-    if (nump == generalData->packetsPerFrame) {
-        numFramesCaught++;
-    }
 
     LOG(logDEBUG1) << "DataProcessing " << index << ": fnum:" << fnum;
 

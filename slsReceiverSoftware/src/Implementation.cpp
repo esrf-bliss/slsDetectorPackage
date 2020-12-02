@@ -22,7 +22,10 @@
 
 /** cosntructor & destructor */
 
-Implementation::Implementation(const detectorType d) { setDetectorType(d); }
+Implementation::Implementation(const detectorType d, bool passive)
+    : passiveMode(passive) {
+    setDetectorType(d);
+}
 
 Implementation::~Implementation() {
     delete generalData;
@@ -62,7 +65,8 @@ void Implementation::SetThreadPriorities() {
 
 void Implementation::SetupFifoStructure() {
     fifo.clear();
-    for (int i = 0; i < numThreads; ++i) {
+    frameAssembler.reset();
+    for (unsigned int i = 0; int(i) < numThreads; ++i) {
         uint32_t datasize = generalData->imageSize;
         // veto data size
         if (myDetectorType == GOTTHARD2 && i != 0) {
@@ -81,11 +85,11 @@ void Implementation::SetupFifoStructure() {
                 std::to_string(i) + ". FifoDepth is now 0.");
         }
         // set the listener & dataprocessor threads to point to the right fifo
-        if (listener.size())
+        if (i < listener.size())
             listener[i]->SetFifo(fifo[i].get());
-        if (dataProcessor.size())
+        if (i < dataProcessor.size())
             dataProcessor[i]->SetFifo(fifo[i].get());
-        if (dataStreamer.size())
+        if (i < dataStreamer.size())
             dataStreamer[i]->SetFifo(fifo[i].get());
 
         LOG(logINFO) << "Memory Allocated for Fifo " << i << ": "
@@ -96,6 +100,20 @@ void Implementation::SetupFifoStructure() {
                      << " MB";
     }
     LOG(logINFO) << numThreads << " Fifo structure(s) reconstructed";
+}
+
+void Implementation::SetupFrameAssembler() {
+    if (passiveMode && listener.size()) {
+        if (numThreads != 2) {
+            shutDownUDPSockets();
+            throw sls::RuntimeError("Invalid number of threads: " +
+                                    std::to_string(numThreads));
+        }
+        Listener::Ptr l[2] = {listener[0], listener[1]};
+        frameAssembler = Listener::CreateDualPortFrameAssembler(l);
+
+        LOG(logDEBUG) << "FrameAssembler created successfully.";
+    }
 }
 
 /**************************************************
@@ -120,6 +138,9 @@ void Implementation::setDetectorType(const detectorType d) {
         throw sls::RuntimeError("This is an unknown receiver type " +
                                 std::to_string(static_cast<int>(d)));
     }
+
+    delete generalData;
+    generalData = nullptr;
 
     // set detector specific variables
     switch (myDetectorType) {
@@ -148,6 +169,9 @@ void Implementation::setDetectorType(const detectorType d) {
         break;
     }
     numThreads = generalData->threadsPerReceiver;
+    if (numThreads > MAX_NUM_PORTS)
+        throw sls::RuntimeError("Invalid numThreads: " +
+                                std::to_string(numThreads));
     fifoDepth = generalData->defaultFifoDepth;
     udpSocketBufferSize = generalData->defaultUdpSocketBufferSize;
     framesPerFile = generalData->maxFramesPerFile;
@@ -160,17 +184,21 @@ void Implementation::setDetectorType(const detectorType d) {
 
         try {
             auto fifo_ptr = fifo[i].get();
-            listener.push_back(sls::make_unique<Listener>(
+            listener.push_back(std::make_shared<Listener>(
                 i, myDetectorType, fifo_ptr, &status, &udpPortNum[i], &eth[i],
                 &numberOfTotalFrames, &udpSocketBufferSize,
                 &actualUDPSocketBufferSize, &framesPerFile, &frameDiscardMode,
-                &activated, &deactivatedPaddingEnable, &silentMode));
-            dataProcessor.push_back(sls::make_unique<DataProcessor>(
-                i, myDetectorType, fifo_ptr, &fileFormatType, fileWriteEnable,
-                &masterFileWriteEnable, &dataStreamEnable, &streamingFrequency,
-                &streamingTimerInMs, &streamingStartFnum, &framePadding,
                 &activated, &deactivatedPaddingEnable, &silentMode,
-                &ctbDbitList, &ctbDbitOffset, &ctbAnalogDataBytes));
+                &flippedDataX, !passiveMode));
+            if (!passiveMode) {
+                dataProcessor.push_back(sls::make_unique<DataProcessor>(
+                    i, myDetectorType, fifo_ptr, &fileFormatType,
+                    fileWriteEnable, &masterFileWriteEnable, &dataStreamEnable,
+                    &streamingFrequency, &streamingTimerInMs,
+                    &streamingStartFnum, &framePadding, &activated,
+                    &deactivatedPaddingEnable, &silentMode, &ctbDbitList,
+                    &ctbDbitOffset, &ctbAnalogDataBytes));
+            }
         } catch (...) {
             listener.clear();
             dataProcessor.clear();
@@ -179,6 +207,8 @@ void Implementation::setDetectorType(const detectorType d) {
                 std::to_string(i) + ")");
         }
     }
+
+    listenerStatistics.resize(numThreads);
 
     // set up writer and callbacks
     for (const auto &it : listener)
@@ -301,7 +331,10 @@ std::array<pid_t, NUM_RX_THREAD_IDS> Implementation::getThreadIds() const {
     retval[id++] = parentThreadId;
     retval[id++] = tcpThreadId;
     retval[id++] = listener[0]->GetThreadId();
-    retval[id++] = dataProcessor[0]->GetThreadId();
+    if (dataProcessor.size())
+        retval[id++] = dataProcessor[0]->GetThreadId();
+    else
+        retval[id++] = 0;
     if (dataStreamEnable) {
         retval[id++] = dataStreamer[0]->GetThreadId();
     } else {
@@ -421,20 +454,15 @@ slsDetectorDefs::runStatus Implementation::getStatus() const { return status; }
 
 uint64_t Implementation::getFramesCaught() const {
     uint64_t min = -1;
-    uint32_t flagsum = 0;
-
-    for (const auto &it : dataProcessor) {
-        flagsum += it->GetStartedFlag();
+    for (const auto &it : listener)
         min = std::min(min, it->GetNumFramesCaught());
-    }
-    // no data processed
-    if (flagsum != dataProcessor.size())
-        return 0;
-
     return min;
 }
 
 uint64_t Implementation::getAcquisitionIndex() const {
+    if (passiveMode)
+        return 0;
+
     uint64_t min = -1;
     uint32_t flagsum = 0;
 
@@ -470,6 +498,11 @@ double Implementation::getProgress() const {
 std::vector<uint64_t> Implementation::getNumMissingPackets() const {
     std::vector<uint64_t> mp(numThreads);
     for (int i = 0; i < numThreads; i++) {
+        // not running, read stored statistics
+        if (status != RUNNING) {
+            mp[i] = listenerStatistics[i].packets_missing;
+            continue;
+        }
         int np = generalData->packetsPerFrame;
         uint64_t totnp = np;
         // partial readout
@@ -562,7 +595,8 @@ void Implementation::stopReceiver() {
         }
         // to create virtual file & set files/acquisition to 0 (only hdf5 at the
         // moment)
-        dataProcessor[0]->EndofAcquisition(anycaught, maxIndexCaught);
+        if (dataProcessor.size())
+            dataProcessor[0]->EndofAcquisition(anycaught, maxIndexCaught);
     }
 
     // wait for the processes (dataStreamer) to be done
@@ -579,38 +613,41 @@ void Implementation::stopReceiver() {
     LOG(logINFO) << "Status: " << sls::ToString(status);
 
     { // statistics
-        std::vector<uint64_t> mp = getNumMissingPackets();
         uint64_t tot = 0;
         for (int i = 0; i < numThreads; i++) {
-            int nf = dataProcessor[i]->GetNumFramesCaught();
+            const ListenerStatistics &ls = listenerStatistics[i];
+            uint64_t mp = ls.packets_missing;
+            int nf = ls.frames_caught;
             tot += nf;
 
-            TLogLevel lev = (((int64_t)mp[i]) > 0) ? logINFORED : logINFOGREEN;
+            TLogLevel lev = (mp > 0) ? logINFORED : logINFOGREEN;
             LOG(lev) <<
                 // udp port number could be the second if selected interface is
                 // 2 for jungfrau
                 "Summary of Port " << udpPortNum[i]
-                     << "\n\tMissing Packets\t\t: " << (int64_t)mp[i]
+                     << "\n\tMissing Packets\t\t: " << mp
                      << "\n\tComplete Frames\t\t: " << nf
-                     << "\n\tLast Frame Caught\t: "
-                     << listener[i]->GetLastFrameIndexCaught();
+                     << "\n\tLast Frame Caught\t: " << ls.last_frame;
         }
-        if (!activated) {
-            LOG(logINFORED) << "Deactivated Receiver";
-        }
-        // callback
-        if (acquisitionFinishedCallBack) {
-            try {
-                acquisitionFinishedCallBack((tot / numThreads),
-                                            pAcquisitionFinished);
-            } catch (const std::exception &e) {
-                // change status
-                status = IDLE;
-                LOG(logINFO) << "Receiver Stopped";
-                LOG(logINFO) << "Status: " << sls::ToString(status);
-                throw sls::RuntimeError(
-                    "Acquisition Finished Callback Error: " +
-                    std::string(e.what()));
+
+        if (!passiveMode) {
+            if (!activated) {
+                LOG(logINFORED) << "Deactivated Receiver";
+            }
+            // callback
+            if (acquisitionFinishedCallBack) {
+                try {
+                    acquisitionFinishedCallBack((tot / numThreads),
+                                                pAcquisitionFinished);
+                } catch (const std::exception &e) {
+                    // change status
+                    status = IDLE;
+                    LOG(logINFO) << "Receiver Stopped";
+                    LOG(logINFO) << "Status: " << sls::ToString(status);
+                    throw sls::RuntimeError(
+                        "Acquisition Finished Callback Error: " +
+                        std::string(e.what()));
+                }
             }
         }
     }
@@ -650,17 +687,38 @@ void Implementation::startReadout() {
                                << totalPacketsReceived;
             }
         }
+
+        std::vector<uint64_t> missing_packets = getNumMissingPackets();
+
+        // store listener statistics
+        for (int i = 0; i < numThreads; ++i) {
+            const auto &l = listener[i];
+            ListenerStatistics &ls = listenerStatistics[i];
+            ls.packets_missing = missing_packets[i];
+            ls.packets_caught = l->GetPacketsCaught();
+            ls.frames_caught = l->GetNumFramesCaught();
+            ls.last_frame = l->GetLastFrameIndexCaught();
+        }
+
         status = TRANSMITTING;
         LOG(logINFO) << "Status: Transmitting";
     }
+
     // shut down udp sockets to make listeners push dummy (end) packets for
     // processors
     shutDownUDPSockets();
 }
 
 void Implementation::shutDownUDPSockets() {
+    if (frameAssembler) {
+        frameAssembler->stop();
+        std::unique_lock<std::mutex> l(frameAssemblerBusyMutex);
+        while (frameAssemblerBusyCount > 0)
+            frameAssemblerBusyCond.wait(l);
+    }
     for (const auto &it : listener)
         it->ShutDownUDPSocket();
+    frameAssembler.reset();
 }
 
 void Implementation::closeFiles() {
@@ -674,7 +732,8 @@ void Implementation::closeFiles() {
     }
     // to create virtual file & set files/acquisition to 0 (only hdf5 at the
     // moment)
-    dataProcessor[0]->EndofAcquisition(anycaught, maxIndexCaught);
+    if (dataProcessor.size())
+        dataProcessor[0]->EndofAcquisition(anycaught, maxIndexCaught);
 }
 
 void Implementation::restreamStop() {
@@ -686,6 +745,8 @@ void Implementation::restreamStop() {
 void Implementation::ResetParametersforNewAcquisition() {
     for (const auto &it : listener)
         it->ResetParametersforNewAcquisition();
+    for (auto &it : listenerStatistics)
+        it.reset();
     for (const auto &it : dataProcessor)
         it->ResetParametersforNewAcquisition();
 
@@ -708,6 +769,8 @@ void Implementation::CreateUDPSockets() {
         throw sls::RuntimeError("Could not create UDP Socket(s).");
     }
     LOG(logDEBUG) << "UDP socket(s) created successfully.";
+
+    SetupFrameAssembler();
 }
 
 void Implementation::SetupWriter() {
@@ -854,22 +917,24 @@ void Implementation::setNumberofUDPInterfaces(const int n) {
             // listener and dataprocessor threads
             try {
                 auto fifo_ptr = fifo[i].get();
-                listener.push_back(sls::make_unique<Listener>(
+                listener.push_back(std::make_shared<Listener>(
                     i, myDetectorType, fifo_ptr, &status, &udpPortNum[i],
                     &eth[i], &numberOfTotalFrames, &udpSocketBufferSize,
                     &actualUDPSocketBufferSize, &framesPerFile,
                     &frameDiscardMode, &activated, &deactivatedPaddingEnable,
-                    &silentMode));
+                    &silentMode, &flippedDataX, !passiveMode));
                 listener[i]->SetGeneralData(generalData);
 
-                dataProcessor.push_back(sls::make_unique<DataProcessor>(
-                    i, myDetectorType, fifo_ptr, &fileFormatType,
-                    fileWriteEnable, &masterFileWriteEnable, &dataStreamEnable,
-                    &streamingFrequency, &streamingTimerInMs,
-                    &streamingStartFnum, &framePadding, &activated,
-                    &deactivatedPaddingEnable, &silentMode, &ctbDbitList,
-                    &ctbDbitOffset, &ctbAnalogDataBytes));
-                dataProcessor[i]->SetGeneralData(generalData);
+                if (!passiveMode) {
+                    dataProcessor.push_back(sls::make_unique<DataProcessor>(
+                        i, myDetectorType, fifo_ptr, &fileFormatType,
+                        fileWriteEnable, &masterFileWriteEnable,
+                        &dataStreamEnable, &streamingFrequency,
+                        &streamingTimerInMs, &streamingStartFnum, &framePadding,
+                        &activated, &deactivatedPaddingEnable, &silentMode,
+                        &ctbDbitList, &ctbDbitOffset, &ctbAnalogDataBytes));
+                    dataProcessor[i]->SetGeneralData(generalData);
+                }
             } catch (...) {
                 listener.clear();
                 dataProcessor.clear();
@@ -1392,7 +1457,7 @@ void Implementation::setDynamicRange(const uint32_t i) {
         if (myDetectorType == EIGER || myDetectorType == MYTHEN3) {
 
             if (myDetectorType == EIGER) {
-                generalData->SetDynamicRange(i, tengigaEnable);
+                generalData->SetDynamicRange(i);
             } else {
                 int ncounters = __builtin_popcount(counterMask);
                 generalData->SetNumberofCounters(ncounters, i, tengigaEnable);
@@ -1436,7 +1501,7 @@ void Implementation::setTenGigaEnable(const bool b) {
         // side effects
         switch (myDetectorType) {
         case EIGER:
-            generalData->SetTenGigaEnable(b, dynamicRange);
+            generalData->SetTenGigaEnable(b);
             break;
         case MYTHEN3:
             generalData->SetNumberofCounters(ncounters, dynamicRange, b);
@@ -1641,4 +1706,74 @@ void Implementation::registerCallBackRawDataModifyReady(
     for (const auto &it : dataProcessor)
         it->registerCallBackRawDataModifyReady(rawDataModifyReadyCallBack,
                                                pRawDataReady);
+}
+
+void Implementation::enableGap(bool enable) {
+    if (enable == gapEnable)
+        return;
+    generalData->SetGapPixelsEnable(enable);
+    gapEnable = enable;
+    SetupFifoStructure();
+    LOG(logINFO) << "Gap: " << (gapEnable ? "enabled" : "disabled");
+}
+
+void Implementation::setThreadCPUAffinity(const CPUMaskList &cpu_masks) {
+    if (int(cpu_masks.size()) != numThreads)
+        throw sls::RuntimeError("Invalid cpu_masks size: " +
+                                std::to_string(cpu_masks.size()));
+    for (int i = 0; i < numThreads; ++i)
+        listener[i]->SetThreadCPUAffinity(cpu_masks[i]);
+}
+
+void Implementation::setBufferNodeAffinity(unsigned long buffer_node_mask,
+                                           int max_node) {
+    for (const auto &it : listener)
+        it->SetFifoNodeAffinity(buffer_node_mask, max_node);
+}
+
+int Implementation::getImage(slsDetectorDefs::receiver_image_data &image_data) {
+    if (!passiveMode)
+        throw sls::RuntimeError("getImage: not in passiveMode");
+
+    class Busy {
+      public:
+        Busy(int &i, std::mutex &m, std::condition_variable &c)
+            : count(i), mutex(m), cond(c) {
+            std::lock_guard<std::mutex> l(mutex);
+            ++count;
+        }
+
+        ~Busy() {
+            std::lock_guard<std::mutex> l(mutex);
+            --count;
+            cond.notify_all();
+        }
+
+      private:
+        int &count;
+        std::mutex &mutex;
+        std::condition_variable &cond;
+    } b(frameAssemblerBusyCount, frameAssemblerBusyMutex,
+        frameAssemblerBusyCond);
+
+    if (status != RUNNING)
+        return -1;
+
+    image_data.portsMask = frameAssembler->assembleFrame(
+        image_data.frame, &image_data.header, image_data.buffer);
+    bool got_data = image_data.portsMask.any();
+    return got_data ? 0 : -1;
+}
+
+void Implementation::clearAllBuffers() {
+    for (const auto &it : listener)
+        it->ClearAllBuffers();
+}
+
+/* statistics */
+void Implementation::ListenerStatistics::reset() {
+    packets_missing = 0;
+    packets_caught = 0;
+    frames_caught = 0;
+    last_frame = 0;
 }

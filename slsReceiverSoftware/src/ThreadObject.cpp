@@ -9,22 +9,28 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
-ThreadObject::ThreadObject(int threadIndex, std::string threadType)
+ThreadObject::ThreadObject(int threadIndex, std::string threadType,
+                           bool do_start)
     : index(threadIndex), type(threadType) {
-    LOG(logDEBUG) << type << " thread created: " << index;
     sem_init(&semaphore, 1, 0);
+    if (!do_start) {
+        LOG(logINFO) << type << " thread skipped: " << index;
+        return;
+    }
     try {
         threadObject = std::thread(&ThreadObject::RunningThread, this);
     } catch (...) {
         throw sls::RuntimeError("Could not create " + type +
                                 " thread with index " + std::to_string(index));
     }
+    LOG(logDEBUG) << type << " thread created: " << index;
 }
 
 ThreadObject::~ThreadObject() {
     killThread = true;
     sem_post(&semaphore);
-    threadObject.join();
+    if (threadObject.joinable())
+        threadObject.join();
     sem_destroy(&semaphore);
 }
 
@@ -55,6 +61,8 @@ void ThreadObject::RunningThread() {
 void ThreadObject::Continue() { sem_post(&semaphore); }
 
 void ThreadObject::SetThreadPriority(int priority) {
+    if (!threadObject.joinable())
+        return;
     struct sched_param param;
     param.sched_priority = priority;
     if (pthread_setschedparam(threadObject.native_handle(), SCHED_FIFO,

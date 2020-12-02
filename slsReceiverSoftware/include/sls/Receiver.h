@@ -85,6 +85,40 @@ class Receiver : private virtual slsDetectorDefs {
                                                          uint32_t &, void *),
                                             void *arg);
 
+    /**
+     * Set the passive mode status. Takes effect in next (re)configuration
+     */
+    void setPassiveMode(bool passive);
+
+    /**
+     * Enable / disable gap (image reconstruction)
+     */
+    void enableGap(bool enable);
+
+    /**
+     * Set thread CPU Affinity: a list of CPU masks affecting the
+     * Listener PacketStream writing threads, one per port
+     */
+    void setThreadCPUAffinity(const CPUMaskList &cpu_masks);
+
+    /**
+     * Set the NUMA node affinity for PacketStream buffers
+     * max_node is the maximum valid node in the bitmask
+     */
+    void setBufferNodeAffinity(unsigned long buffer_node_mask, int max_node);
+
+    /**
+     * Get the image corresponding to the specified frame in image_data
+     * Copy the first header of the frame and return the validity of each
+     * port data in portsMask
+     */
+    int getImage(slsDetectorDefs::receiver_image_data &image_data);
+
+    /**
+     * Clear the PacketStream buffers
+     */
+    void clearAllBuffers();
+
   private:
     std::unique_ptr<ClientInterface> tcpipInterface;
 };

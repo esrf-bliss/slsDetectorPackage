@@ -49,6 +49,14 @@ class ClientInterface : private virtual slsDetectorDefs {
                                                          uint32_t &, void *),
                                             void *arg);
 
+    /** Passive mode functions */
+    void setPassiveMode(bool passive);
+    void enableGap(bool enable);
+    void setThreadCPUAffinity(const CPUMaskList &cpu_masks);
+    void setBufferNodeAffinity(unsigned long buffer_node_mask, int max_node);
+    int getImage(slsDetectorDefs::receiver_image_data &image_data);
+    void clearAllBuffers();
+
   private:
     void startTCPServer();
     int functionTable();
@@ -188,4 +196,7 @@ class ClientInterface : private virtual slsDetectorDefs {
 
     pid_t parentThreadId{0};
     pid_t tcpThreadId{0};
+
+    /** Passive Receiver **/
+    std::atomic<bool> passiveMode{false};
 };

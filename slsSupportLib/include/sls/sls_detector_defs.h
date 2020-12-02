@@ -21,7 +21,9 @@
 #include <bitset>
 #include <chrono>
 #include <cstdint>
+#include <sched.h>
 #include <string>
+#include <vector>
 #else
 // C includes
 #include <stdint.h>
@@ -145,6 +147,17 @@ class slsDetectorDefs {
         sls_detector_header detHeader; /**< is the detector header */
         sls_bitset packetsMask;        /**< is the packets caught bit mask */
     };
+
+#define MAX_NUM_PORTS 2
+
+    struct receiver_image_data {
+        uint64_t frame;
+        sls_receiver_header header;
+        char *buffer;
+        std::bitset<MAX_NUM_PORTS> portsMask;
+    };
+
+    typedef std::vector<cpu_set_t> CPUMaskList;
 #endif
     enum frameDiscardPolicy {
         NO_DISCARD,

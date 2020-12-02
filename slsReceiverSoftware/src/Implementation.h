@@ -1,4 +1,5 @@
 #pragma once
+#include "FrameAssembler.h"
 #include "receiver_defs.h"
 #include "sls/container_utils.h"
 #include "sls/logger.h"
@@ -12,15 +13,17 @@ class slsDetectorDefs;
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <exception>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <vector>
 using ns = std::chrono::nanoseconds;
 
 class Implementation : private virtual slsDetectorDefs {
   public:
-    explicit Implementation(const detectorType d);
+    explicit Implementation(const detectorType d, bool passive);
     virtual ~Implementation();
 
     /**************************************************
@@ -255,10 +258,32 @@ class Implementation : private virtual slsDetectorDefs {
                                                          uint32_t &, void *),
                                             void *arg);
 
+    /**************************************************
+     *                                                *
+     *    Passive mode
+     *                                                *
+     * ************************************************/
+    void enableGap(bool enable);
+    void setThreadCPUAffinity(const CPUMaskList &cpu_masks);
+    void setBufferNodeAffinity(unsigned long buffer_node_mask, int max_node);
+    int getImage(slsDetectorDefs::receiver_image_data &image_data);
+    void clearAllBuffers();
+
   private:
+    using DualPortFrameAssembler = FrameAssembler::DualPortFrameAssembler;
+
+    struct ListenerStatistics {
+        uint64_t packets_missing;
+        uint64_t packets_caught;
+        uint64_t frames_caught;
+        uint64_t last_frame;
+        void reset();
+    };
+
     void SetLocalNetworkParameters();
     void SetThreadPriorities();
     void SetupFifoStructure();
+    void SetupFrameAssembler();
 
     void ResetParametersforNewAcquisition();
     void CreateUDPSockets();
@@ -283,6 +308,7 @@ class Implementation : private virtual slsDetectorDefs {
     bool framePadding{true};
     pid_t parentThreadId;
     pid_t tcpThreadId;
+    bool gapEnable{false};
 
     // file parameters
     fileFormat fileFormatType{BINARY};
@@ -368,9 +394,19 @@ class Implementation : private virtual slsDetectorDefs {
     void *pRawDataReady{nullptr};
 
     // class objects
-    GeneralData *generalData;
-    std::vector<std::unique_ptr<Listener>> listener;
+    GeneralData *generalData{nullptr};
+    std::vector<std::shared_ptr<Listener>> listener;
     std::vector<std::unique_ptr<DataProcessor>> dataProcessor;
     std::vector<std::unique_ptr<DataStreamer>> dataStreamer;
     std::vector<std::unique_ptr<Fifo>> fifo;
+
+    /** Listener Statistics */
+    std::vector<ListenerStatistics> listenerStatistics;
+
+    /** Frame memory assembler in passive mode */
+    bool passiveMode;
+    std::shared_ptr<DualPortFrameAssembler> frameAssembler;
+    std::mutex frameAssemblerBusyMutex;
+    std::condition_variable frameAssemblerBusyCond;
+    int frameAssemblerBusyCount{0};
 };

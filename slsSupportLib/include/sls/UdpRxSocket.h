@@ -11,6 +11,7 @@ namespace sls {
 class UdpRxSocket {
     const ssize_t packet_size_;
     int sockfd_{-1};
+    int portno{0};
 
   public:
     UdpRxSocket(int port, ssize_t packet_size, const char *hostname = nullptr,
@@ -25,6 +26,7 @@ class UdpRxSocket {
     // Only for backwards compatibility, this drops the EIGER small pkt, may be
     // removed
     ssize_t ReceiveDataOnly(char *dst) noexcept;
+    int getPortNumber() noexcept { return portno; }
 };
 
 } // namespace sls
