@@ -49,11 +49,15 @@ struct PacketDataBase {
     // An instance of <derived>::StreamData is included in the PacketStream
     struct StreamData {
         StreamData(GeneralDataPtr /*d*/) {}
+
+        // Describes the sequence of the packets in the stream
+        uint32_t getPacketNumber(uint32_t packet_idx) { return packet_idx; }
     };
 
     // An instance of <derived>::SoftHeader prepends each network packet
     struct SoftHeader {
         bool valid;
+        int index;
     };
 };
 
@@ -73,6 +77,9 @@ template <class PD> struct Packet {
 
     bool valid() { return softHeader()->valid; }
 
+    void setIndex(int index) { softHeader()->index = index; }
+    int index() { return softHeader()->index; }
+
     char *networkBuffer() { return buffer + sizeof(SoftHeader); }
 
     char *networkHeader() { return networkBuffer(); }
@@ -83,8 +90,6 @@ template <class PD> struct Packet {
 /**
  *@short StdPacket class
  */
-
-struct JungfrauPacketData : public PacketDataBase {};
 
 template <class PD> struct StdPacketImpl : public Packet<PD> {
     using Base = Packet<PD>;
@@ -108,8 +113,6 @@ template <class PD> struct StdPacketImpl : public Packet<PD> {
 
     void fillDetHeader(DetHeader *det_header);
 };
-
-using JungfrauPacket = StdPacketImpl<JungfrauPacketData>;
 
 /**
  *@short LegacyPacket class
@@ -237,6 +240,8 @@ template <class P> class PacketStream {
 
     void clearBuffer();
 
+    void printStats();
+
   private:
     using StreamData = typename P::StreamData;
     friend class PacketBlock<P>;
@@ -257,7 +262,6 @@ template <class P> class PacketStream {
     void releasePacketBlock(PacketBlock<P> &block);
     void releaseReadyPacketBlocks();
     void waitUsedPacketBlocks();
-    void printStat();
 
     UdpRxSocketPtr socket;
     GeneralDataPtr general_data;
@@ -285,26 +289,53 @@ template <class P> class PacketStream {
 };
 
 /**
+ *@short Multi-port frame assembler result
+ */
+
+const int MaxNbPorts = 2;
+
+using PortsMask = std::bitset<MaxNbPorts>;
+
+struct Result {
+    int nb_ports;
+    PortsMask valid_data;
+};
+
+/**
+ *@short Frame assembler interface
+ */
+
+class FrameAssemblerBase {
+
+  public:
+    virtual ~FrameAssemblerBase() {}
+
+    virtual Result assembleFrame(uint64_t frame, RecvHeader *header,
+                                 char *buf) = 0;
+
+    virtual void stop() = 0;
+};
+
+/**
  *@short Default frame assembler in Listener
  */
 
-class EigerStdFrameAssembler;
+namespace Eiger {
+class StdFrameAssembler;
+}
+namespace Jungfrau {
+class StdFrameAssembler;
+}
 
-class DefaultFrameAssemblerBase {
+class DefaultFrameAssemblerBase : public FrameAssemblerBase {
 
   public:
     using Ptr = std::shared_ptr<DefaultFrameAssemblerBase>;
 
     DefaultFrameAssemblerBase(GeneralDataPtr d, bool e4b);
-    virtual ~DefaultFrameAssemblerBase();
 
     GeneralDataPtr getGeneralData();
     bool doExpand4Bits();
-
-    virtual int assembleFrame(uint64_t frame, RecvHeader *header,
-                              char *buf) = 0;
-
-    virtual void stop() = 0;
 
     virtual bool hasPendingPacket() = 0;
     virtual int getImageSize() = 0;
@@ -314,6 +345,8 @@ class DefaultFrameAssemblerBase {
     virtual uint64_t getLastFrameIndex() = 0;
 
     virtual void clearBuffers() = 0;
+
+    virtual void printStreamStats() = 0;
 
     static Ptr create(UdpRxSocketPtr s, GeneralDataPtr d, cpu_set_t cpu_mask,
                       unsigned long node_mask, int max_node, FramePolicy fp,
@@ -332,21 +365,25 @@ class DefaultFrameAssembler : public DefaultFrameAssemblerBase {
                           cpu_set_t cpu_mask, unsigned long node_mask,
                           int max_node, FramePolicy fp, bool e4b);
 
-    virtual int assembleFrame(uint64_t frame, RecvHeader *header, char *buf);
+    Result assembleFrame(uint64_t frame, RecvHeader *header,
+                         char *buf) override;
 
-    virtual void stop();
+    void stop() override;
 
-    virtual bool hasPendingPacket();
-    virtual int getImageSize();
+    bool hasPendingPacket() override;
+    int getImageSize() override;
 
-    virtual int getNumPacketsCaught();
-    virtual uint64_t getNumFramesCaught();
-    virtual uint64_t getLastFrameIndex();
+    int getNumPacketsCaught() override;
+    uint64_t getNumFramesCaught() override;
+    uint64_t getLastFrameIndex() override;
 
-    virtual void clearBuffers();
+    void clearBuffers() override;
+
+    void printStreamStats() override;
 
   protected:
-    friend class EigerStdFrameAssembler;
+    friend class Eiger::StdFrameAssembler;
+    friend class Jungfrau::StdFrameAssembler;
 
     using PacketStreamPtr = std::unique_ptr<PacketStream<P>>;
 
@@ -356,7 +393,6 @@ class DefaultFrameAssembler : public DefaultFrameAssemblerBase {
     FramePolicy frame_policy;
 };
 
-using JungfrauAssembler = DefaultFrameAssembler<JungfrauPacket>;
 using LegacyAssembler = DefaultFrameAssembler<LegacyPacket>;
 using GotthardAssembler = DefaultFrameAssembler<GotthardPacket>;
 
@@ -364,18 +400,14 @@ using GotthardAssembler = DefaultFrameAssembler<GotthardPacket>;
  *@short assembles frame data from 2 udp sockets into memory
  */
 
-class DualPortFrameAssembler {
+class DualPortFrameAssembler : public FrameAssemblerBase {
 
   public:
     using PortsMask = std::bitset<2>;
 
     DualPortFrameAssembler(DefaultFrameAssemblerBase::Ptr a[2]);
-    virtual ~DualPortFrameAssembler();
 
-    virtual void stop();
-
-    virtual PortsMask assembleFrame(uint64_t frame, RecvHeader *header,
-                                    char *buf) = 0;
+    void stop() override;
 
   protected:
     void stopAssemblers();
@@ -383,6 +415,7 @@ class DualPortFrameAssembler {
     DefaultFrameAssemblerBase::Ptr assembler[2];
 };
 
-#include "FrameAssemblerEiger.hxx"
-
 } // namespace FrameAssembler
+
+#include "FrameAssemblerEiger.hxx"
+#include "FrameAssemblerJungfrau.hxx"

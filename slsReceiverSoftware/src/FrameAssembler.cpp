@@ -192,7 +192,6 @@ template <class P> PacketStream<P>::~PacketStream() {
     thread.reset();
     releaseReadyPacketBlocks();
     waitUsedPacketBlocks();
-    printStat();
 }
 
 template <class P> void PacketStream<P>::releaseReadyPacketBlocks() {
@@ -227,7 +226,7 @@ template <class P> void PacketStream<P>::waitUsedPacketBlocks() {
     }
 }
 
-template <class P> void PacketStream<P>::printStat() {
+template <class P> void PacketStream<P>::printStats() {
     std::lock_guard<std::mutex> l(mutex);
     std::ostringstream msg;
     msg << "[" << socket->getPortNumber() << "]: "
@@ -332,23 +331,29 @@ template <class P> class PacketStream<P>::WriterThread {
         return bool(block);
     }
 
-    P getNextPacket() { return (*block)[++curr_packet]; }
+    uint32_t getPacketNumber(uint32_t idx) {
+        return ps.stream_data.getPacketNumber(idx);
+    }
+
+    P getNextPacket() {
+        return (*block)[curr_packet = getPacketNumber(++curr_idx)];
+    }
 
     FramePacketBlock finishPacketBlock() {
-        curr_packet = -1;
+        curr_idx = curr_packet = -1;
         return FramePacketBlock(curr_frame, std::move(block));
     }
 
     void setInvalidPacketsUntil(uint32_t good_packet) {
         // curr_packet validity was already set
-        while (++curr_packet != good_packet)
+        while ((curr_packet = getPacketNumber(++curr_idx)) != good_packet)
             block->setValid(curr_packet, false);
     }
 
     void addPacketDelayStat(P &packet) {
         Clock::time_point t = Clock::now();
         long packet_idx =
-            ((packet.frame() - 1) * frame_packets + packet.number());
+            ((packet.frame() - 1) * frame_packets + packet.index());
         if (packet_idx == 0)
             t0 = t;
         std::lock_guard<std::mutex> l(ps.mutex);
@@ -357,12 +362,13 @@ template <class P> class PacketStream<P>::WriterThread {
     }
 
     bool addPacket(P &packet) {
+        packet.setIndex(curr_idx);
         addPacketDelayStat(packet);
 
         uint64_t packet_frame = packet.frame();
         uint32_t packet_number = packet.number();
         // moveToGood manages both src & dst valid flags
-        if (curr_packet == 0)
+        if (curr_idx == 0)
             curr_frame = packet_frame;
         if (packet_frame != curr_frame) {
             PacketBlockPtr<P> new_block = ps.getEmptyBlock();
@@ -384,7 +390,7 @@ template <class P> class PacketStream<P>::WriterThread {
             block->setValid(curr_packet, true);
         }
 
-        if (curr_packet == (frame_packets - 1))
+        if (curr_idx == (frame_packets - 1))
             ps.addPacketBlock(finishPacketBlock());
         return true;
     }
@@ -430,6 +436,7 @@ template <class P> class PacketStream<P>::WriterThread {
     Clock::time_point t0;
     PacketBlockPtr<P> block;
     uint64_t curr_frame{0};
+    uint32_t curr_idx{uint32_t(-1)};
     uint32_t curr_packet{uint32_t(-1)};
     std::thread thread;
 };
@@ -440,8 +447,6 @@ template <class P> class PacketStream<P>::WriterThread {
 
 DefaultFrameAssemblerBase::DefaultFrameAssemblerBase(GeneralDataPtr d, bool e4b)
     : general_data(d), expand_4bits(e4b) {}
-
-DefaultFrameAssemblerBase::~DefaultFrameAssemblerBase() {}
 
 inline GeneralDataPtr DefaultFrameAssemblerBase::getGeneralData() {
     return general_data;
@@ -511,9 +516,9 @@ void DefaultFrameAssembler<P>::expand4Bits(char *dst, char *src, int src_size) {
 }
 
 template <class P>
-int DefaultFrameAssembler<P>::assembleFrame(uint64_t frame,
-                                            RecvHeader *recv_header,
-                                            char *buf) {
+Result DefaultFrameAssembler<P>::assembleFrame(uint64_t frame,
+                                               RecvHeader *recv_header,
+                                               char *buf) {
     bool header_empty = true;
     int packets_per_frame = general_data->packetsPerFrame;
     DetHeader *det_header = &recv_header->detHeader;
@@ -528,7 +533,7 @@ int DefaultFrameAssembler<P>::assembleFrame(uint64_t frame,
 
     PacketBlockPtr<P> block = packet_stream->getPacketBlock(frame);
     if (!block || (block->getValidPackets() == 0))
-        return -1;
+        return Result{1, 0};
 
     uint32_t prev_adjust = 0;
     for (int i = 0; i < packets_per_frame; ++i) {
@@ -566,7 +571,7 @@ int DefaultFrameAssembler<P>::assembleFrame(uint64_t frame,
         det_header->frameNumber = frame;
     det_header->packetNumber = block->getValidPackets();
 
-    return 0;
+    return Result{1, 1};
 }
 
 template <class P> int DefaultFrameAssembler<P>::getNumPacketsCaught() {
@@ -585,6 +590,10 @@ template <class P> void DefaultFrameAssembler<P>::clearBuffers() {
     packet_stream->clearBuffer();
 }
 
+template <class P> void DefaultFrameAssembler<P>::printStreamStats() {
+    packet_stream->printStats();
+}
+
 DefaultFrameAssemblerBase::Ptr
 DefaultFrameAssemblerBase::create(UdpRxSocketPtr s, GeneralDataPtr d,
                                   cpu_set_t cpu_mask, unsigned long node_mask,
@@ -595,10 +604,10 @@ DefaultFrameAssemblerBase::create(UdpRxSocketPtr s, GeneralDataPtr d,
 
     switch (d->myDetectorType) {
     case slsDetectorDefs::EIGER:
-        a = std::make_shared<EigerAssembler>(args);
+        a = std::make_shared<Eiger::Assembler>(args);
         break;
     case slsDetectorDefs::JUNGFRAU:
-        a = std::make_shared<JungfrauAssembler>(args);
+        a = std::make_shared<Jungfrau::Assembler>(args);
         break;
     case slsDetectorDefs::GOTTHARD:
         a = std::make_shared<GotthardAssembler>(args);
@@ -620,8 +629,6 @@ DualPortFrameAssembler::DualPortFrameAssembler(
     DefaultFrameAssemblerBase::Ptr a[2])
     : assembler{a[0], a[1]} {}
 
-DualPortFrameAssembler::~DualPortFrameAssembler() {}
-
 void DualPortFrameAssembler::stop() { stopAssemblers(); }
 
 void DualPortFrameAssembler::stopAssemblers() {
@@ -629,3 +636,4 @@ void DualPortFrameAssembler::stopAssemblers() {
 }
 
 #include "FrameAssemblerEiger.cxx"
+#include "FrameAssemblerJungfrau.cxx"

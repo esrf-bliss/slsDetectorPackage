@@ -154,7 +154,8 @@ class slsDetectorDefs {
         uint64_t frame;
         sls_receiver_header header;
         char *buffer;
-        std::bitset<MAX_NUM_PORTS> portsMask;
+        int numberOfPorts;
+        std::bitset<MAX_NUM_PORTS> validPortData;
     };
 
     typedef std::vector<cpu_set_t> CPUMaskList;

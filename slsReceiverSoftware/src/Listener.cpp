@@ -155,11 +155,15 @@ void Listener::CreateUDPSockets() {
 
 void Listener::ShutDownUDPSocket() {
     if (udpSocket) {
+        bool was_alive = udpSocketAlive;
         udpSocketAlive = false;
         if (!doUdpRead)
             StopRunning();
-        if (frameAssembler)
+        if (frameAssembler) {
             frameAssembler->stop();
+            if (was_alive)
+                frameAssembler->printStreamStats();
+        }
         udpSocket->Shutdown();
         LOG(logINFO) << "Shut down of UDP port " << *udpPortNumber;
     }
@@ -282,25 +286,41 @@ void Listener::ThreadExecution() {
     }
 }
 
-Listener::DualPortFrameAssemblerPtr
-Listener::CreateDualPortFrameAssembler(Ptr listener[2]) {
-    if (listener[0]->myDetectorType != slsDetectorDefs::EIGER) {
-        LOG(logERROR) << "EigerFrameAssembler supported only on Eiger";
-        return NULL;
-    }
-
-    DefaultFrameAssemblerPtr a[2] = {listener[0]->frameAssembler,
-                                     listener[1]->frameAssembler};
-    DualPortFrameAssemblerPtr fa;
+Listener::FrameAssemblerPtr
+Listener::CreateFrameAssembler(std::vector<Ptr> &listener) {
+    FrameAssemblerPtr fa;
     GeneralData *gd = listener[0]->generalData;
-    if (gd->gapEnable) {
-        using EigerStdFrameAssembler = FrameAssembler::EigerStdFrameAssembler;
-        bool flipped = !*listener[0]->flippedDataX;
-        fa = std::make_shared<EigerStdFrameAssembler>(a, flipped);
-    } else {
-        using EigerRawFrameAssembler = FrameAssembler::EigerRawFrameAssembler;
-        fa = std::make_shared<EigerRawFrameAssembler>(a);
-    }
+    detectorType d = listener[0]->myDetectorType;
+    int nb_ports = listener.size();
+    bool raw = !gd->gapEnable;
+    if (d == slsDetectorDefs::EIGER) {
+        using namespace FrameAssembler::Eiger;
+        if (nb_ports != 2)
+            throw sls::RuntimeError("Eiger: Invalid number of ports: " +
+                                    std::to_string(nb_ports));
+        DefaultFrameAssemblerPtr a[2] = {listener[0]->frameAssembler,
+                                         listener[1]->frameAssembler};
+        if (raw) {
+            fa = std::make_shared<RawFrameAssembler>(a);
+        } else {
+            bool flipped = !*listener[0]->flippedDataX;
+            fa = std::make_shared<StdFrameAssembler>(a, flipped);
+        }
+    } else if (d == slsDetectorDefs::JUNGFRAU) {
+        using namespace FrameAssembler::Jungfrau;
+        if (nb_ports != 1)
+            throw sls::RuntimeError("Jungfrau: Invalid number of ports: " +
+                                    std::to_string(nb_ports));
+        DefaultFrameAssemblerPtr a = listener[0]->frameAssembler;
+        if (raw) {
+            fa = std::make_shared<RawFrameAssembler>(a);
+        } else {
+            fa = std::make_shared<StdFrameAssembler>(a);
+        }
+    } else
+        throw sls::RuntimeError("FrameAssembler not available for " +
+                                sls::ToString(d));
+
     return fa;
 }
 
@@ -319,7 +339,6 @@ void Listener::StopListening(char *buf) {
 /* buf includes the fifo header and packet header */
 int Listener::ListenToAnImage(sls_receiver_header *recv_header, char *buf) {
 
-    int rc = 0;
     uint64_t fnum = 0;
     uint32_t numpackets = 0;
     uint32_t imageSize = generalData->imageSize;
@@ -348,10 +367,11 @@ int Listener::ListenToAnImage(sls_receiver_header *recv_header, char *buf) {
     }
 
     fnum = currentFrameIndex;
-    rc = frameAssembler->assembleFrame(fnum, recv_header, buf);
+    FrameAssembler::Result res;
+    res = frameAssembler->assembleFrame(fnum, recv_header, buf);
     recv_header->detHeader.row = row;
     recv_header->detHeader.column = column;
-    if (rc < 0)
+    if (res.valid_data.none())
         return -1;
 
     // update parameters

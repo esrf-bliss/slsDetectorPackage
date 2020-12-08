@@ -6,39 +6,46 @@
  * include "FrameAssembler.h" instead
  ***********************************************/
 
-struct EigerPacketData : public PacketDataBase {};
+namespace FrameAssembler {
 
-using EigerPacket = StdPacketImpl<EigerPacketData>;
-using EigerAssembler = DefaultFrameAssembler<EigerPacket>;
+namespace Eiger {
+
+struct PacketData : public PacketDataBase {};
+
+using Packet = StdPacketImpl<PacketData>;
+using Assembler = DefaultFrameAssembler<Packet>;
 
 /**
  *@short Eiger frame assembler in raw mode: 2x Default frame assemblers
  */
 
-class EigerRawFrameAssembler : public DualPortFrameAssembler {
+class RawFrameAssembler : public DualPortFrameAssembler {
 
   public:
-    EigerRawFrameAssembler(DefaultFrameAssemblerBase::Ptr a[2]);
+    RawFrameAssembler(DefaultFrameAssemblerBase::Ptr a[2]);
 
-    virtual PortsMask assembleFrame(uint64_t frame, RecvHeader *recv_header,
-                                    char *buf);
+    Result assembleFrame(uint64_t frame, RecvHeader *recv_header,
+                         char *buf) override;
 };
 
 /**
  *@short Eiger frame assembler in std mode: port interleaving
  */
 
-class EigerStdFrameAssembler : public DualPortFrameAssembler {
+class StdFrameAssembler : public DualPortFrameAssembler {
 
   public:
-    EigerStdFrameAssembler(DefaultFrameAssemblerBase::Ptr a[2], bool flipped);
-    ~EigerStdFrameAssembler();
+    StdFrameAssembler(DefaultFrameAssemblerBase::Ptr a[2], bool flipped);
+    ~StdFrameAssembler();
 
-    virtual PortsMask assembleFrame(uint64_t frame, RecvHeader *recv_header,
-                                    char *buf);
+    Result assembleFrame(uint64_t frame, RecvHeader *recv_header,
+                         char *buf) override;
 
     class Helper;
 
   protected:
     Helper *helper;
 };
+
+} // namespace Eiger
+} // namespace FrameAssembler

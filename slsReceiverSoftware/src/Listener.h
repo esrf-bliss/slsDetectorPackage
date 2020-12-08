@@ -21,10 +21,10 @@ class Fifo;
 class Listener : private virtual slsDetectorDefs, public ThreadObject {
 
   public:
+    using FrameAssemblerBase = FrameAssembler::FrameAssemblerBase;
+    using FrameAssemblerPtr = std::shared_ptr<FrameAssemblerBase>;
     using DefaultFrameAssemblerBase = FrameAssembler::DefaultFrameAssemblerBase;
     using DefaultFrameAssemblerPtr = DefaultFrameAssemblerBase::Ptr;
-    using DualPortFrameAssembler = FrameAssembler::DualPortFrameAssembler;
-    using DualPortFrameAssemblerPtr = std::shared_ptr<DualPortFrameAssembler>;
 
     using Ptr = std::shared_ptr<Listener>;
 
@@ -136,11 +136,9 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
     void SetFifoNodeAffinity(unsigned long fifo_node_mask, int max_node);
 
     /**
-     * Create a dual-port frame assembler object listening on 2 Listeners' UDP
-     * ports
+     * Create the top-level frame assembler depending on the detector
      */
-    static DualPortFrameAssemblerPtr
-    CreateDualPortFrameAssembler(Ptr listener[2]);
+    static FrameAssemblerPtr CreateFrameAssembler(std::vector<Ptr> &listener);
 
     /**
      * Clear all buffers
