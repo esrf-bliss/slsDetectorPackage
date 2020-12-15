@@ -2016,12 +2016,8 @@ std::vector<int> Detector::getPortNumbers(int start_port) {
     int num_sockets_per_detector = 1;
     switch (getDetectorType().squash()) {
     case defs::EIGER:
-        num_sockets_per_detector *= 2;
-        break;
     case defs::JUNGFRAU:
-        if (getNumberofUDPInterfaces().squash() == 2) {
-            num_sockets_per_detector *= 2;
-        }
+        num_sockets_per_detector *= getNumberofUDPInterfaces().squash();
         break;
     default:
         break;

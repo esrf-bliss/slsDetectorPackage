@@ -147,7 +147,9 @@ void Implementation::setDetectorType(const detectorType d) {
     default:
         break;
     }
-    numThreads = generalData->threadsPerReceiver;
+    int n = generalData->numUDPInterfaces;
+    numUDPInterfaces = n;
+    numThreads = n;
     fifoDepth = generalData->defaultFifoDepth;
     udpSocketBufferSize = generalData->defaultUdpSocketBufferSize;
     framesPerFile = generalData->maxFramesPerFile;
@@ -190,19 +192,22 @@ void Implementation::setDetectorType(const detectorType d) {
     LOG(logDEBUG) << " Detector type set to " << sls::ToString(d);
 }
 
+Implementation::PortGeometry Implementation::GetPortGeometry() {
+    PortGeometry port_geom{{1, 1}};
+    if (myDetectorType == EIGER)
+        port_geom[X] = numUDPInterfaces;
+    else if (myDetectorType == JUNGFRAU)
+        port_geom[Y] = numUDPInterfaces;
+    return port_geom;
+}
+
 int *Implementation::getDetectorSize() const { return (int *)numDet; }
 
 void Implementation::setDetectorSize(const int *size) {
+    PortGeometry port_geom = GetPortGeometry();
     std::string log_message = "Detector Size (ports): (";
     for (int i = 0; i < MAX_DIMENSIONS; ++i) {
-        // x dir (colums) each udp port
-        if (myDetectorType == EIGER && i == X)
-            numDet[i] = size[i] * 2;
-        // y dir (rows) each udp port
-        else if (numUDPInterfaces == 2 && i == Y)
-            numDet[i] = size[i] * 2;
-        else
-            numDet[i] = size[i];
+        numDet[i] = size[i] * port_geom[i];
         log_message += std::to_string(numDet[i]);
         if (i < MAX_DIMENSIONS - 1)
             log_message += ", ";
@@ -240,9 +245,9 @@ void Implementation::setModulePositionId(const int id) {
     assert(numDet[1] != 0);
     for (unsigned int i = 0; i < listener.size(); ++i) {
         uint16_t row = 0, col = 0;
-        row =
-            (modulePos % numDet[1]) * ((numUDPInterfaces == 2) ? 2 : 1); // row
-        col = (modulePos / numDet[1]) * ((myDetectorType == EIGER) ? 2 : 1) +
+        PortGeometry port_geom = GetPortGeometry();
+        row = (modulePos % numDet[1]) * port_geom[Y]; // row
+        col = (modulePos / numDet[1]) * port_geom[X] +
               i; // col for horiz. udp ports
         listener[i]->SetHardCodedPosition(row, col);
     }
@@ -827,13 +832,7 @@ int Implementation::getNumberofUDPInterfaces() const {
 void Implementation::setNumberofUDPInterfaces(const int n) {
 
     if (numUDPInterfaces != n) {
-
-        // reduce number of detectors in y dir (rows) if it had 2 interfaces
-        // before
-        if (numUDPInterfaces == 2)
-            numDet[Y] /= 2;
-
-        numUDPInterfaces = n;
+        PortGeometry prev_geom = GetPortGeometry();
 
         // clear all threads and fifos
         listener.clear();
@@ -843,10 +842,17 @@ void Implementation::setNumberofUDPInterfaces(const int n) {
 
         // set local variables
         generalData->SetNumberofInterfaces(n);
-        numThreads = generalData->threadsPerReceiver;
-        udpSocketBufferSize = generalData->defaultUdpSocketBufferSize;
+        numUDPInterfaces = n;
+        numThreads = n;
+
+        // update number of detectors in x/y dir (cols/rows) if the
+        // geometry of interfaces (ports) change
+        PortGeometry curr_geom = GetPortGeometry();
+        numDet[X] *= float(curr_geom[X]) / prev_geom[X];
+        numDet[Y] *= float(curr_geom[Y]) / prev_geom[Y];
 
         // fifo
+        udpSocketBufferSize = generalData->defaultUdpSocketBufferSize;
         SetupFifoStructure();
 
         // create threads
@@ -972,7 +978,9 @@ void Implementation::setUDPSocketBufferSize(const int s) {
     // testing default setup at startup, argument is 0 to use default values
     int size = (s == 0) ? udpSocketBufferSize : s;
     size_t listSize = listener.size();
-    if (myDetectorType == JUNGFRAU && (int)listSize != numUDPInterfaces) {
+    bool has_port_geometry =
+        ((myDetectorType == EIGER) || (myDetectorType == JUNGFRAU));
+    if (has_port_geometry && int(listSize) != numUDPInterfaces) {
         throw sls::RuntimeError(
             "Number of Interfaces " + std::to_string(numUDPInterfaces) +
             " do not match listener size " + std::to_string(listSize));

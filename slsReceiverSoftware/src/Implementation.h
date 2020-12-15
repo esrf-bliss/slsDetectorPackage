@@ -256,6 +256,11 @@ class Implementation : private virtual slsDetectorDefs {
                                             void *arg);
 
   private:
+    struct PortGeometry {
+        int g[MAX_DIMENSIONS];
+        int &operator[](int i) { return g[i]; }
+    };
+
     void SetLocalNetworkParameters();
     void SetThreadPriorities();
     void SetupFifoStructure();
@@ -264,6 +269,8 @@ class Implementation : private virtual slsDetectorDefs {
     void CreateUDPSockets();
     void SetupWriter();
     void StartRunning();
+
+    PortGeometry GetPortGeometry();
 
     /**************************************************
      *                                                *

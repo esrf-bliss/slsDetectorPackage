@@ -4801,19 +4801,20 @@ void calculate_and_set_position() {
         LOG(logERROR, (mess));
         return;
     }
-    int maxy = maxydet;
-    // position does not change for gotthard2 (2 interfaces)
-#ifdef JUNGFRAUD
-    maxy *= getNumberofUDPInterfaces();
+    // position does change for eiger and jungfrau (2 interfaces)
+    int num_interfaces = getNumberofUDPInterfaces();
+    int module_ports[2] = {1, 1};
+#if defined(EIGERD)
+    module_ports[1] = num_interfaces; // horz
+#elif defined(JUNGFRAUD)
+    module_ports[0] = num_interfaces; // vert
 #endif
-    int pos[2] = {0, 0};
+    int maxy = maxydet * module_ports[0];
+    int pos[2];
     // row
     pos[0] = (detectorId % maxy);
     // col for horiz. udp ports
-    pos[1] = (detectorId / maxy);
-#ifdef EIGERD
-    pos[1] *= 2;
-#endif
+    pos[1] = (detectorId / maxy) * module_ports[1];
     LOG(logDEBUG, ("Setting Positions (%d,%d)\n", pos[0], pos[1]));
     if (setDetectorPosition(pos) == FAIL) {
         ret = FAIL;
@@ -5360,7 +5361,16 @@ int set_num_interfaces(int file_des) {
         return printSocketReadError();
     LOG(logINFO, ("Setting number of interfaces: %d\n", arg));
 
-#if !defined(JUNGFRAUD) && !defined(GOTTHARD2D)
+#if defined(EIGERD)
+    int num_interfaces = getNumberofUDPInterfaces();
+    if (arg != num_interfaces) {
+	ret = FAIL;
+	sprintf(mess,
+		"Invalid Eiger number of interfaces: %d. Must be %d\n",
+		arg, num_interfaces);
+	LOG(logERROR, (mess));
+    }
+#elif !defined(JUNGFRAUD) && !defined(GOTTHARD2D)
     functionNotImplemented();
 #else
     // only set
@@ -5388,7 +5398,7 @@ int get_num_interfaces(int file_des) {
     int retval = -1;
     LOG(logDEBUG1, ("Getting number of udp interfaces\n"));
 
-#if !defined(JUNGFRAUD) && !defined(GOTTHARD2D)
+#if !defined(EIGERD) && !defined(JUNGFRAUD) && !defined(GOTTHARD2D)
     retval = 1;
 #else
     // get only
@@ -6924,7 +6934,7 @@ int get_receiver_parameters(int file_des) {
 
     // sending real detector parameters
     // udp interfaces
-#if defined(JUNGFRAUD) || defined(GOTTHARD2D)
+#if defined(EIGERD) || defined(JUNGFRAUD) || defined(GOTTHARD2D)
     i32 = getNumberofUDPInterfaces();
 #else
     i32 = 1;

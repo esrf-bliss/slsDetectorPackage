@@ -2752,10 +2752,9 @@ void Module::initializeDetectorStructure(detectorType type) {
     sls::strcpy_safe(shm()->rxHostname, "none");
     shm()->rxTCPPort = DEFAULT_PORTNO + 2;
     shm()->useReceiverFlag = false;
-    shm()->zmqport = DEFAULT_ZMQ_CL_PORTNO +
-                     (moduleId * ((shm()->myDetectorType == EIGER) ? 2 : 1));
+    shm()->numUDPInterfaces = (type == EIGER) ? 2 : 1;
+    shm()->zmqport = DEFAULT_ZMQ_CL_PORTNO + moduleId * shm()->numUDPInterfaces;
     shm()->zmqip = IpAddr{};
-    shm()->numUDPInterfaces = 1;
     shm()->stoppedFlag = false;
 
     // get the detector parameters based on type

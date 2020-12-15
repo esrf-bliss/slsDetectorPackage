@@ -36,7 +36,7 @@ class GeneralData {
     /** Header size of data saved into fifo buffer at a time*/
     uint32_t fifoBufferHeaderSize{0};
     uint32_t defaultFifoDepth{0};
-    uint32_t threadsPerReceiver{1};
+    uint32_t numUDPInterfaces{1};
     uint32_t headerPacketSize{0};
     /** Streaming (for ROI - mainly short Gotthard)  */
     uint32_t nPixelsXComplete{0};
@@ -327,7 +327,7 @@ class EigerData : public GeneralData {
     /** Constructor */
     EigerData() {
         myDetectorType = slsDetectorDefs::EIGER;
-        threadsPerReceiver = 2;
+        numUDPInterfaces = 2;
         headerSizeinPacket = sizeof(slsDetectorDefs::sls_detector_header);
         maxFramesPerFile = EIGER_MAX_FRAMES_PER_FILE;
         fifoBufferHeaderSize =
@@ -361,7 +361,7 @@ class EigerData : public GeneralData {
      * Update member variables affecting image size
      */
     void UpdateImageSize() {
-        nPixelsX = (256 * 4) / threadsPerReceiver;
+        nPixelsX = (256 * 4) / numUDPInterfaces;
         nPixelsY = 256;
         dataSize = (tgEnable ? 4096 : 1024);
         packetSize = headerSizeinPacket + dataSize;
@@ -393,7 +393,7 @@ class JungfrauData : public GeneralData {
      * @param n number of interfaces: 1 or 2
      */
     void SetNumberofInterfaces(const int n) {
-        threadsPerReceiver = n;
+        numUDPInterfaces = n;
         UpdateImageSize();
     };
 
@@ -403,10 +403,10 @@ class JungfrauData : public GeneralData {
      */
     void UpdateImageSize() {
         nPixelsX = (256 * 4);
-        nPixelsY = (256 * 2) / threadsPerReceiver;
+        nPixelsY = (256 * 2) / numUDPInterfaces;
         imageSize = int(nPixelsX * nPixelsY * GetPixelDepth());
         packetsPerFrame = image_size / dataSize;
-        defaultUdpSocketBufferSize = (1000 * 1024 * 1024) / threadsPerReceiver;
+        defaultUdpSocketBufferSize = (1000 * 1024 * 1024) / numUDPInterfaces;
     };
 };
 
@@ -519,19 +519,12 @@ class Gotthard2Data : public GeneralData {
     };
 
     /**
-     * set number of interfaces
+     * set number of interfaces:
+     *   1 interface (data only)
+     *   2 interfaces (+veto)
      * @param n number of interfaces
      */
-    void SetNumberofInterfaces(const int n) {
-        // 2 interfaces (+veto)
-        if (n == 2) {
-            threadsPerReceiver = 2;
-        }
-        // 1 interface (data only)
-        else {
-            threadsPerReceiver = 1;
-        }
-    };
+    void SetNumberofInterfaces(const int n) { numUDPInterfaces = n; };
 
     /**
      * Get Header Infomation (frame number, packet number) for veto packets

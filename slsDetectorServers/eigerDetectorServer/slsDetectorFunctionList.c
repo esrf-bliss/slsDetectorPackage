@@ -1537,6 +1537,10 @@ int configureMAC() {
     return OK;
 }
 
+int getNumberofUDPInterfaces() {
+    return 2;
+}
+
 int setDetectorPosition(int pos[]) {
 #ifdef VIRTUAL
     memcpy(eiger_virtual_detPos, pos, sizeof(eiger_virtual_detPos));
