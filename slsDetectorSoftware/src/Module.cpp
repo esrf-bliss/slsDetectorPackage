@@ -524,7 +524,9 @@ int Module::getNumberofUDPInterfacesFromShm() const {
 }
 
 int Module::getNumberofUDPInterfaces() const {
-    shm()->numUDPInterfaces = sendToDetector<int>(F_GET_NUM_INTERFACES);
+    int udp_interfaces = sendToDetector<int>(F_GET_NUM_INTERFACES);
+    bool is_eiger = (shm()->myDetectorType == EIGER);
+    shm()->numUDPInterfaces = is_eiger ? 2 : udp_interfaces;
     return shm()->numUDPInterfaces;
 }
 
