@@ -270,7 +270,10 @@ class Implementation : private virtual slsDetectorDefs {
     void clearAllBuffers();
 
   private:
-    using DualPortFrameAssembler = FrameAssembler::DualPortFrameAssembler;
+    struct PortGeometry {
+        int g[MAX_DIMENSIONS];
+        int &operator[](int i) { return g[i]; }
+    };
 
     struct ListenerStatistics {
         uint64_t packets_missing;
@@ -279,6 +282,9 @@ class Implementation : private virtual slsDetectorDefs {
         uint64_t last_frame;
         void reset();
     };
+
+    using FrameAssemblerBase = FrameAssembler::FrameAssemblerBase;
+    using DualPortFrameAssembler = FrameAssembler::DualPortFrameAssembler;
 
     void SetLocalNetworkParameters();
     void SetThreadPriorities();
@@ -289,6 +295,8 @@ class Implementation : private virtual slsDetectorDefs {
     void CreateUDPSockets();
     void SetupWriter();
     void StartRunning();
+
+    PortGeometry GetPortGeometry();
 
     /**************************************************
      *                                                *
@@ -405,7 +413,7 @@ class Implementation : private virtual slsDetectorDefs {
 
     /** Frame memory assembler in passive mode */
     bool passiveMode;
-    std::shared_ptr<DualPortFrameAssembler> frameAssembler;
+    std::shared_ptr<FrameAssemblerBase> frameAssembler;
     std::mutex frameAssemblerBusyMutex;
     std::condition_variable frameAssemblerBusyCond;
     int frameAssemblerBusyCount{0};

@@ -36,7 +36,7 @@ class GeneralData {
     /** Header size of data saved into fifo buffer at a time*/
     uint32_t fifoBufferHeaderSize{0};
     uint32_t defaultFifoDepth{0};
-    uint32_t threadsPerReceiver{1};
+    uint32_t numUDPInterfaces{1};
     uint32_t headerPacketSize{0};
     /** Streaming (for ROI - mainly short Gotthard)  */
     uint32_t nPixelsXComplete{0};
@@ -52,7 +52,7 @@ class GeneralData {
     uint32_t vetoImageSize{0};
     uint32_t vetoHsize{0};
     /** dynamic range */
-    uint32_t dynamicRange{0};
+    uint32_t dynamicRange{16};
     /** 10 Gigabit enable */
     bool tgEnable{false};
     /** gap pixels enable */
@@ -60,6 +60,8 @@ class GeneralData {
 
     GeneralData(){};
     virtual ~GeneralData(){};
+
+    float GetPixelDepth() { return float(dynamicRange) / 8; }
 
     /**
      * Get Header Infomation (frame number, packet number)
@@ -113,9 +115,9 @@ class GeneralData {
 
     /**
      * Setting ten giga enable changes member variables
-     * @param tgEnable true if 10GbE is enabled, else false
+     * @param tg true if 10GbE is enabled, else false
      */
-    virtual void SetTenGigaEnable(bool tgEnable) {
+    virtual void SetTenGigaEnable(bool tg) {
         LOG(logERROR) << "SetTenGigaEnable is a generic function that should "
                          "be overloaded by a derived class";
     };
@@ -169,10 +171,8 @@ class GeneralData {
     /**
      * set number of counters (mythen3)
      * @param n number of counters
-     * @param dr dynamic range
-     * @param tgEnable ten giga enable
      */
-    virtual void SetNumberofCounters(const int n, const int dr, bool tgEnable) {
+    virtual void SetNumberofCounters(const int n) {
         LOG(logERROR) << "SetNumberofCounters is a generic function that "
                          "should be overloaded by a derived class";
     }
@@ -338,13 +338,11 @@ class EigerData : public GeneralData {
     /** Constructor */
     EigerData() {
         myDetectorType = slsDetectorDefs::EIGER;
+        numUDPInterfaces = 2;
         headerSizeinPacket = sizeof(slsDetectorDefs::sls_detector_header);
-        dynamicRange = 16;
         maxFramesPerFile = EIGER_MAX_FRAMES_PER_FILE;
         fifoBufferHeaderSize =
             FIFO_HEADER_NUMBYTES + sizeof(slsDetectorDefs::sls_receiver_header);
-        defaultFifoDepth = 1000;
-        threadsPerReceiver = 2;
         headerPacketSize = 40;
         standardheader = true;
         UpdateImageSize();
@@ -353,17 +351,15 @@ class EigerData : public GeneralData {
     /**
      * Setting dynamic range changes member variables
      * @param dr dynamic range
-     * @param tgEnable true if 10GbE is enabled, else false
      */
     void SetDynamicRange(int dr) {
         dynamicRange = dr;
-        defaultFifoDepth = (dr == 32 ? 100 : 1000);
         UpdateImageSize();
     };
 
     /**
      * Setting ten giga enable changes member variables
-     * @param tgEnable true if 10GbE is enabled, else false
+     * @param tg true if 10GbE is enabled, else false
      * @param dr dynamic range
      */
     void SetTenGigaEnable(bool tg) {
@@ -385,18 +381,19 @@ class EigerData : public GeneralData {
      * Update member variables affecting image size
      */
     void UpdateImageSize() {
-        nPixelsX = 256 * 2;
+        nPixelsX = (256 * 4) / numUDPInterfaces;
         nPixelsY = 256;
-        packetsPerFrame = (tgEnable ? 4 : 16) * dynamicRange;
         dataSize = (tgEnable ? 4096 : 1024);
         packetSize = headerSizeinPacket + dataSize;
+        int raw_image_size = int(nPixelsX * nPixelsY * GetPixelDepth());
+        packetsPerFrame = raw_image_size / dataSize;
         if (gapEnable) {
             nPixelsX += 3;
             nPixelsY += 1;
         }
-        float bytes_per_pixel = float(dynamicRange) / 8;
-        imageSize = nPixelsX * nPixelsY * bytes_per_pixel;
-    }
+        imageSize = int(nPixelsX * nPixelsY * GetPixelDepth());
+        defaultFifoDepth = (dynamicRange == 32 ? 100 : 1000);
+    };
 };
 
 class JungfrauData : public GeneralData {
@@ -405,43 +402,49 @@ class JungfrauData : public GeneralData {
     /** Constructor */
     JungfrauData() {
         myDetectorType = slsDetectorDefs::JUNGFRAU;
-        nPixelsX = (256 * 4);
-        nPixelsY = 512;
         headerSizeinPacket = sizeof(slsDetectorDefs::sls_detector_header);
         dataSize = 8192;
         packetSize = headerSizeinPacket + dataSize;
-        packetsPerFrame = 128;
-        imageSize = dataSize * packetsPerFrame;
         maxFramesPerFile = JFRAU_MAX_FRAMES_PER_FILE;
         fifoBufferHeaderSize =
             FIFO_HEADER_NUMBYTES + sizeof(slsDetectorDefs::sls_receiver_header);
         defaultFifoDepth = 2500;
         standardheader = true;
-        defaultUdpSocketBufferSize = (1000 * 1024 * 1024);
+        UpdateImageSize();
     };
 
     /**
      * set number of interfaces (jungfrau)
-     * @param n number of interfaces
+     * @param n number of interfaces: 1 or 2
      */
     void SetNumberofInterfaces(const int n) {
-        // 2 interfaces
-        if (n == 2) {
-            nPixelsY = 256;
-            packetsPerFrame = 64;
-            imageSize = dataSize * packetsPerFrame;
-            threadsPerReceiver = 2;
-            defaultUdpSocketBufferSize = (500 * 1024 * 1024);
+        numUDPInterfaces = n;
+        UpdateImageSize();
+    };
 
+    /**
+     * Enable Gap Pixels changes member variables
+     * @param g enable true if gap pixels enable, else false
+     */
+    void SetGapPixelsEnable(bool g) {
+        gapEnable = g;
+        UpdateImageSize();
+    };
+
+  private:
+    /**
+     * Update member variables affecting image size
+     */
+    void UpdateImageSize() {
+        nPixelsX = (256 * 4);
+        nPixelsY = (256 * 2) / numUDPInterfaces;
+        int raw_image_size = int(nPixelsX * nPixelsY * GetPixelDepth());
+        packetsPerFrame = raw_image_size / dataSize;
+        if (gapEnable) {
+            nPixelsX += 2 * 3;
+            nPixelsY += 2 / numUDPInterfaces;
         }
-        // 1 interface
-        else {
-            nPixelsY = 512;
-            packetsPerFrame = 128;
-            imageSize = dataSize * packetsPerFrame;
-            threadsPerReceiver = 1;
-            defaultUdpSocketBufferSize = (1000 * 1024 * 1024);
-        }
+        imageSize = int(nPixelsX * nPixelsY * GetPixelDepth());
     };
 };
 
@@ -455,35 +458,57 @@ class Mythen3Data : public GeneralData {
     Mythen3Data() {
         myDetectorType = slsDetectorDefs::MYTHEN3;
         ncounters = 3;
-        nPixelsX = (NCHAN * ncounters); // max 1280 channels x 3 counters
         nPixelsY = 1;
         headerSizeinPacket = sizeof(slsDetectorDefs::sls_detector_header);
-        dataSize = 7680;
-        packetSize = headerSizeinPacket + dataSize;
-        packetsPerFrame = 2;
-        imageSize = dataSize * packetsPerFrame;
+        dynamicRange = 32;
+        tgEnable = true;
         maxFramesPerFile = MYTHEN3_MAX_FRAMES_PER_FILE;
         fifoBufferHeaderSize =
             FIFO_HEADER_NUMBYTES + sizeof(slsDetectorDefs::sls_receiver_header);
         defaultFifoDepth = 50000;
         standardheader = true;
-        defaultUdpSocketBufferSize = (1000 * 1024 * 1024);
+        UpdateImageSize();
+    };
+
+    /**
+     * Setting dynamic range changes member variables
+     * @param dr dynamic range
+     */
+    void SetDynamicRange(int dr) {
+        dynamicRange = dr;
+        UpdateImageSize();
+    };
+
+    /**
+     * Setting ten giga enable changes member variables
+     * @param tg true if 10GbE is enabled, else false
+     * @param dr dynamic range
+     */
+    void SetTenGigaEnable(bool tg) {
+        tgEnable = tg;
+        UpdateImageSize();
     };
 
     /**
      * set number of counters (mythen3)
      * @param n number of counters
-     * @param dr dynamic range
-     * @param tgEnable ten giga enable
      */
-    virtual void SetNumberofCounters(const int n, const int dr, bool tgEnable) {
+    virtual void SetNumberofCounters(const int n) {
         ncounters = n;
-        nPixelsX = NCHAN * ncounters;
+        UpdateImageSize();
+    };
+
+  private:
+    /**
+     * Update member variables affecting image size
+     */
+    void UpdateImageSize() {
+        nPixelsX = (NCHAN * ncounters); // max 1280 channels x 3 counters
         LOG(logINFO) << "nPixelsX: " << nPixelsX;
-        imageSize = nPixelsX * nPixelsY * ((double)dr / 8.00);
+        imageSize = nPixelsX * nPixelsY * GetPixelDepth();
         // 10g
         if (tgEnable) {
-            if (dr == 32 && n > 1) {
+            if (dynamicRange == 32 && ncounters > 1) {
                 packetsPerFrame = 2;
             } else {
                 packetsPerFrame = 1;
@@ -492,7 +517,7 @@ class Mythen3Data : public GeneralData {
         }
         // 1g
         else {
-            if (n == 3) {
+            if (ncounters == 3) {
                 dataSize = 768;
             } else {
                 dataSize = 1280;
@@ -523,7 +548,6 @@ class Gotthard2Data : public GeneralData {
             FIFO_HEADER_NUMBYTES + sizeof(slsDetectorDefs::sls_receiver_header);
         defaultFifoDepth = 50000;
         standardheader = true;
-        defaultUdpSocketBufferSize = (1000 * 1024 * 1024);
         vetoDataSize = 160;
         vetoImageSize = vetoDataSize * packetsPerFrame;
         vetoHsize = 16;
@@ -531,19 +555,12 @@ class Gotthard2Data : public GeneralData {
     };
 
     /**
-     * set number of interfaces
+     * set number of interfaces:
+     *   1 interface (data only)
+     *   2 interfaces (+veto)
      * @param n number of interfaces
      */
-    void SetNumberofInterfaces(const int n) {
-        // 2 interfaces (+veto)
-        if (n == 2) {
-            threadsPerReceiver = 2;
-        }
-        // 1 interface (data only)
-        else {
-            threadsPerReceiver = 1;
-        }
-    };
+    void SetNumberofInterfaces(const int n) { numUDPInterfaces = n; };
 
     /**
      * Get Header Infomation (frame number, packet number) for veto packets

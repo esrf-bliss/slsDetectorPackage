@@ -397,16 +397,10 @@ int DetectorImpl::createReceivingDataSockets() {
 
     size_t numSockets = detectors.size();
     size_t numSocketsPerDetector = 1;
-    if (multi_shm()->multiDetectorType == EIGER) {
-        numSocketsPerDetector = 2;
-    }
     // gotthard2 second interface is only for veto debugging
-    else if (multi_shm()->multiDetectorType != GOTTHARD2) {
-        if (Parallel(&Module::getNumberofUDPInterfacesFromShm, {}).squash() ==
-            2) {
-            numSocketsPerDetector = 2;
-        }
-    }
+    if (multi_shm()->multiDetectorType != GOTTHARD2)
+        numSocketsPerDetector =
+            Parallel(&Module::getNumberofUDPInterfacesFromShm, {}).squash();
     numSockets *= numSocketsPerDetector;
 
     for (size_t iSocket = 0; iSocket < numSockets; ++iSocket) {
@@ -454,12 +448,14 @@ void DetectorImpl::readFrameFromReceiver() {
     int nDetPixelsY = 0;
     bool quadEnable = false;
     bool eiger = false;
-    bool numInterfaces = 1;
-    // gotthard2 second interface is veto debugging
-    if (multi_shm()->multiDetectorType != GOTTHARD2) {
-        numInterfaces = Parallel(&Module::getNumberofUDPInterfacesFromShm, {})
-                            .squash(); // cannot pick up from zmq
-    }
+    int module_ports[2] = {1, 1};
+    int numInterfaces;
+    numInterfaces = Parallel(&Module::getNumberofUDPInterfacesFromShm, {})
+                        .squash(); // cannot pick up from zmq
+    if (multi_shm()->multiDetectorType == EIGER)
+        module_ports[1] = numInterfaces; // horz
+    else if (multi_shm()->multiDetectorType == JUNGFRAU)
+        module_ports[0] = numInterfaces; // vert
     std::vector<bool> runningList(zmqSocket.size());
     std::vector<bool> connectList(zmqSocket.size());
     numZmqRunning = 0;
@@ -537,9 +533,8 @@ void DetectorImpl::readFrameFromReceiver() {
                         nPixelsX = zHeader.npixelsx;
                         nPixelsY = zHeader.npixelsy;
                         // detector shape
-                        nX = zHeader.ndetx;
-                        nY = zHeader.ndety;
-                        nY *= numInterfaces;
+                        nX = zHeader.ndetx * module_ports[1];
+                        nY = zHeader.ndety * module_ports[0];
                         nDetPixelsX = nX * nPixelsX;
                         nDetPixelsY = nY * nPixelsY;
                         // det type
