@@ -48,10 +48,13 @@ typedef GeneralData *GeneralDataPtr;
 struct PacketDataBase {
     // An instance of <derived>::StreamData is included in the PacketStream
     struct StreamData {
-        StreamData(GeneralDataPtr /*d*/) {}
+        StreamData(GeneralDataPtr /*d*/, int idx = 0) : stream_idx(idx) {}
 
         // Describes the sequence of the packets in the stream
         uint32_t getPacketNumber(uint32_t packet_idx) { return packet_idx; }
+
+        // Index of stream in receiver
+        int stream_idx;
     };
 
     // An instance of <derived>::SoftHeader prepends each network packet
@@ -122,7 +125,8 @@ struct LegacyPacketData : public PacketDataBase {
     struct StreamData : public PacketDataBase::StreamData {
         GeneralDataPtr gd;
         bool odd_numbering{true};
-        StreamData(GeneralDataPtr d) : PacketDataBase::StreamData(d), gd(d) {}
+        StreamData(GeneralDataPtr d, int idx)
+            : PacketDataBase::StreamData(d, idx), gd(d) {}
     };
 
     struct SoftHeader : public PacketDataBase::SoftHeader {
@@ -165,7 +169,8 @@ using LegacyPacket = LegacyPacketImpl<LegacyPacketData>;
 struct GotthardPacketData : public LegacyPacketData {
     struct StreamData : public LegacyPacketData::StreamData {
         bool first_packet{true};
-        StreamData(GeneralDataPtr d) : LegacyPacketData::StreamData(d) {}
+        StreamData(GeneralDataPtr d, int idx)
+            : LegacyPacketData::StreamData(d, idx) {}
     };
 };
 
@@ -225,7 +230,7 @@ template <class P> using PacketBlockPtr = std::unique_ptr<PacketBlock<P>>;
 template <class P> class PacketStream {
 
   public:
-    PacketStream(UdpRxSocketPtr s, GeneralDataPtr d, FramePolicy fp,
+    PacketStream(UdpRxSocketPtr s, GeneralDataPtr d, FramePolicy fp, int idx,
                  cpu_set_t cpu_mask, unsigned long node_mask, int max_node);
     ~PacketStream();
 
@@ -233,6 +238,7 @@ template <class P> class PacketStream {
 
     bool hasPendingPacket();
     void stop();
+    bool wasStopped();
 
     int getNumPacketsCaught();
     uint64_t getNumFramesCaught();
@@ -324,7 +330,7 @@ namespace Eiger {
 class StdFrameAssembler;
 }
 namespace Jungfrau {
-class StdFrameAssembler;
+template <int NbUDPIfaces> class StdFrameAssembler;
 }
 
 class DefaultFrameAssemblerBase : public FrameAssemblerBase {
@@ -348,9 +354,9 @@ class DefaultFrameAssemblerBase : public FrameAssemblerBase {
 
     virtual void printStreamStats() = 0;
 
-    static Ptr create(UdpRxSocketPtr s, GeneralDataPtr d, cpu_set_t cpu_mask,
-                      unsigned long node_mask, int max_node, FramePolicy fp,
-                      bool e4b);
+    static Ptr create(UdpRxSocketPtr s, GeneralDataPtr d, int idx,
+                      cpu_set_t cpu_mask, unsigned long node_mask, int max_node,
+                      FramePolicy fp, bool e4b);
 
   protected:
     GeneralDataPtr general_data;
@@ -361,7 +367,7 @@ template <class P>
 class DefaultFrameAssembler : public DefaultFrameAssemblerBase {
 
   public:
-    DefaultFrameAssembler(UdpRxSocketPtr s, GeneralDataPtr d,
+    DefaultFrameAssembler(UdpRxSocketPtr s, GeneralDataPtr d, int idx,
                           cpu_set_t cpu_mask, unsigned long node_mask,
                           int max_node, FramePolicy fp, bool e4b);
 
@@ -383,7 +389,7 @@ class DefaultFrameAssembler : public DefaultFrameAssemblerBase {
 
   protected:
     friend class Eiger::StdFrameAssembler;
-    friend class Jungfrau::StdFrameAssembler;
+    template <int NbUDPIfaces> friend class Jungfrau::StdFrameAssembler;
 
     using PacketStreamPtr = std::unique_ptr<PacketStream<P>>;
 

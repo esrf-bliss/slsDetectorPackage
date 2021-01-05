@@ -978,6 +978,8 @@ void Implementation::setNumberofUDPInterfaces(const int n) {
             }
         }
 
+        listenerStatistics.resize(numThreads);
+
         SetThreadPriorities();
 
         // update (from 1 to 2 interface) & also for printout

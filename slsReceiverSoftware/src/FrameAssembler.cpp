@@ -178,10 +178,10 @@ template <class P> bool PacketStream<P>::hasPendingPacket() {
 
 template <class P>
 PacketStream<P>::PacketStream(UdpRxSocketPtr s, GeneralDataPtr d,
-                              FramePolicy fp, cpu_set_t cpu_mask,
+                              FramePolicy fp, int idx, cpu_set_t cpu_mask,
                               unsigned long node_mask, int max_node)
     : socket(s), general_data(d), frame_policy(fp), num_frames(MaxBufferFrames),
-      stream_data(general_data), cpu_aff_mask(cpu_mask) {
+      stream_data(general_data, idx), cpu_aff_mask(cpu_mask) {
     P::checkConsistency(general_data);
     initMem(node_mask, max_node);
     thread = std::make_unique<WriterThread>(*this);
@@ -244,6 +244,11 @@ template <class P> void PacketStream<P>::stop() {
         std::lock_guard<std::mutex> l(free_mutex);
         free_cond.notify_one();
     }
+}
+
+template <class P> bool PacketStream<P>::wasStopped() {
+    std::lock_guard<std::mutex> l(free_mutex);
+    return stopped;
 }
 
 template <class P> void PacketStream<P>::clearBuffer() {
@@ -335,9 +340,12 @@ template <class P> class PacketStream<P>::WriterThread {
         return ps.stream_data.getPacketNumber(idx);
     }
 
-    P getNextPacket() {
-        return (*block)[curr_packet = getPacketNumber(++curr_idx)];
+    std::pair<uint32_t, uint32_t> incPacketCounters() {
+        curr_packet = getPacketNumber(++curr_idx);
+        return {curr_idx, curr_packet};
     }
+
+    P getNextPacket() { return (*block)[incPacketCounters().second]; }
 
     FramePacketBlock finishPacketBlock() {
         curr_idx = curr_packet = -1;
@@ -346,7 +354,13 @@ template <class P> class PacketStream<P>::WriterThread {
 
     void setInvalidPacketsUntil(uint32_t good_packet) {
         // curr_packet validity was already set
-        while ((curr_packet = getPacketNumber(++curr_idx)) != good_packet)
+        while (incPacketCounters().second != good_packet)
+            block->setValid(curr_packet, false);
+    }
+
+    void setInvalidRemainingPackets() {
+        // curr_packet validity was already set
+        while (incPacketCounters().first != frame_packets)
             block->setValid(curr_packet, false);
     }
 
@@ -367,16 +381,28 @@ template <class P> class PacketStream<P>::WriterThread {
 
         uint64_t packet_frame = packet.frame();
         uint32_t packet_number = packet.number();
+
+        auto trace_unexpected = [&](auto msg) {
+            std::cout << "*** [" << ps.socket->getPortNumber()
+                      << "] unexpected " << msg << ": "
+                      << "packet_frame=" << packet_frame << ", "
+                      << "packet_number=" << packet_number << ", "
+                      << "curr_frame=" << curr_frame << ", "
+                      << "curr_packet=" << curr_packet << ", "
+                      << "curr_idx=" << curr_idx << std::endl;
+        };
+
         // moveToGood manages both src & dst valid flags
         if (curr_idx == 0)
             curr_frame = packet_frame;
         if (packet_frame != curr_frame) {
+            trace_unexpected("new frame");
             PacketBlockPtr<P> new_block = ps.getEmptyBlock();
             if (new_block)
                 new_block->moveToGood(packet);
             else
                 block->setValid(curr_packet, false);
-            setInvalidPacketsUntil(frame_packets);
+            setInvalidRemainingPackets();
             ps.addPacketBlock(finishPacketBlock());
             if (!new_block)
                 return false;
@@ -384,6 +410,7 @@ template <class P> class PacketStream<P>::WriterThread {
             curr_frame = packet_frame;
             setInvalidPacketsUntil(packet_number);
         } else if (packet_number != curr_packet) {
+            trace_unexpected("bad frame");
             block->moveToGood(packet);
             setInvalidPacketsUntil(packet_number);
         } else {
@@ -402,7 +429,7 @@ template <class P> class PacketStream<P>::WriterThread {
         P packet = getNextPacket();
         char *b = packet.networkBuffer();
         int ret = ps.socket->ReceiveDataOnly(b);
-        if (ret < 0)
+        if ((ret < 0) || ((packet.frame() == 0) && ps.wasStopped()))
             return false;
 
         packet.initSoftHeader();
@@ -462,10 +489,10 @@ inline bool DefaultFrameAssemblerBase::doExpand4Bits() {
 
 template <class P>
 DefaultFrameAssembler<P>::DefaultFrameAssembler(
-    UdpRxSocketPtr s, GeneralDataPtr d, cpu_set_t cpu_mask,
+    UdpRxSocketPtr s, GeneralDataPtr d, int idx, cpu_set_t cpu_mask,
     unsigned long node_mask, int max_node, FramePolicy fp, bool e4b)
     : DefaultFrameAssemblerBase(d, e4b),
-      packet_stream(std::make_unique<PacketStream<P>>(s, d, fp, cpu_mask,
+      packet_stream(std::make_unique<PacketStream<P>>(s, d, fp, idx, cpu_mask,
                                                       node_mask, max_node)),
       frame_policy(fp) {}
 
@@ -595,19 +622,22 @@ template <class P> void DefaultFrameAssembler<P>::printStreamStats() {
 }
 
 DefaultFrameAssemblerBase::Ptr
-DefaultFrameAssemblerBase::create(UdpRxSocketPtr s, GeneralDataPtr d,
+DefaultFrameAssemblerBase::create(UdpRxSocketPtr s, GeneralDataPtr d, int idx,
                                   cpu_set_t cpu_mask, unsigned long node_mask,
                                   int max_node, FramePolicy fp, bool e4b) {
     DefaultFrameAssemblerBase::Ptr a;
 
-#define args s, d, cpu_mask, node_mask, max_node, fp, e4b
+#define args s, d, idx, cpu_mask, node_mask, max_node, fp, e4b
 
     switch (d->myDetectorType) {
     case slsDetectorDefs::EIGER:
         a = std::make_shared<Eiger::Assembler>(args);
         break;
     case slsDetectorDefs::JUNGFRAU:
-        a = std::make_shared<Jungfrau::Assembler>(args);
+        if (d->numUDPInterfaces == 1)
+            a = std::make_shared<Jungfrau::Assembler<1>>(args);
+        else
+            a = std::make_shared<Jungfrau::Assembler<2>>(args);
         break;
     case slsDetectorDefs::GOTTHARD:
         a = std::make_shared<GotthardAssembler>(args);

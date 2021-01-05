@@ -9,25 +9,28 @@
 namespace FrameAssembler {
 namespace Jungfrau {
 
-struct PacketData : PacketDataBase {
+template <int NbUDPIfaces> struct PacketData : PacketDataBase {
     struct StreamData : PacketDataBase::StreamData {
-        StreamData(GeneralDataPtr d) : PacketDataBase::StreamData(d) {}
+        StreamData(GeneralDataPtr d, int idx)
+            : PacketDataBase::StreamData(d, idx) {}
 
         uint32_t getPacketNumber(uint32_t packet_idx);
     };
 };
 
-using Packet = StdPacketImpl<PacketData>;
-using Assembler = DefaultFrameAssembler<Packet>;
+template <int NbUDPIfaces>
+using Packet = StdPacketImpl<PacketData<NbUDPIfaces>>;
+template <int NbUDPIfaces>
+using Assembler = DefaultFrameAssembler<Packet<NbUDPIfaces>>;
 
 /**
  *@short Jungfrau frame assembler in raw mode: Default frame assembler
  */
 
-class RawFrameAssembler : public FrameAssemblerBase {
+template <int NbUDPIfaces> class RawFrameAssembler : public FrameAssemblerBase {
 
   public:
-    RawFrameAssembler(DefaultFrameAssemblerBase::Ptr a);
+    RawFrameAssembler(DefaultFrameAssemblerBase::Ptr a[NbUDPIfaces]);
 
     Result assembleFrame(uint64_t frame, RecvHeader *recv_header,
                          char *buf) override;
@@ -35,17 +38,17 @@ class RawFrameAssembler : public FrameAssemblerBase {
     void stop() override;
 
   private:
-    DefaultFrameAssemblerBase::Ptr assembler;
+    DefaultFrameAssemblerBase::Ptr assembler[NbUDPIfaces];
 };
 
 /**
  *@short Jungfrau frame assembler in standard mode: Default frame assembler
  */
 
-class StdFrameAssembler : public FrameAssemblerBase {
+template <int NbUDPIfaces> class StdFrameAssembler : public FrameAssemblerBase {
 
   public:
-    StdFrameAssembler(DefaultFrameAssemblerBase::Ptr a);
+    StdFrameAssembler(DefaultFrameAssemblerBase::Ptr a[NbUDPIfaces]);
     ~StdFrameAssembler();
 
     Result assembleFrame(uint64_t frame, RecvHeader *recv_header,
@@ -56,7 +59,7 @@ class StdFrameAssembler : public FrameAssemblerBase {
     class Helper;
 
   private:
-    DefaultFrameAssemblerBase::Ptr assembler;
+    DefaultFrameAssemblerBase::Ptr assembler[NbUDPIfaces];
     Helper *helper;
 };
 

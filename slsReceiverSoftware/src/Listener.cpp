@@ -138,7 +138,7 @@ void Listener::CreateUDPSockets() {
 
     try {
         frameAssembler = DefaultFrameAssemblerBase::create(
-            udpSocket, generalData, cpuMask, fifoNodeMask, maxNode,
+            udpSocket, generalData, index, cpuMask, fifoNodeMask, maxNode,
             *frameDiscardMode, !doUdpRead);
         LOG(logINFO) << index << ": Default FrameAssembler for port "
                      << *udpPortNumber;
@@ -308,14 +308,21 @@ Listener::CreateFrameAssembler(std::vector<Ptr> &listener) {
         }
     } else if (d == slsDetectorDefs::JUNGFRAU) {
         using namespace FrameAssembler::Jungfrau;
-        if (nb_ports != 1)
-            throw sls::RuntimeError("Jungfrau: Invalid number of ports: " +
-                                    std::to_string(nb_ports));
-        DefaultFrameAssemblerPtr a = listener[0]->frameAssembler;
-        if (raw) {
-            fa = std::make_shared<RawFrameAssembler>(a);
+        if (nb_ports == 1) {
+            DefaultFrameAssemblerPtr a[1] = {listener[0]->frameAssembler};
+            if (raw) {
+                fa = std::make_shared<RawFrameAssembler<1>>(a);
+            } else {
+                fa = std::make_shared<StdFrameAssembler<1>>(a);
+            }
         } else {
-            fa = std::make_shared<StdFrameAssembler>(a);
+            DefaultFrameAssemblerPtr a[2] = {listener[0]->frameAssembler,
+                                             listener[1]->frameAssembler};
+            if (raw) {
+                fa = std::make_shared<RawFrameAssembler<2>>(a);
+            } else {
+                fa = std::make_shared<StdFrameAssembler<2>>(a);
+            }
         }
     } else
         throw sls::RuntimeError("FrameAssembler not available for " +
