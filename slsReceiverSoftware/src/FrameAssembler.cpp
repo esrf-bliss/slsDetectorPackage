@@ -21,71 +21,8 @@ template <class Duration> Seconds ToSeconds(const Duration &d) {
 }
 
 /**
- * StdPacketImpl
- */
-
-template <class PD> void Packet<PD>::checkConsistency(GeneralDataPtr gd) {}
-
-/**
- * StdPacketImpl
- */
-
-template <class PD>
-void StdPacketImpl<PD>::fillDetHeader(DetHeader *det_header) {
-    memcpy(det_header, header(), sizeof(*det_header));
-}
-
-/**
- * LegacyPacket
- */
-
-template <class F> void LegacyPacketImpl<F>::initSoftHeader() {
-    int thread_idx = 0;
-    uint64_t packet_bid;
-    generalData()->GetHeaderInfo(thread_idx, Base::networkHeader(),
-                                 stream_data.odd_numbering,
-                                 Base::softHeader()->packet_frame,
-                                 Base::softHeader()->packet_number, packet_bid);
-}
-
-template <class F>
-void LegacyPacketImpl<F>::fillDetHeader(DetHeader *det_header) {
-    memset(det_header, 0, sizeof(*det_header));
-    det_header->frameNumber = frame();
-    det_header->detType = (uint8_t)generalData()->myDetectorType;
-    det_header->version = (uint8_t)SLS_DETECTOR_HEADER_VERSION;
-}
-
-/**
- * GotthardPacket
- */
-
-inline void GotthardPacket::initSoftHeader() {
-    if (stream_data.first_packet) {
-        bool &odd_numbering = stream_data.odd_numbering;
-        GeneralDataPtr gd = generalData();
-        int thread_idx = 0;
-        char *start = networkHeader();
-        odd_numbering = gd->SetOddStartingPacket(thread_idx, start);
-        stream_data.first_packet = false;
-    }
-    Base::initSoftHeader();
-}
-
-/**
  * PacketBlock
  */
-
-template <class P>
-PacketBlock<P>::PacketBlock(PacketStream<P> &s, char *b) : ps(s), buf(b) {}
-
-template <class P> PacketBlock<P>::~PacketBlock() {
-    ps.releasePacketBlock(*this);
-}
-
-template <class P> P PacketBlock<P>::operator[](unsigned int i) {
-    return P(buf + ps.packet_len * i, ps.stream_data);
-}
 
 template <class P> void PacketBlock<P>::setValid(unsigned int i, bool valid) {
     (*this)[i].softHeader()->valid = valid;
@@ -95,9 +32,7 @@ template <class P> void PacketBlock<P>::setValid(unsigned int i, bool valid) {
 
 template <class P> void PacketBlock<P>::moveToGood(P &p) {
     P dst = (*this)[p.number()];
-    using SoftHeader = typename P::SoftHeader;
-    int len = sizeof(SoftHeader) + ps.general_data->packetSize;
-    memcpy(dst.buffer, p.buffer, len);
+    *dst.buffer = *p.buffer;
     p.softHeader()->valid = false;
     dst.softHeader()->valid = true;
 }
@@ -106,23 +41,8 @@ template <class P> void PacketBlock<P>::moveToGood(P &p) {
  * PacketStream
  */
 
-const int MaxBufferFrames = 4;
-
-template <class P>
-void PacketStream<P>::releasePacketBlock(PacketBlock<P> &block) {
-    std::lock_guard<std::mutex> l(free_mutex);
-    free_queue.push(block.buf);
-    free_cond.notify_one();
-}
-
-template <class P> bool PacketStream<P>::canDiscardFrame(int received_packets) {
-    return ((frame_policy == slsDetectorDefs::DISCARD_PARTIAL_FRAMES) ||
-            ((frame_policy == slsDetectorDefs::DISCARD_EMPTY_FRAMES) &&
-             !received_packets));
-}
-
-template <class P>
-PacketBlockPtr<P> PacketStream<P>::getPacketBlock(uint64_t frame) {
+template <class P, class SD, class FP>
+PacketBlockPtr<P> PacketStream<P, SD, FP>::getPacketBlock(uint64_t frame) {
     class WaitingCountHelper {
       public:
         WaitingCountHelper(PacketStream &s) : ps(s) {
@@ -134,7 +54,7 @@ PacketBlockPtr<P> PacketStream<P>::getPacketBlock(uint64_t frame) {
         PacketStream &ps;
     };
 
-    PacketBlockPtr<P> block;
+    BlockPtr block;
     {
         std::unique_lock<std::mutex> l(block_mutex);
         WaitingCountHelper h(*this);
@@ -166,35 +86,40 @@ PacketBlockPtr<P> PacketStream<P>::getPacketBlock(uint64_t frame) {
         if (frame > last_frame)
             last_frame = frame;
     }
-    if (!full_frame && canDiscardFrame(block->getValidPackets()))
+    if (!full_frame && FP::canDiscardFrame(block->getValidPackets()))
         block.reset();
     return block;
 }
 
-template <class P> bool PacketStream<P>::hasPendingPacket() {
+template <class P, class SD, class FP>
+bool PacketStream<P, SD, FP>::hasPendingPacket() {
     std::lock_guard<std::mutex> l(free_mutex);
     return (free_queue.size() != num_frames);
 }
 
-template <class P>
-PacketStream<P>::PacketStream(UdpRxSocketPtr s, GeneralDataPtr d,
-                              FramePolicy fp, int idx, cpu_set_t cpu_mask,
-                              unsigned long node_mask, int max_node)
-    : socket(s), general_data(d), frame_policy(fp), num_frames(MaxBufferFrames),
-      stream_data(general_data, idx), cpu_aff_mask(cpu_mask) {
-    P::checkConsistency(general_data);
-    initMem(node_mask, max_node);
+template <class P, class SD, class FP>
+PacketStream<P, SD, FP>::PacketStream(UdpRxSocketPtr s, cpu_set_t cpu_mask,
+                                      unsigned long node_mask, int max_node)
+    : socket(s), num_frames(MaxBufferFrames), cpu_aff_mask(cpu_mask) {
+
+    packet_buffer_array.alloc(num_frames, node_mask, max_node);
+    BlockLayout *p = packet_buffer_array.getPtr();
+    for (unsigned int i = 0; i < num_frames; ++i, ++p)
+        free_queue.push(p);
+
     thread = std::make_unique<WriterThread>(*this);
 }
 
-template <class P> PacketStream<P>::~PacketStream() {
+template <class P, class SD, class FP>
+PacketStream<P, SD, FP>::~PacketStream() {
     stop();
     thread.reset();
     releaseReadyPacketBlocks();
     waitUsedPacketBlocks();
 }
 
-template <class P> void PacketStream<P>::releaseReadyPacketBlocks() {
+template <class P, class SD, class FP>
+void PacketStream<P, SD, FP>::releaseReadyPacketBlocks() {
     using namespace std::chrono_literals;
     std::unique_lock<std::mutex> l(block_mutex);
     while (waiting_reader_count > 0)
@@ -204,7 +129,8 @@ template <class P> void PacketStream<P>::releaseReadyPacketBlocks() {
     old_map.clear();
 }
 
-template <class P> void PacketStream<P>::waitUsedPacketBlocks() {
+template <class P, class SD, class FP>
+void PacketStream<P, SD, FP>::waitUsedPacketBlocks() {
     using namespace std::chrono_literals;
     Clock::duration wait_reader_timeout = 1s;
     Clock::time_point t0 = Clock::now();
@@ -226,7 +152,8 @@ template <class P> void PacketStream<P>::waitUsedPacketBlocks() {
     }
 }
 
-template <class P> void PacketStream<P>::printStats() {
+template <class P, class SD, class FP>
+void PacketStream<P, SD, FP>::printStats() {
     std::lock_guard<std::mutex> l(mutex);
     std::ostringstream msg;
     msg << "[" << socket->getPortNumber() << "]: "
@@ -234,7 +161,7 @@ template <class P> void PacketStream<P>::printStats() {
     std::cout << msg.str() << std::endl;
 }
 
-template <class P> void PacketStream<P>::stop() {
+template <class P, class SD, class FP> void PacketStream<P, SD, FP>::stop() {
     stopped = true;
     {
         std::lock_guard<std::mutex> l(block_mutex);
@@ -246,78 +173,68 @@ template <class P> void PacketStream<P>::stop() {
     }
 }
 
-template <class P> bool PacketStream<P>::wasStopped() {
+template <class P, class SD, class FP>
+bool PacketStream<P, SD, FP>::wasStopped() {
     std::lock_guard<std::mutex> l(free_mutex);
     return stopped;
 }
 
-template <class P> void PacketStream<P>::clearBuffer() {
+template <class P, class SD, class FP>
+void PacketStream<P, SD, FP>::clearBuffer() {
     packet_buffer_array.clear();
 }
 
-template <class P> int PacketStream<P>::getNumPacketsCaught() {
+template <class P, class SD, class FP>
+int PacketStream<P, SD, FP>::getNumPacketsCaught() {
     std::lock_guard<std::mutex> l(mutex);
     return packets_caught;
 }
 
-template <class P> uint64_t PacketStream<P>::getNumFramesCaught() {
+template <class P, class SD, class FP>
+uint64_t PacketStream<P, SD, FP>::getNumFramesCaught() {
     std::lock_guard<std::mutex> l(mutex);
     return frames_caught;
 }
 
-template <class P> uint64_t PacketStream<P>::getLastFrameIndex() {
+template <class P, class SD, class FP>
+uint64_t PacketStream<P, SD, FP>::getLastFrameIndex() {
     std::lock_guard<std::mutex> l(mutex);
     return last_frame;
 }
 
-template <class P> uint32_t PacketStream<P>::getNbPacketFrames() {
-    return general_data->packetsPerFrame;
+template <class P, class SD, class FP>
+PacketBlockPtr<P> PacketStream<P, SD, FP>::getEmptyBlock() {
+    auto releaser = [&](BlockLayout *layout) {
+        std::lock_guard<std::mutex> l(free_mutex);
+        free_queue.push(layout);
+        free_cond.notify_one();
+    };
+    using LayoutPtr = typename Block::LayoutPtr;
+    auto allocator = [&]() -> LayoutPtr {
+        std::unique_lock<std::mutex> l(free_mutex);
+        while (!stopped && free_queue.empty())
+            free_cond.wait(l);
+        if (stopped)
+            return nullptr;
+        BlockLayout *layout = free_queue.front();
+        free_queue.pop();
+        return {layout, releaser};
+    };
+    auto layout = allocator();
+    return layout ? std::make_unique<Block>(std::move(layout)) : nullptr;
 }
 
-template <class P>
-void PacketStream<P>::initMem(unsigned long node_mask, int max_node) {
-    const int data_align = 128 / 8;
-    GeneralDataPtr gd = general_data;
-    packet_len = gd->packetSize;
-    using SoftHeader = typename P::SoftHeader;
-    size_t header_len = sizeof(SoftHeader) + gd->headerSizeinPacket;
-    size_t misalign = header_len % data_align;
-    header_pad = misalign ? (data_align - misalign) : 0;
-    packet_len += header_pad;
-    misalign = packet_len % data_align;
-    packet_len += misalign ? (data_align - misalign) : 0;
-    int frame_len = packet_len * getNbPacketFrames();
-    packet_buffer_array.alloc(frame_len * num_frames, node_mask, max_node);
-
-    char *p = packet_buffer_array.getPtr() + header_pad;
-    for (unsigned int i = 0; i < num_frames; ++i, p += frame_len)
-        free_queue.push(p);
-}
-
-template <class P> PacketBlockPtr<P> PacketStream<P>::getEmptyBlock() {
-    std::unique_lock<std::mutex> l(free_mutex);
-    while (!stopped && free_queue.empty())
-        free_cond.wait(l);
-    if (stopped)
-        return nullptr;
-    char *b = free_queue.front();
-    free_queue.pop();
-    l.unlock();
-    return std::make_unique<PacketBlock<P>>(*this, b);
-}
-
-template <class P>
-void PacketStream<P>::addPacketBlock(FramePacketBlock &&frame_block) {
+template <class P, class SD, class FP>
+void PacketStream<P, SD, FP>::addPacketBlock(FramePacketBlock &&frame_block) {
     std::lock_guard<std::mutex> l(block_mutex);
     packet_block_map.emplace(std::move(frame_block));
     block_cond.notify_all();
 }
 
-template <class P> class PacketStream<P>::WriterThread {
+template <class P, class SD, class FP>
+class PacketStream<P, SD, FP>::WriterThread {
   public:
-    WriterThread(PacketStream &s)
-        : ps(s), frame_packets(ps.getNbPacketFrames()),
-          thread(threadFunctionStatic, this) {
+    WriterThread(PacketStream &s) : ps(s), thread(threadFunctionStatic, this) {
         struct sched_param param;
         param.sched_priority = 90;
         int ret =
@@ -360,14 +277,13 @@ template <class P> class PacketStream<P>::WriterThread {
 
     void setInvalidRemainingPackets() {
         // curr_packet validity was already set
-        while (incPacketCounters().first != frame_packets)
+        while (incPacketCounters().first != ps.FramePackets)
             block->setValid(curr_packet, false);
     }
 
-    void addPacketDelayStat(P &packet) {
+    void addPacketDelayStat(P &packet, uint32_t index) {
         Clock::time_point t = Clock::now();
-        long packet_idx =
-            ((packet.frame() - 1) * frame_packets + packet.index());
+        long packet_idx = ((packet.frame() - 1) * ps.FramePackets + index);
         if (packet_idx == 0)
             t0 = t;
         std::lock_guard<std::mutex> l(ps.mutex);
@@ -376,8 +292,7 @@ template <class P> class PacketStream<P>::WriterThread {
     }
 
     bool addPacket(P &packet) {
-        packet.setIndex(curr_idx);
-        addPacketDelayStat(packet);
+        addPacketDelayStat(packet, curr_idx);
 
         uint64_t packet_frame = packet.frame();
         uint32_t packet_number = packet.number();
@@ -397,7 +312,7 @@ template <class P> class PacketStream<P>::WriterThread {
             curr_frame = packet_frame;
         if (packet_frame != curr_frame) {
             trace_unexpected("new frame");
-            PacketBlockPtr<P> new_block = ps.getEmptyBlock();
+            BlockPtr new_block = ps.getEmptyBlock();
             if (new_block)
                 new_block->moveToGood(packet);
             else
@@ -417,7 +332,7 @@ template <class P> class PacketStream<P>::WriterThread {
             block->setValid(curr_packet, true);
         }
 
-        if (curr_idx == (frame_packets - 1))
+        if (curr_idx == (ps.FramePackets - 1))
             ps.addPacketBlock(finishPacketBlock());
         return true;
     }
@@ -427,7 +342,7 @@ template <class P> class PacketStream<P>::WriterThread {
             return false;
 
         P packet = getNextPacket();
-        char *b = packet.networkBuffer();
+        char *b = static_cast<char *>(packet.networkBuffer());
         int ret = ps.socket->ReceiveDataOnly(b);
         if ((ret < 0) || ((packet.frame() == 0) && ps.wasStopped()))
             return false;
@@ -459,9 +374,8 @@ template <class P> class PacketStream<P>::WriterThread {
     }
 
     PacketStream &ps;
-    const uint32_t frame_packets;
     Clock::time_point t0;
-    PacketBlockPtr<P> block;
+    BlockPtr block;
     uint64_t curr_frame{0};
     uint32_t curr_idx{uint32_t(-1)};
     uint32_t curr_packet{uint32_t(-1)};
@@ -469,47 +383,33 @@ template <class P> class PacketStream<P>::WriterThread {
 };
 
 /**
- * DefaultFrameAssemblerBase
- */
-
-DefaultFrameAssemblerBase::DefaultFrameAssemblerBase(GeneralDataPtr d, bool e4b)
-    : general_data(d), expand_4bits(e4b) {}
-
-inline GeneralDataPtr DefaultFrameAssemblerBase::getGeneralData() {
-    return general_data;
-}
-
-inline bool DefaultFrameAssemblerBase::doExpand4Bits() {
-    return (general_data->dynamicRange == 4) && expand_4bits;
-}
-
-/**
  * DefaultFrameAssembler
  */
 
-template <class P>
-DefaultFrameAssembler<P>::DefaultFrameAssembler(
-    UdpRxSocketPtr s, GeneralDataPtr d, int idx, cpu_set_t cpu_mask,
-    unsigned long node_mask, int max_node, FramePolicy fp, bool e4b)
-    : DefaultFrameAssemblerBase(d, e4b),
-      packet_stream(std::make_unique<PacketStream<P>>(s, d, fp, idx, cpu_mask,
-                                                      node_mask, max_node)),
-      frame_policy(fp) {}
+template <class P, class SD, class FP, class SP, class DP>
+DefaultFrameAssembler<P, SD, FP, SP, DP>::DefaultFrameAssembler(
+    UdpRxSocketPtr s, cpu_set_t cpu_mask, unsigned long node_mask, int max_node)
+    : packet_stream(std::make_unique<PacketStream<P, SD, FP>>(
+          s, cpu_mask, node_mask, max_node)) {}
 
-template <class P> void DefaultFrameAssembler<P>::stop() {
+template <class P, class SD, class FP, class SP, class DP>
+void DefaultFrameAssembler<P, SD, FP, SP, DP>::stop() {
     packet_stream->stop();
 }
 
-template <class P> bool DefaultFrameAssembler<P>::hasPendingPacket() {
+template <class P, class SD, class FP, class SP, class DP>
+bool DefaultFrameAssembler<P, SD, FP, SP, DP>::hasPendingPacket() {
     return packet_stream->hasPendingPacket();
 }
 
-template <class P> int DefaultFrameAssembler<P>::getImageSize() {
-    return general_data->imageSize * (doExpand4Bits() ? 2 : 1);
+template <class P, class SD, class FP, class SP, class DP>
+int DefaultFrameAssembler<P, SD, FP, SP, DP>::getImageSize() {
+    return P::Data::FrameLen / SP::depth() * DP::depth();
 }
 
-template <class P>
-void DefaultFrameAssembler<P>::expand4Bits(char *dst, char *src, int src_size) {
+template <class P, class SD, class FP, class SP, class DP>
+void DefaultFrameAssembler<P, SD, FP, SP, DP>::expand4Bits(char *dst, char *src,
+                                                           int src_size) {
     unsigned long s = (unsigned long)src;
     unsigned long d = (unsigned long)dst;
     if ((s & 15) != 0) {
@@ -542,23 +442,24 @@ void DefaultFrameAssembler<P>::expand4Bits(char *dst, char *src, int src_size) {
     }
 }
 
-template <class P>
-Result DefaultFrameAssembler<P>::assembleFrame(uint64_t frame,
-                                               RecvHeader *recv_header,
-                                               char *buf) {
+template <class P, class SD, class FP, class SP, class DP>
+Result DefaultFrameAssembler<P, SD, FP, SP, DP>::assembleFrame(
+    uint64_t frame, RecvHeader *recv_header, char *buf) {
     bool header_empty = true;
-    int packets_per_frame = general_data->packetsPerFrame;
+    constexpr int packets_per_frame = Stream::FramePackets;
     DetHeader *det_header = &recv_header->detHeader;
-    bool do_expand_4bits = doExpand4Bits();
-    uint32_t src_dsize = general_data->dataSize;
-    uint32_t last_dsize = general_data->imageSize % src_dsize;
-    if (last_dsize == 0)
-        last_dsize = src_dsize;
-    uint32_t dst_dsize = src_dsize * (do_expand_4bits ? 2 : 1);
+    constexpr uint32_t src_dsize = P::Data::PacketDataLen;
+    constexpr uint32_t frame_size = P::Data::FrameLen;
+#define check_last(i, p) (((i) % (p)) ? ((i) % (p)) : (p))
+    constexpr uint32_t last_dsize = check_last(frame_size, src_dsize);
+#undef check_last
+    constexpr uint32_t dst_dsize =
+        P::Data::PacketDataLen / SP::depth() * DP::depth();
 
     recv_header->packetsMask.reset();
 
-    PacketBlockPtr<P> block = packet_stream->getPacketBlock(frame);
+    using BlockPtr = typename Stream::BlockPtr;
+    BlockPtr block = packet_stream->getPacketBlock(frame);
     if (!block || (block->getValidPackets() == 0))
         return Result{1, 0};
 
@@ -588,7 +489,7 @@ Result DefaultFrameAssembler<P>::assembleFrame(uint64_t frame,
         copy_dsize += size_adjust;
         dst += prev_adjust;
         prev_adjust = size_adjust;
-        if (do_expand_4bits)
+        if (Expand4Bits)
             expand4Bits(dst, packet.data(), copy_dsize);
         else
             memcpy(dst, packet.data(), copy_dsize);
@@ -601,68 +502,87 @@ Result DefaultFrameAssembler<P>::assembleFrame(uint64_t frame,
     return Result{1, 1};
 }
 
-template <class P> int DefaultFrameAssembler<P>::getNumPacketsCaught() {
+template <class P, class SD, class FP, class SP, class DP>
+int DefaultFrameAssembler<P, SD, FP, SP, DP>::getNumPacketsCaught() {
     return packet_stream->getNumPacketsCaught();
 }
 
-template <class P> uint64_t DefaultFrameAssembler<P>::getNumFramesCaught() {
+template <class P, class SD, class FP, class SP, class DP>
+uint64_t DefaultFrameAssembler<P, SD, FP, SP, DP>::getNumFramesCaught() {
     return packet_stream->getNumFramesCaught();
 }
 
-template <class P> uint64_t DefaultFrameAssembler<P>::getLastFrameIndex() {
+template <class P, class SD, class FP, class SP, class DP>
+uint64_t DefaultFrameAssembler<P, SD, FP, SP, DP>::getLastFrameIndex() {
     return packet_stream->getLastFrameIndex();
 }
 
-template <class P> void DefaultFrameAssembler<P>::clearBuffers() {
+template <class P, class SD, class FP, class SP, class DP>
+void DefaultFrameAssembler<P, SD, FP, SP, DP>::clearBuffers() {
     packet_stream->clearBuffer();
 }
 
-template <class P> void DefaultFrameAssembler<P>::printStreamStats() {
+template <class P, class SD, class FP, class SP, class DP>
+void DefaultFrameAssembler<P, SD, FP, SP, DP>::printStreamStats() {
     packet_stream->printStats();
 }
 
-DefaultFrameAssemblerBase::Ptr
-DefaultFrameAssemblerBase::create(UdpRxSocketPtr s, GeneralDataPtr d, int idx,
-                                  cpu_set_t cpu_mask, unsigned long node_mask,
-                                  int max_node, FramePolicy fp, bool e4b) {
-    DefaultFrameAssemblerBase::Ptr a;
+DefaultFrameAssemblerPtr FrameAssembler::CreateDefaultFrameAssembler(
+    UdpRxSocketPtr s, GeneralDataPtr d, int idx, cpu_set_t cpu_mask,
+    unsigned long node_mask, int max_node, FramePolicy fp, bool e4b) {
 
-#define args s, d, idx, cpu_mask, node_mask, max_node, fp, e4b
+    auto any_fp = AnyFramePolicyFromFP(fp);
 
-    switch (d->myDetectorType) {
-    case slsDetectorDefs::EIGER:
-        a = std::make_shared<Eiger::Assembler>(args);
-        break;
-    case slsDetectorDefs::JUNGFRAU:
-        if (d->numUDPInterfaces == 1)
-            a = std::make_shared<Jungfrau::Assembler<1>>(args);
-        else
-            a = std::make_shared<Jungfrau::Assembler<2>>(args);
-        break;
-    case slsDetectorDefs::GOTTHARD:
-        a = std::make_shared<GotthardAssembler>(args);
-        break;
-    default:
-        a = std::make_shared<LegacyAssembler>(args);
-    }
+    AnyPixel src_pixel = AnyPixelFromBpp(d->dynamicRange);
+    AnyPixel dst_pixel = src_pixel;
+    if ((d->dynamicRange == 4) && e4b)
+        dst_pixel = Pixel8();
 
+    return std::visit(
+        [&](auto fp, auto src_pixel, auto dst_pixel) {
+            using FP = decltype(fp);
+            using SP = decltype(src_pixel);
+            using DP = decltype(dst_pixel);
+
+            DefaultFrameAssemblerPtr a;
+
+#define args s, cpu_mask, node_mask, max_node
+
+            if (d->myDetectorType == slsDetectorDefs::EIGER) {
+                a = std::make_shared<Eiger::Assembler<SP, FP, DP>>(args);
+            } else if (d->myDetectorType == slsDetectorDefs::JUNGFRAU) {
+                if (d->numUDPInterfaces == 1)
+                    a = std::make_shared<Jungfrau::Assembler<1, 0, FP>>(args);
+                else if (idx == 0)
+                    a = std::make_shared<Jungfrau::Assembler<2, 0, FP>>(args);
+                else
+                    a = std::make_shared<Jungfrau::Assembler<2, 1, FP>>(args);
+
+            } else
+                throw sls::RuntimeError("Detector not supported: " +
+                                        std::to_string(d->myDetectorType));
 #undef args
 
-    return a;
+            return a;
+        },
+        any_fp, src_pixel, dst_pixel);
 }
 
 /**
- * DualPortFrameAssembler
+ * RawFrameAssembler
  */
 
-DualPortFrameAssembler::DualPortFrameAssembler(
-    DefaultFrameAssemblerBase::Ptr a[2])
-    : assembler{a[0], a[1]} {}
-
-void DualPortFrameAssembler::stop() { stopAssemblers(); }
-
-void DualPortFrameAssembler::stopAssemblers() {
-    assembler[0]->stop(), assembler[1]->stop();
+Result RawFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
+                                        char *buf) {
+    const int NbIfaces = assembler.size();
+    Result res{NbIfaces, 0};
+    for (int i = 0; i < NbIfaces; ++i) {
+        Result r = assembler[i]->assembleFrame(frame, recv_header, buf);
+        res.valid_data[i] = r.valid_data[0];
+        if (buf)
+            buf += assembler[i]->getImageSize();
+    }
+    return res;
 }
 
 #include "FrameAssemblerEiger.cxx"

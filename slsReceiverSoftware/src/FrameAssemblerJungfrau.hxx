@@ -9,59 +9,94 @@
 namespace FrameAssembler {
 namespace Jungfrau {
 
-template <int NbUDPIfaces> struct PacketData : PacketDataBase {
-    struct StreamData : PacketDataBase::StreamData {
-        StreamData(GeneralDataPtr d, int idx)
-            : PacketDataBase::StreamData(d, idx) {}
+constexpr int PacketDataLen = 8192;
 
-        uint32_t getPacketNumber(uint32_t packet_idx);
-    };
+using Pixel = Pixel16;
+
+constexpr int PacketPixels = PacketDataLen / Pixel::depth();
+
+template <int NbUDPIfaces, int Idx>
+constexpr auto IfaceGeom =
+    sls::Geom::Jungfrau::IfaceGeom<NbUDPIfaces, Idx, RawFmt>;
+
+template <int NbUDPIfaces>
+constexpr int
+    FramePackets = IfaceGeom<NbUDPIfaces, 0>.calcFramePackets(PacketPixels);
+
+template <int NbUDPIfaces>
+using PacketData = StdPacketData<PacketDataLen, FramePackets<NbUDPIfaces>>;
+
+template <int NbUDPIfaces> using Packet = StdPacket<PacketData<NbUDPIfaces>>;
+
+template <int NbUDPIfaces, int Idx>
+struct StreamData : FrameAssembler::StreamData<Packet<NbUDPIfaces>> {
+    uint32_t getPacketNumber(uint32_t packet_idx);
 };
 
-template <int NbUDPIfaces>
-using Packet = StdPacketImpl<PacketData<NbUDPIfaces>>;
-template <int NbUDPIfaces>
-using Assembler = DefaultFrameAssembler<Packet<NbUDPIfaces>>;
+template <int NbUDPIfaces, int Idx, class FP>
+using AssemblerBase =
+    DefaultFrameAssembler<Packet<NbUDPIfaces>, StreamData<NbUDPIfaces, Idx>, FP,
+                          Pixel>;
 
-/**
- *@short Jungfrau frame assembler in raw mode: Default frame assembler
- */
-
-template <int NbUDPIfaces> class RawFrameAssembler : public FrameAssemblerBase {
-
-  public:
-    RawFrameAssembler(DefaultFrameAssemblerBase::Ptr a[NbUDPIfaces]);
-
-    Result assembleFrame(uint64_t frame, RecvHeader *recv_header,
-                         char *buf) override;
-
-    void stop() override;
-
-  private:
-    DefaultFrameAssemblerBase::Ptr assembler[NbUDPIfaces];
+template <int NbUDPIfaces, int Idx, class FP>
+struct Assembler : AssemblerBase<NbUDPIfaces, Idx, FP> {
+    using AssemblerBase<NbUDPIfaces, Idx, FP>::AssemblerBase;
 };
 
 /**
  *@short Jungfrau frame assembler in standard mode: Default frame assembler
  */
 
-template <int NbUDPIfaces> class StdFrameAssembler : public FrameAssemblerBase {
+template <int NbUDPIfaces, int Idx> struct CopyHelper;
 
+template <int NbUDPIfaces, class FP>
+class StdFrameAssembler : public FrameAssemblerBase {
   public:
-    StdFrameAssembler(DefaultFrameAssemblerBase::Ptr a[NbUDPIfaces]);
-    ~StdFrameAssembler();
+    template <int Idx> using RealAssembler = Assembler<NbUDPIfaces, Idx, FP>;
+    template <int Idx>
+    using Stream =
+        std::decay_t<decltype(std::declval<RealAssembler<Idx>>().getStream())>;
+
+    using StreamList1 = std::tuple<Stream<0> *>;
+    using StreamList2 = std::tuple<Stream<0> *, Stream<1> *>;
+    using StreamList =
+        std::conditional_t<NbUDPIfaces == 1, StreamList1, StreamList2>;
+
+    StdFrameAssembler(StreamList s) : stream(s) {}
 
     Result assembleFrame(uint64_t frame, RecvHeader *recv_header,
                          char *buf) override;
-
     void stop() override;
 
-    class Helper;
+    template <int Idx>
+    static auto rawAssemblerStream(DefaultFrameAssemblerPtr a) {
+        return &dynamic_cast<RealAssembler<Idx> *>(a.get())->getStream();
+    }
 
   private:
-    DefaultFrameAssemblerBase::Ptr assembler[NbUDPIfaces];
-    Helper *helper;
+    StreamList stream;
+
+    struct Worker {
+        PortsMask mask;
+        bool header_empty{true};
+        uint64_t frame;
+        DetHeader *det_header;
+        char *buf;
+
+        Worker(uint64_t f, RecvHeader *rh, char *b)
+            : frame(f), det_header(&rh->detHeader), buf(b) {
+            det_header->frameNumber = frame;
+            det_header->packetNumber = 0;
+        }
+
+        template <int Idx> void assembleIface(Stream<Idx> *s);
+
+        Result result();
+    };
 };
+
+FrameAssemblerPtr CreateStdFrameAssembler(int num_udp_ifaces, FramePolicy fp,
+                                          DefaultFrameAssemblerList a);
 
 } // namespace Jungfrau
 } // namespace FrameAssembler

@@ -21,10 +21,8 @@ class Fifo;
 class Listener : private virtual slsDetectorDefs, public ThreadObject {
 
   public:
-    using FrameAssemblerBase = FrameAssembler::FrameAssemblerBase;
-    using FrameAssemblerPtr = std::shared_ptr<FrameAssemblerBase>;
-    using DefaultFrameAssemblerBase = FrameAssembler::DefaultFrameAssemblerBase;
-    using DefaultFrameAssemblerPtr = DefaultFrameAssemblerBase::Ptr;
+    using FrameAssemblerPtr = FrameAssembler::FrameAssemblerPtr;
+    using DefaultFrameAssemblerPtr = FrameAssembler::DefaultFrameAssemblerPtr;
 
     using Ptr = std::shared_ptr<Listener>;
 

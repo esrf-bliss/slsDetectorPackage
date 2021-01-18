@@ -284,7 +284,6 @@ class Implementation : private virtual slsDetectorDefs {
     };
 
     using FrameAssemblerBase = FrameAssembler::FrameAssemblerBase;
-    using DualPortFrameAssembler = FrameAssembler::DualPortFrameAssembler;
 
     void SetLocalNetworkParameters();
     void SetThreadPriorities();

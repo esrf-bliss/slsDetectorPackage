@@ -137,7 +137,7 @@ void Listener::CreateUDPSockets() {
     }
 
     try {
-        frameAssembler = DefaultFrameAssemblerBase::create(
+        frameAssembler = FrameAssembler::CreateDefaultFrameAssembler(
             udpSocket, generalData, index, cpuMask, fifoNodeMask, maxNode,
             *frameDiscardMode, !doUdpRead);
         LOG(logINFO) << index << ": Default FrameAssembler for port "
@@ -293,37 +293,20 @@ Listener::CreateFrameAssembler(std::vector<Ptr> &listener) {
     detectorType d = listener[0]->myDetectorType;
     int nb_ports = listener.size();
     bool raw = !gd->gapEnable;
-    if (d == slsDetectorDefs::EIGER) {
+    frameDiscardPolicy fp = *listener[0]->frameDiscardMode;
+    FrameAssembler::DefaultFrameAssemblerList a;
+    for (auto &l : listener)
+        a.push_back(l->frameAssembler);
+    if (raw) {
+        fa = std::make_shared<FrameAssembler::RawFrameAssembler>(a);
+    } else if (d == slsDetectorDefs::EIGER) {
         using namespace FrameAssembler::Eiger;
-        if (nb_ports != 2)
-            throw sls::RuntimeError("Eiger: Invalid number of ports: " +
-                                    std::to_string(nb_ports));
-        DefaultFrameAssemblerPtr a[2] = {listener[0]->frameAssembler,
-                                         listener[1]->frameAssembler};
-        if (raw) {
-            fa = std::make_shared<RawFrameAssembler>(a);
-        } else {
-            bool flipped = !*listener[0]->flippedDataX;
-            fa = std::make_shared<StdFrameAssembler>(a, flipped);
-        }
+        int pixel_bpp = gd->dynamicRange;
+        int recv_idx = *listener[0]->flippedDataX ? 1 : 0;
+        fa = CreateStdFrameAssembler(pixel_bpp, fp, gd->tgEnable, recv_idx, a);
     } else if (d == slsDetectorDefs::JUNGFRAU) {
         using namespace FrameAssembler::Jungfrau;
-        if (nb_ports == 1) {
-            DefaultFrameAssemblerPtr a[1] = {listener[0]->frameAssembler};
-            if (raw) {
-                fa = std::make_shared<RawFrameAssembler<1>>(a);
-            } else {
-                fa = std::make_shared<StdFrameAssembler<1>>(a);
-            }
-        } else {
-            DefaultFrameAssemblerPtr a[2] = {listener[0]->frameAssembler,
-                                             listener[1]->frameAssembler};
-            if (raw) {
-                fa = std::make_shared<RawFrameAssembler<2>>(a);
-            } else {
-                fa = std::make_shared<StdFrameAssembler<2>>(a);
-            }
-        }
+        fa = CreateStdFrameAssembler(nb_ports, fp, a);
     } else
         throw sls::RuntimeError("FrameAssembler not available for " +
                                 sls::ToString(d));

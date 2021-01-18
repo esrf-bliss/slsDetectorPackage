@@ -5,165 +5,130 @@
  * This file is include in FrameAssembler.cpp
  ***********************************************/
 
-/**
- * Eiger::RawFrameAssembler
- */
+namespace FAEiger = FrameAssembler::Eiger;
+namespace GeomEiger = sls::Geom::Eiger;
 
-Eiger::RawFrameAssembler::RawFrameAssembler(DefaultFrameAssemblerBase::Ptr a[2])
-    : DualPortFrameAssembler(a) {}
+namespace FrameAssembler {
+namespace Eiger {
 
-Result Eiger::RawFrameAssembler::assembleFrame(uint64_t frame,
-                                               RecvHeader *recv_header,
-                                               char *buf) {
-    const int num_ports = 2;
-    const int image_size = assembler[0]->getImageSize();
-    Result dual{num_ports, 0};
-    for (int i = 0; i < num_ports; ++i) {
-        Result single = assembler[i]->assembleFrame(frame, recv_header, buf);
-        dual.valid_data.set(i, single.valid_data[0]);
-        if (buf)
-            buf += image_size;
-    }
-    return dual;
-}
+constexpr int IfaceHorzChips = GeomEiger::IfaceChips.x;
 
 /**
- * Eiger::StdFrameAssembler::Helper
+ * GeomHelper
  */
 
-class Eiger::StdFrameAssembler::Helper {
-  public:
-    using BlockPtr = PacketBlockPtr<Packet>;
-    using Stream = PacketStream<Packet>;
+// P: Pixel Type, RG: RecvGeom
+template <class P, class RG> struct GeomHelper {
 
-    Helper(GeneralDataPtr gd, bool f);
-    virtual ~Helper() {}
+#define SCA static constexpr auto
+#define SCI static constexpr int
+#define SCF static constexpr float
 
-    float getSrcPixelBytes() { return float(general_data->dynamicRange) / 8; }
+    using SrcPixel = P;
+    using DstPixel = std::conditional_t<std::is_same_v<P, Pixel4>, Pixel8, P>;
 
-    float getDstPixelBytes() {
-        int factor = (general_data->dynamicRange == 4) ? 2 : 1;
-        return getSrcPixelBytes() * factor;
+    SCA RecvGeom = RG::geom;
+    using BlockPtr = PacketBlockPtr<Packet<SrcPixel>>;
+
+    SCI PacketDataLen = Packet<SrcPixel>::Data::PacketDataLen;
+    SCI PacketPixels = PacketDataLen / SrcPixel::depth();
+
+    // raw (packet) geometry
+    SCA RawIfaceSize = RawIfaceGeom.size;
+    // std (image) geometry
+    SCA RecvView = RecvGeom.view;
+    SCA IfaceGeom1 = RecvGeom.getIfaceGeom(XY{0, 0});
+    SCA IfaceView1 = IfaceGeom1.view;
+
+    SCA getPacketView(int PacketIdx) {
+        return IfaceGeom1.getPacketView(PacketPixels, PacketIdx);
     }
 
-    virtual void assemblePackets(BlockPtr block[2], char *buf) = 0;
+    SCI frame_packets = FramePackets<SrcPixel>;
+    SCI packet_lines = RawIfaceSize.y / frame_packets;
+    SCI flipped = (RecvView.pixelDir().y < 0);
+    SCF src_pixel_size = SrcPixel::depth();
+    SCI src_chip_size = GeomEiger::ChipPixels.x * src_pixel_size;
+    SCI src_line_size = RawIfaceSize.x * src_pixel_size;
+    SCI src_dir = flipped ? -1 : 1;
+    SCI src_line_step = src_line_size * src_dir;
+    SCI dst_pixel_size = DstPixel::depth();
+    SCI dst_chip_pixels = IfaceGeom1.chip_step.x;
+    SCI dst_chip_size = dst_chip_pixels * dst_pixel_size;
+    SCI dst_line_size = RecvView.pixelStep().y * dst_pixel_size * src_dir;
+    SCI src_first_line = IfaceView1.calcViewOrigin().y;
+    SCI src_first_packet = src_first_line / packet_lines;
+    SCA first_packet_view = getPacketView(src_first_packet);
+    SCA first_packet_offset = first_packet_view.calcViewOrigin();
+    SCI src_offset = first_packet_offset.y * src_line_size;
 
-  protected:
-    static const int chip_size = 256;
-    static const int chip_gap = 2;
-    static const int num_ports = 2;
-    static const int port_horz_chips = 2;
-    static const int port_vert_chips = 1;
-
-    struct Geometry {
-        float pixel_size;
-        int chip_size;
-        int line_size;
-        int offset;
-    };
-
-    GeneralDataPtr general_data;
-    bool flipped;
-    int frame_packets;
-    int packet_lines;
-    Geometry src;
-    Geometry dst;
-    int first_idx;
-    int idx_inc;
+#undef SCF
+#undef SCI
+#undef SCA
 };
-
-Eiger::StdFrameAssembler::Helper::Helper(GeneralDataPtr gd, bool f)
-    : general_data(gd), flipped(f) {
-    frame_packets = gd->packetsPerFrame;
-    packet_lines = port_vert_chips * chip_size / frame_packets;
-    src.pixel_size = getSrcPixelBytes();
-    src.chip_size = chip_size * src.pixel_size;
-    src.line_size = port_horz_chips * src.chip_size;
-    dst.pixel_size = getDstPixelBytes();
-    dst.chip_size = (chip_size + chip_gap) * dst.pixel_size;
-    dst.line_size = num_ports * gd->nPixelsX * dst.pixel_size;
-    if (flipped) {
-        src.offset = (packet_lines - 1) * src.line_size;
-        src.line_size *= -1;
-        dst.offset = 0;
-        first_idx = frame_packets - 1;
-        idx_inc = -1;
-    } else {
-        src.offset = 0;
-        dst.offset = dst.line_size;
-        first_idx = 0;
-        idx_inc = 1;
-    }
-}
 
 /**
  * Expand4BitsHelper
  */
-namespace FrameAssembler {
-namespace Eiger {
 
-class Expand4BitsHelper : public Eiger::StdFrameAssembler::Helper {
-  public:
-    Expand4BitsHelper(GeneralDataPtr gd, bool flipped);
+template <class P, class RG> struct Expand4BitsHelper : GeomHelper<P, RG> {
 
-    virtual void assemblePackets(BlockPtr block[2], char *buf) override;
+    using H = GeomHelper<P, RG>;
+    using BlockPtr = typename H::BlockPtr;
 
-  private:
-    static const int half_module_chips = num_ports * port_horz_chips;
-    static const int block_len = sizeof(__m128i);
-    static const int block_bits = block_len * 8;
-    static const int gap_bits = chip_gap * 8;
+#define SCI static constexpr int
 
-    const int chip_blocks;
-    const int port_blocks;
+    SCI half_module_chips = NbIfaces * IfaceHorzChips;
+    SCI block_len = sizeof(__m128i);
+    SCI block_bits = block_len * 8;
+    SCI gap_bits = GeomEiger::ChipGap.x * 8;
 
-    const __m128i m;
-    const __m128i m64_0, m64_1;
-    const __m128i gap_bits128;
-    const __m128i block64_bits128;
+    SCI chip_blocks = H::src_chip_size / block_len;
+    SCI iface_blocks = H::src_line_step / block_len;
+
+#undef SCI
+
+    const __m128i m{_mm_set1_epi8(0xf)};
+    const __m128i m64_0{_mm_set_epi64x(0, -1)};
+    const __m128i m64_1{_mm_set_epi64x(-1, 0)};
+    const __m128i gap_bits128{_mm_set_epi64x(0, gap_bits)};
+    const __m128i block64_bits128{_mm_set_epi64x(0, 64)};
 
     struct Worker {
         Expand4BitsHelper &h;
 
-        bool v[num_ports], valid_data;
-        const __m128i *s[num_ports], *src128;
+        bool v[NbIfaces], valid_data;
+        const __m128i *s[NbIfaces], *src128;
         __m128i *dst128;
         int dest_misalign;
         int shift_l;
         __m128i shift_l128, shift_r128;
         __m128i prev;
 
-        Worker(Expand4BitsHelper &helper);
+        Worker(Expand4BitsHelper &helper) : h(helper){};
 
-        int load_packet(BlockPtr block[2], int packet);
+        int load_packet(BlockPtr block[NbIfaces], int packet);
         void load_dst128(char *buf);
         void load_shift_store128();
         void pad_dst128();
         void sync_dst128();
 
-        void assemblePackets(BlockPtr block[2], char *buf);
+        void assemblePackets(BlockPtr block[NbIfaces], char *buf);
     };
+
+    void assemblePackets(BlockPtr block[NbIfaces], char *buf) {
+        Worker w(*this);
+        w.assemblePackets(block, buf);
+    }
 };
 
-} // namespace Eiger
-} // namespace FrameAssembler
-
-Eiger::Expand4BitsHelper::Expand4BitsHelper(GeneralDataPtr gd, bool flipped)
-    : Helper(gd, flipped), chip_blocks(src.chip_size / block_len),
-      port_blocks(src.line_size / block_len), m(_mm_set1_epi8(0xf)),
-      m64_0(_mm_set_epi64x(0, -1)), m64_1(_mm_set_epi64x(-1, 0)),
-      gap_bits128(_mm_set_epi64x(0, gap_bits)),
-      block64_bits128(_mm_set_epi64x(0, 64)) {}
-
-inline Eiger::Expand4BitsHelper::Worker::Worker(Expand4BitsHelper &helper)
-    : h(helper) {}
-
-inline int Eiger::Expand4BitsHelper::Worker::load_packet(BlockPtr block[2],
-                                                         int packet) {
-    Packet p0 = (*block[0])[packet];
-    Packet p1 = (*block[1])[packet];
-    s[0] = (const __m128i *)(p0.data() + h.src.offset);
-    s[1] = (const __m128i *)(p1.data() + h.src.offset);
+template <class P, class RG>
+int Expand4BitsHelper<P, RG>::Worker::load_packet(BlockPtr block[NbIfaces],
+                                                  int packet) {
+    Packet<P> p0 = (*block[0])[packet];
+    Packet<P> p1 = (*block[1])[packet];
+    s[0] = (const __m128i *)(p0.data() + h.src_offset);
+    s[1] = (const __m128i *)(p1.data() + h.src_offset);
     if ((((unsigned long)s[0] | (unsigned long)s[1]) & 15) != 0) {
         LOG(logERROR) << "Missaligned src";
         return -1;
@@ -173,8 +138,9 @@ inline int Eiger::Expand4BitsHelper::Worker::load_packet(BlockPtr block[2],
     return 0;
 }
 
-inline void Eiger::Expand4BitsHelper::Worker::load_dst128(char *buf) {
-    char *d = buf + h.dst.offset;
+template <class P, class RG>
+void Expand4BitsHelper<P, RG>::Worker::load_dst128(char *buf) {
+    char *d = buf;
     dest_misalign = ((unsigned long)d & 15);
     dst128 = (__m128i *)(d - dest_misalign);
     shift_l = dest_misalign * 8;
@@ -191,7 +157,8 @@ inline void Eiger::Expand4BitsHelper::Worker::load_dst128(char *buf) {
     }
 }
 
-inline void Eiger::Expand4BitsHelper::Worker::load_shift_store128() {
+template <class P, class RG>
+void Expand4BitsHelper<P, RG>::Worker::load_shift_store128() {
     __m128i p4_raw;
     if (valid_data)
         p4_raw = _mm_load_si128(src128);
@@ -232,7 +199,8 @@ inline void Eiger::Expand4BitsHelper::Worker::load_shift_store128() {
     prev = _mm_or_si128(d31, d4);
 }
 
-inline void Eiger::Expand4BitsHelper::Worker::pad_dst128() {
+template <class P, class RG>
+void Expand4BitsHelper<P, RG>::Worker::pad_dst128() {
     shift_l += h.gap_bits;
     if (shift_l % 64 == 0)
         shift_l128 = _mm_setzero_si128();
@@ -246,7 +214,8 @@ inline void Eiger::Expand4BitsHelper::Worker::pad_dst128() {
     }
 }
 
-inline void Eiger::Expand4BitsHelper::Worker::sync_dst128() {
+template <class P, class RG>
+void Expand4BitsHelper<P, RG>::Worker::sync_dst128() {
     if (shift_l != 0) {
         __m128i m0;
         m0 = _mm_sll_epi64(_mm_set1_epi8(0xff), shift_l128);
@@ -257,124 +226,92 @@ inline void Eiger::Expand4BitsHelper::Worker::sync_dst128() {
     }
 }
 
-inline void Eiger::Expand4BitsHelper::Worker::assemblePackets(BlockPtr block[2],
-                                                              char *buf) {
+template <class P, class RG>
+void Expand4BitsHelper<P, RG>::Worker::assemblePackets(BlockPtr block[NbIfaces],
+                                                       char *buf) {
     const int &hm_chips = h.half_module_chips;
-    int packet = h.first_idx;
+    int packet = h.src_first_packet;
     load_dst128(buf);
-    for (int i = 0; i < h.frame_packets; ++i, packet += h.idx_inc) {
+    for (int p = 0; p < h.frame_packets; ++p, packet += h.src_dir) {
         if (load_packet(block, packet) < 0)
             return;
         for (int l = 0; l < h.packet_lines; ++l) {
             int chip_count = 0;
-            for (int p = 0; p < h.num_ports; ++p) {
-                valid_data = v[p];
-                src128 = s[p];
-                for (int c = 0; c < h.port_horz_chips; ++c) {
+            for (int i = 0; i < NbIfaces; ++i) {
+                valid_data = v[i];
+                src128 = s[i];
+                for (int c = 0; c < IfaceHorzChips; ++c) {
                     for (int b = 0; b < h.chip_blocks; ++b)
                         load_shift_store128();
                     if (++chip_count % hm_chips > 0)
                         pad_dst128();
                 }
-                s[p] += h.port_blocks;
+                s[i] += h.iface_blocks;
             }
         }
     }
     sync_dst128();
 }
 
-void Eiger::Expand4BitsHelper::assemblePackets(BlockPtr block[2], char *buf) {
-    Worker w(*this);
-    w.assemblePackets(block, buf);
-}
-
-namespace FrameAssembler {
-namespace Eiger {
-
 /**
  * CopyHelper
  */
 
-class CopyHelper : public StdFrameAssembler::Helper {
-  public:
-    CopyHelper(GeneralDataPtr gd, bool flipped) : Helper(gd, flipped) {}
+template <class P, class RG> struct CopyHelper : GeomHelper<P, RG> {
 
-    virtual void assemblePackets(BlockPtr block[2], char *buf) override;
+    using H = GeomHelper<P, RG>;
+    using BlockPtr = typename H::BlockPtr;
+
+    void assemblePackets(BlockPtr block[NbIfaces], char *buf);
 };
 
-} // namespace Eiger
-} // namespace FrameAssembler
-
-void Eiger::CopyHelper::assemblePackets(BlockPtr block[2], char *buf) {
-    int packet = first_idx;
-    char *d = buf + dst.offset;
-    for (int i = 0; i < frame_packets; ++i, packet += idx_inc) {
-        Packet line_packet[2] = {(*block[0])[packet], (*block[1])[packet]};
-        char *s[num_ports] = {line_packet[0].data() + src.offset,
-                              line_packet[1].data() + src.offset};
-        for (int l = 0; l < packet_lines; ++l) {
+template <class P, class RG>
+void CopyHelper<P, RG>::assemblePackets(BlockPtr block[NbIfaces], char *buf) {
+    H h;
+    int packet = h.src_first_packet;
+    char *d = buf;
+    for (int p = 0; p < h.frame_packets; ++p, packet += h.src_dir) {
+        Packet<P> line_packet[NbIfaces] = {(*block[0])[packet],
+                                           (*block[1])[packet]};
+        char *s[NbIfaces] = {line_packet[0].data() + h.src_offset,
+                             line_packet[1].data() + h.src_offset};
+        for (int l = 0; l < h.packet_lines; ++l) {
             char *ld = d;
-            for (int p = 0; p < num_ports; ++p) {
-                char *ls = s[p];
-                for (int c = 0; c < port_horz_chips; ++c) {
-                    if (line_packet[p].valid())
-                        memcpy(ld, ls, src.chip_size);
+            for (int i = 0; i < NbIfaces; ++i) {
+                char *ls = s[i];
+                for (int c = 0; c < IfaceHorzChips; ++c) {
+                    if (line_packet[i].valid())
+                        memcpy(ld, ls, h.src_chip_size);
                     else
-                        memset(ld, 0xff, src.chip_size);
-                    ls += src.chip_size;
-                    ld += dst.chip_size;
+                        memset(ld, 0xff, h.src_chip_size);
+                    ls += h.src_chip_size;
+                    ld += h.dst_chip_size;
                 }
-                s[p] += src.line_size;
+                s[i] += h.src_line_step;
             }
-            d += dst.line_size;
+            d += h.dst_line_size;
         }
     }
 }
 
 /**
- * Eiger::StdFrameAssembler
+ * StdFrameAssembler
  */
 
-Eiger::StdFrameAssembler::StdFrameAssembler(DefaultFrameAssemblerBase::Ptr a[2],
-                                            bool flipped)
-    : DualPortFrameAssembler(a) {
-    GeneralDataPtr gd = a[0]->getGeneralData();
-    if (!gd->tgEnable) {
-        const char *error = "10 Giga not enabled!";
-        std::cerr << error << std::endl;
-        throw std::runtime_error(error);
-    }
-
-    Helper *h;
-    if (a[0]->doExpand4Bits())
-        h = new Expand4BitsHelper(gd, flipped);
-    else
-        h = new CopyHelper(gd, flipped);
-    helper = h;
-}
-
-Eiger::StdFrameAssembler::~StdFrameAssembler() { delete helper; }
-
-Result Eiger::StdFrameAssembler::assembleFrame(uint64_t frame,
-                                               RecvHeader *recv_header,
-                                               char *buf) {
+template <class P, class FP, class RG>
+Result StdFrameAssembler<P, FP, RG>::assembleFrame(uint64_t frame,
+                                                   RecvHeader *recv_header,
+                                                   char *buf) {
     PortsMask mask;
-
-    const int num_ports = 2;
-
-    Assembler *a[num_ports] = {
-        reinterpret_cast<Assembler *>(assembler[0].get()),
-        reinterpret_cast<Assembler *>(assembler[1].get())};
     bool header_empty = true;
 
     DetHeader *det_header = &recv_header->detHeader;
     det_header->frameNumber = frame;
     det_header->packetNumber = 0;
 
-    Helper::BlockPtr block[num_ports];
-    for (int i = 0; i < num_ports; ++i) {
-        Helper::Stream *ps = a[i]->packet_stream.get();
-        block[i] = std::move(ps->getPacketBlock(frame));
+    BlockPtr block[NbIfaces] = {stream[0]->getPacketBlock(frame),
+                                stream[1]->getPacketBlock(frame)};
+    for (int i = 0; i < NbIfaces; ++i) {
         int packet_count = block[i] ? block[i]->getValidPackets() : 0;
         if (packet_count == 0)
             continue;
@@ -383,19 +320,49 @@ Result Eiger::StdFrameAssembler::assembleFrame(uint64_t frame,
 
         // write header
         if (header_empty) {
-            Packet p = (*block[i])[0];
+            Packet<P> p = (*block[i])[0];
             p.fillDetHeader(det_header);
             header_empty = false;
         }
     }
 
-    FramePolicy policy = a[0]->frame_policy;
-    bool fp_partial = (policy == slsDetectorDefs::DISCARD_PARTIAL_FRAMES);
-    if (fp_partial && (mask.count() != num_ports))
-        return Result{num_ports, 0};
+    constexpr bool fp_partial = std::is_same_v<FP, PartialFrameDiscard>;
+    if (fp_partial && (mask.count() != NbIfaces))
+        return Result{NbIfaces, 0};
 
     if (mask.any() && buf)
-        helper->assemblePackets(block, buf);
+        helper.assemblePackets(block, buf);
 
-    return Result{num_ports, mask};
+    return Result{NbIfaces, mask};
+}
+
+} // namespace Eiger
+} // namespace FrameAssembler
+
+FrameAssemblerPtr
+FAEiger::CreateStdFrameAssembler(int pixel_bpp, FramePolicy fp, bool enable_tg,
+                                 int recv_idx, DefaultFrameAssemblerList a) {
+
+    if (!enable_tg) {
+        const char *error = "10 Giga not enabled!";
+        std::cerr << error << std::endl;
+        throw std::runtime_error(error);
+    }
+
+    auto any_pixel = AnyPixelFromBpp(pixel_bpp);
+    auto any_fp = AnyFramePolicyFromFP(fp);
+    auto any_geom = GeomEiger::AnyRecvGeomFromIndex<StdFmt>(recv_idx);
+
+    return std::visit(
+        [&](auto pixel, auto fp, auto geom) -> FrameAssemblerPtr {
+            using P = decltype(pixel);
+            using FP = decltype(fp);
+            using RG = decltype(geom);
+            using Assembler = StdFrameAssembler<P, FP, RG>;
+            typename Assembler::StreamList s;
+            auto f = [](auto a) { return Assembler::rawAssemblerStream(a); };
+            std::transform(std::begin(a), std::end(a), std::begin(s), f);
+            return std::make_shared<Assembler>(s);
+        },
+        any_pixel, any_fp, any_geom);
 }

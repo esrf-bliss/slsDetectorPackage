@@ -23,7 +23,7 @@ class bad_mmap_alloc : public std::bad_alloc {
     std::string msg;
 };
 
-class MmappedRegion {
+template <typename T> class MmappedRegion {
   public:
     MmappedRegion(size_t size = 0, unsigned long node_mask = 0,
                   int max_node = 0);
@@ -31,13 +31,15 @@ class MmappedRegion {
 
     void alloc(size_t size, unsigned long node_mask = 0, int max_node = 0);
     void release();
-    char *getPtr() { return ptr; }
+    T *getPtr() { return ptr; }
 
     void clear();
 
   private:
-    char *ptr;
+    T *ptr;
     size_t len;
 };
 
 } // namespace FrameAssembler
+
+#include "MmappedRegion.cxx"

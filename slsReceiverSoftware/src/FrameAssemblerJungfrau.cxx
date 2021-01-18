@@ -5,28 +5,33 @@
  * This file is include in FrameAssembler.cpp
  ***********************************************/
 
+namespace FAJungfrau = FrameAssembler::Jungfrau;
+namespace GeomJungfrau = sls::Geom::Jungfrau;
+
 namespace FrameAssembler {
 namespace Jungfrau {
+
+constexpr int IfaceHorzChips = GeomJungfrau::IfaceChips<1>.x;
 
 /**
  * Sequence of Jungfrau packets
  */
 
-template <int NbUDPIfaces>
-inline uint32_t
-PacketData<NbUDPIfaces>::StreamData::getPacketNumber(uint32_t packet_idx) {
-    const int FramePackets = 128;
-    const int FirstBottom = FramePackets / 2;
-    const int FirstTop = FirstBottom - 1;
-    const int DirBottom = 1;
-    const int DirTop = -1;
-    if (NbUDPIfaces == 1) {
+template <int NbUDPIfaces, int Idx>
+uint32_t StreamData<NbUDPIfaces, Idx>::getPacketNumber(uint32_t packet_idx) {
+    constexpr int FramePackets = Jungfrau::FramePackets<NbUDPIfaces>;
+    constexpr int DirBottom = 1;
+    constexpr int DirTop = -1;
+    if constexpr (NbUDPIfaces == 1) {
+        constexpr int FirstBottom = FramePackets / 2;
+        constexpr int FirstTop = FirstBottom - 1;
         bool top = ((packet_idx % 2) == 0);
         int rel_row = packet_idx / 2;
         int first = top ? FirstTop : FirstBottom;
         int dir = top ? DirTop : DirBottom;
         return first + rel_row * dir;
-    } else if (stream_idx == 0) {
+    } else if constexpr (Idx == 0) {
+        constexpr int FirstTop = FramePackets - 1;
         return FirstTop + packet_idx * DirTop;
     } else {
         return packet_idx;
@@ -34,197 +39,188 @@ PacketData<NbUDPIfaces>::StreamData::getPacketNumber(uint32_t packet_idx) {
 }
 
 /**
- * RawFrameAssembler
+ * GeomHelper
  */
 
-template <int NbUDPIfaces>
-RawFrameAssembler<NbUDPIfaces>::RawFrameAssembler(
-    DefaultFrameAssemblerBase::Ptr a[NbUDPIfaces]) {
-    for (int i = 0; i < NbUDPIfaces; ++i)
-        assembler[i] = a[i];
-}
+template <int NbUDPIfaces, int Idx> struct GeomHelper {
 
-template <int NbUDPIfaces>
-Result RawFrameAssembler<NbUDPIfaces>::assembleFrame(uint64_t frame,
-                                                     RecvHeader *recv_header,
-                                                     char *buf) {
-    Result res{NbUDPIfaces, 0};
-    for (int i = 0; i < NbUDPIfaces; ++i) {
-        Result r = assembler[i]->assembleFrame(frame, recv_header, buf);
-        res.valid_data[i] = r.valid_data[0];
-        if ((NbUDPIfaces == 2) && buf)
-            buf += assembler[i]->getImageSize();
+    using SrcPixel = Pixel;
+    using DstPixel = Pixel;
+
+#define SCA static constexpr auto
+#define SCI static constexpr int
+
+    SCI PacketPixels = PacketDataLen / SrcPixel::depth();
+
+    using BlockPtr = PacketBlockPtr<Packet<NbUDPIfaces>>;
+
+    // raw (packet) geometry
+    SCA RawIfaceGeom = GeomJungfrau::IfaceGeom<NbUDPIfaces, Idx, RawFmt>;
+    SCA RawIfaceSize = RawIfaceGeom.size;
+    // std (image) geometry
+    SCA RecvGeom = GeomJungfrau::RecvGeom<NbUDPIfaces, StdFmt>;
+    SCA RecvView = RecvGeom.view;
+    SCA IfaceGeom1 = RecvGeom.getIfaceGeom(XY{0, 0});
+    SCA IfaceView1 = IfaceGeom1.view;
+
+    SCA getPacketView(int PacketIdx) {
+        return IfaceGeom1.getPacketView(PacketPixels, PacketIdx);
     }
-    return res;
-}
 
-template <int NbUDPIfaces> void RawFrameAssembler<NbUDPIfaces>::stop() {
-    for (int i = 0; i < NbUDPIfaces; ++i)
-        assembler[i]->stop();
-}
+    SCI chip_cols = GeomJungfrau::ChipPixels.x;
+    SCI chip_lines = GeomJungfrau::ChipPixels.y;
+    SCI chip_gap_lines = GeomJungfrau::ChipGap.y;
+    SCI frame_packets = FramePackets<NbUDPIfaces>;
+    SCI packet_lines = RawIfaceSize.y / frame_packets;
+    SCI flipped = (RecvView.pixelDir().y < 0);
+    SCI src_pixel_size = SrcPixel::depth();
+    SCI src_chip_size = chip_cols * src_pixel_size;
+    SCI src_line_size = RawIfaceSize.x * src_pixel_size;
+    SCI src_dir = flipped ? -1 : 1;
+    SCI src_line_step = src_line_size * src_dir;
+    SCI dst_pixel_size = DstPixel::depth();
+    SCI dst_chip_pixels = IfaceGeom1.chip_step.x;
+    SCI dst_chip_size = dst_chip_pixels * dst_pixel_size;
+    SCI dst_line_size = RecvView.pixelStep().y * dst_pixel_size * src_dir;
+    SCI src_first_line = IfaceView1.calcViewOrigin().y;
+    SCI src_first_packet = src_first_line / packet_lines;
+    SCA first_packet_view = getPacketView(src_first_packet);
+    SCA first_packet_offset = first_packet_view.calcViewOrigin();
+    SCI src_offset = first_packet_offset.y * src_line_size;
+    SCI iface_step = RecvGeom.iface_step.y * dst_line_size;
 
-// template instantiation
-template class RawFrameAssembler<1>;
-template class RawFrameAssembler<2>;
+#undef SCI
+#undef SCA
+};
+
+/**
+ * CopyHelper
+ */
+
+template <int NbUDPIfaces, int Idx>
+struct CopyHelper : GeomHelper<NbUDPIfaces, Idx> {
+
+    using H = GeomHelper<NbUDPIfaces, Idx>;
+    using BlockPtr = typename H::BlockPtr;
+
+    static void assemblePackets(BlockPtr block, char *buf);
+};
+
+template <int NbUDPIfaces, int Idx>
+void CopyHelper<NbUDPIfaces, Idx>::assemblePackets(BlockPtr block, char *buf) {
+    H h;
+    char *d = buf;
+    int line = 0;
+    int packet = h.src_first_packet;
+    for (int p = 0; p < h.frame_packets; ++p, packet += h.src_dir) {
+        if ((NbUDPIfaces == 1) && (line > 0) && ((line % h.chip_lines) == 0))
+            d += h.dst_line_size * h.chip_gap_lines;
+        auto line_packet = (*block)[packet];
+        char *s = line_packet.data() + h.src_offset;
+        for (int l = 0; l < h.packet_lines; ++l, ++line) {
+            char *ld = d;
+            char *ls = s;
+            for (int c = 0; c < IfaceHorzChips; ++c) {
+                if (line_packet.valid())
+                    memcpy(ld, ls, h.src_chip_size);
+                else
+                    memset(ld, 0xff, h.src_chip_size);
+                ls += h.src_chip_size;
+                ld += h.dst_chip_size;
+            }
+            s += h.src_line_step;
+            d += h.dst_line_size;
+        }
+    }
+}
 
 /**
  * StdFrameAssembler
  */
 
-template <int NbUDPIfaces> class StdFrameAssembler<NbUDPIfaces>::Helper {
-  public:
-    using Packet = Jungfrau::Packet<NbUDPIfaces>;
-    using BlockPtr = PacketBlockPtr<Packet>;
-    using Stream = PacketStream<Packet>;
+template <int NbUDPIfaces, class FP>
+template <int Idx>
+void StdFrameAssembler<NbUDPIfaces, FP>::Worker::assembleIface(Stream<Idx> *s) {
+    auto block = s->getPacketBlock(frame);
+    int packet_count = block ? block->getValidPackets() : 0;
+    if (packet_count == 0)
+        return;
 
-    Helper(GeneralDataPtr gd);
-    virtual ~Helper() {}
+    mask.set(Idx, true);
+    det_header->packetNumber += packet_count;
 
-    float getSrcPixelBytes() { return general_data->GetPixelDepth(); }
-
-    float getDstPixelBytes() {
-        int factor = (general_data->dynamicRange == 4) ? 2 : 1;
-        return getSrcPixelBytes() * factor;
-    }
-
-    virtual void assemblePackets(BlockPtr block[NbUDPIfaces], char *buf) = 0;
-
-  protected:
-    static const int chip_size = 256;
-    static const int chip_gap = 2;
-    static const int nb_horz_chips = 4;
-    static const int nb_vert_chips = 2;
-
-    struct Geometry {
-        float pixel_size;
-        int chip_size;
-        int line_size;
-    };
-
-    GeneralDataPtr general_data;
-    int frame_packets;
-    int packet_lines;
-    Geometry src;
-    Geometry dst;
-};
-
-template <int NbUDPIfaces>
-StdFrameAssembler<NbUDPIfaces>::Helper::Helper(GeneralDataPtr gd)
-    : general_data(gd) {
-    frame_packets = gd->packetsPerFrame;
-    int port_vert_chips = nb_vert_chips / NbUDPIfaces;
-    packet_lines = port_vert_chips * chip_size / frame_packets;
-    src.pixel_size = getSrcPixelBytes();
-    src.chip_size = chip_size * src.pixel_size;
-    src.line_size = nb_horz_chips * src.chip_size;
-    dst.pixel_size = getDstPixelBytes();
-    dst.chip_size = (chip_size + chip_gap) * dst.pixel_size;
-    dst.line_size = gd->nPixelsX * dst.pixel_size;
-}
-
-template <int NbUDPIfaces>
-class CopyHelper : public StdFrameAssembler<NbUDPIfaces>::Helper {
-  public:
-    using Helper = typename StdFrameAssembler<NbUDPIfaces>::Helper;
-    using BlockPtr = typename Helper::BlockPtr;
-
-    CopyHelper(GeneralDataPtr gd) : Helper(gd) {}
-
-    virtual void assemblePackets(BlockPtr block[NbUDPIfaces],
-                                 char *buf) override;
-};
-
-template <int NbUDPIfaces>
-void CopyHelper<NbUDPIfaces>::assemblePackets(BlockPtr block[NbUDPIfaces],
-                                              char *buf) {
-    using H = Helper;
-    char *d = buf;
-    int line = 0;
-    for (int i = 0; i < NbUDPIfaces; ++i) {
-        BlockPtr b = std::move(block[i]);
-        for (int p = 0; p < H::frame_packets; ++p) {
-            if ((line > 0) && ((line % H::chip_size) == 0))
-                d += H::dst.line_size * H::chip_gap;
-            typename H::Packet line_packet = (*b)[p];
-            char *s = line_packet.data();
-            for (int l = 0; l < H::packet_lines; ++l, ++line) {
-                char *ld = d;
-                char *ls = s;
-                for (int c = 0; c < H::nb_horz_chips; ++c) {
-                    if (line_packet.valid())
-                        memcpy(ld, ls, H::src.chip_size);
-                    else
-                        memset(ld, 0xff, H::src.chip_size);
-                    ls += H::src.chip_size;
-                    ld += H::dst.chip_size;
-                }
-                s += H::src.line_size;
-                d += H::dst.line_size;
-            }
-        }
-    }
-}
-
-template <int NbUDPIfaces>
-StdFrameAssembler<NbUDPIfaces>::StdFrameAssembler(
-    DefaultFrameAssemblerBase::Ptr a[NbUDPIfaces]) {
-    for (int i = 0; i < NbUDPIfaces; ++i)
-        assembler[i] = a[i];
-    helper = new CopyHelper<NbUDPIfaces>(assembler[0]->getGeneralData());
-}
-
-template <int NbUDPIfaces>
-StdFrameAssembler<NbUDPIfaces>::~StdFrameAssembler() {
-    delete helper;
-}
-
-template <int NbUDPIfaces>
-Result StdFrameAssembler<NbUDPIfaces>::assembleFrame(uint64_t frame,
-                                                     RecvHeader *recv_header,
-                                                     char *buf) {
-    Result res{NbUDPIfaces, 0};
-
-    DetHeader *det_header = &recv_header->detHeader;
-    det_header->frameNumber = frame;
-    det_header->packetNumber = 0;
-
-    using BlockPtr = typename Helper::BlockPtr;
-    using Packet = typename Helper::Packet;
-    using Stream = typename Helper::Stream;
-    using Assembler = Jungfrau::Assembler<NbUDPIfaces>;
-
-    BlockPtr block[NbUDPIfaces];
-
-    for (int i = 0; i < NbUDPIfaces; ++i) {
-        Assembler *a = reinterpret_cast<Assembler *>(assembler[i].get());
-        Stream *ps = a->packet_stream.get();
-        block[i] = std::move(ps->getPacketBlock(frame));
-        int packet_count = block[i] ? block[i]->getValidPackets() : 0;
-        res.valid_data[i] = (packet_count > 0);
-        if (!res.valid_data[i])
-            continue;
-
-        det_header->packetNumber += packet_count;
-
-        // write header
-        Packet p = (*block[i])[0];
+    // write header
+    if (header_empty) {
+        auto p = (*block)[0];
         p.fillDetHeader(det_header);
+        header_empty = false;
     }
 
-    if (res.valid_data.any() && buf)
-        helper->assemblePackets(block, buf);
-
-    return res;
+    using Helper = CopyHelper<NbUDPIfaces, Idx>;
+    Helper::assemblePackets(std::move(block), buf);
+    if (buf)
+        buf += Helper::iface_step;
 }
 
-template <int NbUDPIfaces> void StdFrameAssembler<NbUDPIfaces>::stop() {
-    for (int i = 0; i < NbUDPIfaces; ++i)
-        assembler[i]->stop();
+template <int NbUDPIfaces, class FP>
+Result StdFrameAssembler<NbUDPIfaces, FP>::Worker::result() {
+    constexpr bool fp_partial = std::is_same_v<FP, PartialFrameDiscard>;
+    if (fp_partial && (mask.count() != NbUDPIfaces))
+        return Result{NbUDPIfaces, 0};
+
+    return Result{NbUDPIfaces, mask};
 }
 
-// template instantiation
-template class StdFrameAssembler<1>;
-template class StdFrameAssembler<2>;
+template <int NbUDPIfaces, class FP>
+Result StdFrameAssembler<NbUDPIfaces, FP>::assembleFrame(
+    uint64_t frame, RecvHeader *recv_header, char *buf) {
+    Worker w(frame, recv_header, buf);
+
+    for (int i = 0; i < NbUDPIfaces; ++i) {
+        if (i == 0)
+            w.template assembleIface<0>(std::get<0>(stream));
+        else if constexpr (NbUDPIfaces == 2)
+            w.template assembleIface<1>(std::get<1>(stream));
+    }
+
+    return w.result();
+}
+
+template <int NbUDPIfaces, class FP>
+void StdFrameAssembler<NbUDPIfaces, FP>::stop() {
+    for (int i = 0; i < NbUDPIfaces; ++i) {
+        if (i == 0)
+            std::get<0>(stream)->stop();
+        else if constexpr (NbUDPIfaces == 2)
+            std::get<1>(stream)->stop();
+    }
+}
 
 } // namespace Jungfrau
 } // namespace FrameAssembler
+
+FrameAssemblerPtr
+FAJungfrau::CreateStdFrameAssembler(int num_udp_ifaces, FramePolicy fp,
+                                    DefaultFrameAssemblerList a) {
+    auto any_policy = AnyFramePolicyFromFP(fp);
+    auto any_nb_ifaces =
+        GeomJungfrau::AnyNbUDPIfacesFromNbUDPIfaces(num_udp_ifaces);
+
+    return std::visit(
+        [&](auto fp, auto nb) -> FrameAssemblerPtr {
+            using FP = decltype(fp);
+            constexpr int nb_ifaces = nb();
+            using Assembler = StdFrameAssembler<nb_ifaces, FP>;
+            typename Assembler::StreamList s;
+            for (int i = 0; i < nb_ifaces; ++i) {
+                if (i == 0)
+                    std::get<0>(s) =
+                        Assembler::template rawAssemblerStream<0>(a[0]);
+                else if constexpr (nb_ifaces == 2)
+                    std::get<1>(s) =
+                        Assembler::template rawAssemblerStream<1>(a[1]);
+            }
+            return std::make_shared<Assembler>(s);
+        },
+        any_policy, any_nb_ifaces);
+}

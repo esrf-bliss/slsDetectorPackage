@@ -10,42 +10,79 @@ namespace FrameAssembler {
 
 namespace Eiger {
 
-struct PacketData : public PacketDataBase {};
+constexpr int NbIfaces = sls::Geom::Eiger::RecvIfaces.x;
 
-using Packet = StdPacketImpl<PacketData>;
-using Assembler = DefaultFrameAssembler<Packet>;
-
-/**
- *@short Eiger frame assembler in raw mode: 2x Default frame assemblers
- */
-
-class RawFrameAssembler : public DualPortFrameAssembler {
-
-  public:
-    RawFrameAssembler(DefaultFrameAssemblerBase::Ptr a[2]);
-
-    Result assembleFrame(uint64_t frame, RecvHeader *recv_header,
-                         char *buf) override;
+struct TenGigaDisable {
+    static constexpr int PacketDataLen = 1024;
 };
+struct TenGigaEnable {
+    static constexpr int PacketDataLen = 4096;
+};
+
+using AnyTenGiga = std::variant<TenGigaDisable, TenGigaEnable>;
+
+constexpr auto RawIfaceGeom = sls::Geom::Eiger::RawIfaceGeom;
+
+template <class Pixel, class TenGiga = TenGigaEnable>
+constexpr int PacketPixels = TenGiga::PacketDataLen / Pixel::depth();
+
+template <class Pixel, class TenGiga = TenGigaEnable>
+constexpr int
+    FramePackets = RawIfaceGeom.calcFramePackets(PacketPixels<Pixel, TenGiga>);
+
+template <class Pixel, class TenGiga = TenGigaEnable>
+using PacketData = FrameAssembler::StdPacketData<TenGiga::PacketDataLen,
+                                                 FramePackets<Pixel, TenGiga>>;
+
+template <class Pixel, class TenGiga = TenGigaEnable>
+using Packet = FrameAssembler::StdPacket<PacketData<Pixel, TenGiga>>;
+
+//  SP: Src Pixel, FP: Frame discard policy, DP: DstPixel
+template <class SP, class FP, class DP = SP, class TenGiga = TenGigaEnable>
+using Assembler = FrameAssembler::DefaultFrameAssembler<
+    Packet<SP, TenGiga>, StreamData<Packet<SP, TenGiga>>, FP, SP, DP>;
 
 /**
  *@short Eiger frame assembler in std mode: port interleaving
  */
 
-class StdFrameAssembler : public DualPortFrameAssembler {
+template <class P, class RG> struct Expand4BitsHelper;
+template <class P, class RG> struct CopyHelper;
 
+template <class P, class FP, class RG>
+class StdFrameAssembler : public FrameAssemblerBase {
   public:
-    StdFrameAssembler(DefaultFrameAssemblerBase::Ptr a[2], bool flipped);
-    ~StdFrameAssembler();
+    using Helper =
+        std::conditional_t<std::is_same_v<P, Pixel4>, Expand4BitsHelper<P, RG>,
+                           CopyHelper<P, RG>>;
+    using DP = typename Helper::DstPixel;
+    using BlockPtr = typename Helper::BlockPtr;
+    using RealAssembler = Assembler<P, FP, DP>;
+    using Stream =
+        std::decay_t<decltype(std::declval<RealAssembler>().getStream())>;
+    using StreamList = std::array<Stream *, NbIfaces>;
+
+    StdFrameAssembler(StreamList s) : stream(s) {}
 
     Result assembleFrame(uint64_t frame, RecvHeader *recv_header,
                          char *buf) override;
+    void stop() override {
+        for (auto s : stream)
+            s->stop();
+    }
 
-    class Helper;
+    static auto rawAssemblerStream(DefaultFrameAssemblerPtr a) {
+        return &dynamic_cast<RealAssembler *>(a.get())->getStream();
+    }
 
-  protected:
-    Helper *helper;
+  private:
+    StreamList stream;
+    Helper helper;
 };
+
+FrameAssemblerPtr CreateStdFrameAssembler(int pixel_bpp, FramePolicy fp,
+                                          bool enable_tg, int recv_idx,
+                                          DefaultFrameAssemblerList a);
 
 } // namespace Eiger
 } // namespace FrameAssembler

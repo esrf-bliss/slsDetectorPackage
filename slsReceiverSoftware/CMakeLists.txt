@@ -11,7 +11,6 @@ set(SOURCES
     src/DataProcessor.cpp
     src/DataStreamer.cpp
     src/Fifo.cpp
-    src/MmappedRegion.cpp
     src/FrameAssembler.cpp
 )
 
