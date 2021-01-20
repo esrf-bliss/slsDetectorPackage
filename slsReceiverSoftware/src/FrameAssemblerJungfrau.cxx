@@ -69,7 +69,6 @@ template <int NbUDPIfaces, int Idx> struct GeomHelper {
 
     SCI chip_cols = GeomJungfrau::ChipPixels.x;
     SCI chip_lines = GeomJungfrau::ChipPixels.y;
-    SCI chip_gap_lines = GeomJungfrau::ChipGap.y;
     SCI frame_packets = FramePackets<NbUDPIfaces>;
     SCI packet_lines = RawIfaceSize.y / frame_packets;
     SCI flipped = (RecvView.pixelDir().y < 0);
@@ -82,12 +81,16 @@ template <int NbUDPIfaces, int Idx> struct GeomHelper {
     SCI dst_chip_pixels = IfaceGeom1.chip_step.x;
     SCI dst_chip_size = dst_chip_pixels * dst_pixel_size;
     SCI dst_line_size = RecvView.pixelStep().y * dst_pixel_size * src_dir;
+    SCI chip_gap_cols = GeomJungfrau::ChipGap.x;
+    SCI chip_gap_lines = GeomJungfrau::ChipGap.y;
+    SCI gap_cols_size = chip_gap_cols * dst_pixel_size;
+    SCI gap_lines_size = chip_gap_lines * dst_line_size;
     SCI src_first_line = IfaceView1.calcViewOrigin().y;
     SCI src_first_packet = src_first_line / packet_lines;
     SCA first_packet_view = getPacketView(src_first_packet);
     SCA first_packet_offset = first_packet_view.calcViewOrigin();
     SCI src_offset = first_packet_offset.y * src_line_size;
-    SCI iface_step = RecvGeom.iface_step.y * dst_line_size;
+    SCI dst_iface_step = RecvGeom.iface_step.y * dst_line_size;
 
 #undef SCI
 #undef SCA
@@ -113,8 +116,6 @@ void CopyHelper<NbUDPIfaces, Idx>::assemblePackets(BlockPtr block, char *buf) {
     int line = 0;
     int packet = h.src_first_packet;
     for (int p = 0; p < h.frame_packets; ++p, packet += h.src_dir) {
-        if ((NbUDPIfaces == 1) && (line > 0) && ((line % h.chip_lines) == 0))
-            d += h.dst_line_size * h.chip_gap_lines;
         auto line_packet = (*block)[packet];
         char *s = line_packet.data() + h.src_offset;
         for (int l = 0; l < h.packet_lines; ++l, ++line) {
@@ -125,11 +126,19 @@ void CopyHelper<NbUDPIfaces, Idx>::assemblePackets(BlockPtr block, char *buf) {
                     memcpy(ld, ls, h.src_chip_size);
                 else
                     memset(ld, 0xff, h.src_chip_size);
+                bool fill_chip_gap_cols = (c < IfaceHorzChips - 1);
+                if (fill_chip_gap_cols)
+                    memset(ld + h.src_chip_size, 0, h.gap_cols_size);
                 ls += h.src_chip_size;
                 ld += h.dst_chip_size;
             }
             s += h.src_line_step;
             d += h.dst_line_size;
+        }
+        bool fill_chip_gap_lines = ((Idx == 0) && (line == h.chip_lines));
+        if (fill_chip_gap_lines) {
+            memset(d, 0, h.gap_lines_size);
+            d += h.gap_lines_size;
         }
     }
 }
@@ -159,7 +168,7 @@ void StdFrameAssembler<NbUDPIfaces, FP>::Worker::assembleIface(Stream<Idx> *s) {
     using Helper = CopyHelper<NbUDPIfaces, Idx>;
     Helper::assemblePackets(std::move(block), buf);
     if (buf)
-        buf += Helper::iface_step;
+        buf += Helper::dst_iface_step;
 }
 
 template <int NbUDPIfaces, class FP>

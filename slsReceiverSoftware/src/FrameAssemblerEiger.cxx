@@ -56,11 +56,16 @@ template <class P, class RG> struct GeomHelper {
     SCI dst_chip_pixels = IfaceGeom1.chip_step.x;
     SCI dst_chip_size = dst_chip_pixels * dst_pixel_size;
     SCI dst_line_size = RecvView.pixelStep().y * dst_pixel_size * src_dir;
+    SCI chip_gap_cols = GeomEiger::ChipGap.x;
+    SCI chip_gap_lines = GeomEiger::ChipGap.y;
+    SCI gap_cols_size = chip_gap_cols * dst_pixel_size;
+    SCI gap_lines_size = chip_gap_lines * dst_line_size;
     SCI src_first_line = IfaceView1.calcViewOrigin().y;
     SCI src_first_packet = src_first_line / packet_lines;
     SCA first_packet_view = getPacketView(src_first_packet);
     SCA first_packet_offset = first_packet_view.calcViewOrigin();
     SCI src_offset = first_packet_offset.y * src_line_size;
+    SCI dst_iface_step = RecvGeom.iface_step.y * dst_line_size;
 
 #undef SCF
 #undef SCI
@@ -251,6 +256,11 @@ void Expand4BitsHelper<P, RG>::Worker::assemblePackets(BlockPtr block[NbIfaces],
         }
     }
     sync_dst128();
+
+    constexpr bool top_recv = h.flipped;
+    bool fill_chip_gap_lines = top_recv;
+    if (fill_chip_gap_lines)
+        memset(buf + h.dst_iface_step - h.gap_lines_size, 0, h.gap_lines_size);
 }
 
 /**
@@ -284,6 +294,10 @@ void CopyHelper<P, RG>::assemblePackets(BlockPtr block[NbIfaces], char *buf) {
                         memcpy(ld, ls, h.src_chip_size);
                     else
                         memset(ld, 0xff, h.src_chip_size);
+                    bool fill_chip_gap_cols =
+                        ((i == 0) || (c < IfaceHorzChips - 1));
+                    if (fill_chip_gap_cols)
+                        memset(ld + h.src_chip_size, 0, h.gap_cols_size);
                     ls += h.src_chip_size;
                     ld += h.dst_chip_size;
                 }
@@ -292,6 +306,10 @@ void CopyHelper<P, RG>::assemblePackets(BlockPtr block[NbIfaces], char *buf) {
             d += h.dst_line_size;
         }
     }
+    constexpr bool top_recv = h.flipped;
+    bool fill_chip_gap_lines = top_recv;
+    if (fill_chip_gap_lines)
+        memset(d, 0, h.gap_lines_size);
 }
 
 /**
