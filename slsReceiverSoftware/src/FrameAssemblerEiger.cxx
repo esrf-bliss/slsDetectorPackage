@@ -313,13 +313,13 @@ void CopyHelper<P, RG>::assemblePackets(BlockPtr block[NbIfaces], char *buf) {
 }
 
 /**
- * StdFrameAssembler
+ * FrameAssembler
  */
 
 template <class P, class FP, class RG>
-Result StdFrameAssembler<P, FP, RG>::assembleFrame(uint64_t frame,
-                                                   RecvHeader *recv_header,
-                                                   char *buf) {
+Result FrameAssembler<P, FP, RG>::assembleFrame(uint64_t frame,
+                                                RecvHeader *recv_header,
+                                                char *buf) {
     PortsMask mask;
     bool header_empty = true;
 
@@ -357,9 +357,9 @@ Result StdFrameAssembler<P, FP, RG>::assembleFrame(uint64_t frame,
 } // namespace Eiger
 } // namespace FrameAssembler
 
-FrameAssemblerPtr
-FAEiger::CreateStdFrameAssembler(int pixel_bpp, FramePolicy fp, bool enable_tg,
-                                 int recv_idx, DefaultFrameAssemblerList a) {
+FrameAssemblerPtr FAEiger::CreateFrameAssembler(int pixel_bpp, FramePolicy fp,
+                                                bool enable_tg, int recv_idx,
+                                                DefaultFrameAssemblerList a) {
 
     if (!enable_tg) {
         const char *error = "10 Giga not enabled!";
@@ -369,14 +369,14 @@ FAEiger::CreateStdFrameAssembler(int pixel_bpp, FramePolicy fp, bool enable_tg,
 
     auto any_pixel = AnyPixelFromBpp(pixel_bpp);
     auto any_fp = AnyFramePolicyFromFP(fp);
-    auto any_geom = GeomEiger::AnyRecvGeomFromIndex<StdFmt>(recv_idx);
+    auto any_geom = GeomEiger::AnyRecvGeomFromIndex<AsmWithGapFmt>(recv_idx);
 
     return std::visit(
         [&](auto pixel, auto fp, auto geom) -> FrameAssemblerPtr {
             using P = decltype(pixel);
             using FP = decltype(fp);
             using RG = decltype(geom);
-            using Assembler = StdFrameAssembler<P, FP, RG>;
+            using Assembler = FrameAssembler<P, FP, RG>;
             typename Assembler::StreamList s;
             auto f = [](auto a) { return Assembler::rawAssemblerStream(a); };
             std::transform(std::begin(a), std::end(a), std::begin(s), f);

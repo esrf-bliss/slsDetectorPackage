@@ -138,25 +138,66 @@ struct RawFmt {
 };
 
 /*
- * Std format: the geometry is reconstructed including chip/mod gap pixels
+ * Asm format: the geometry is reconstructed
  */
 
-struct StdFmt {
+template <bool WithGap> constexpr auto EffectiveGap(const XY &gap) {
+    return WithGap ? gap : XY0;
+}
+
+constexpr auto CalcAsmArraySize(const XY &elem_size, const XY &array_size,
+                                const XY &gap) {
+    return (elem_size * array_size + (array_size - XY1) * gap);
+}
+
+constexpr auto GetAsmElementView(const XY &elem_size, const XY &array_size,
+                                 const XY &gap, const XY &idx,
+                                 const MapView &view, const XY &flip) {
+    return view.getSubView((elem_size + gap) * idx, elem_size, flip);
+}
+
+/*
+ * AsmWithNoGap format: the geometry is reconstructed, no chip/mod gap pixels
+ */
+
+struct AsmWithNoGapFmt {
     static constexpr auto calcArraySize(const XY &elem_size,
                                         const XY &array_size, const XY &gap) {
-        return elem_size * array_size + (array_size - XY1) * gap;
+        return CalcAsmArraySize(elem_size, array_size, gap);
     }
 
     static constexpr auto getElementView(const XY &elem_size,
                                          const XY &array_size, const XY &gap,
                                          const XY &idx, const MapView &view,
                                          const XY &flip = NoFlip) {
-        return view.getSubView((elem_size + gap) * idx, elem_size, flip);
+        return GetAsmElementView(elem_size, array_size, gap, idx, view, flip);
+    }
+};
+
+/*
+ * AsmWithGap format: the geometry is reconstructed with chip/mod gap pixels
+ */
+
+struct AsmWithGapFmt {
+    static constexpr auto calcArraySize(const XY &elem_size,
+                                        const XY &array_size, const XY &gap) {
+        return CalcAsmArraySize(elem_size, array_size, gap);
+    }
+
+    static constexpr auto getElementView(const XY &elem_size,
+                                         const XY &array_size, const XY &gap,
+                                         const XY &idx, const MapView &view,
+                                         const XY &flip = NoFlip) {
+        return GetAsmElementView(elem_size, array_size, gap, idx, view, flip);
     }
 };
 
 template <class Fmt> constexpr bool IsRaw() {
     return std::is_same<Fmt, RawFmt>::value;
+}
+
+template <class Fmt> constexpr auto EffectiveFmtGap(const XY &gap) {
+    return EffectiveGap<std::is_same<Fmt, AsmWithGapFmt>::value>(gap);
 }
 
 // IfaceGeom: multi-chip UDP interface geometry
@@ -165,16 +206,17 @@ template <class Fmt> struct IfaceGeom {
     MapView view;
     XY iface_idx, det_ifaces;
 
-    XY raw_size, std_size, size;
+    XY raw_size, asm_size, size;
     XY chip_step;
 
     constexpr IfaceGeom(const XY &cp, const XY &cg, const XY &ic,
                         const MapView &iv, const XY &ii = XY0,
                         const XY &di = XY1)
-        : chip_pixels(cp), chip_gap(cg), iface_chips(ic), view(iv),
-          iface_idx(ii), det_ifaces(di), raw_size(chip_pixels * iface_chips),
-          std_size(raw_size + (iface_chips - XY1) * chip_gap),
-          size(IsRaw<Fmt>() ? raw_size : std_size),
+        : chip_pixels(cp), chip_gap(EffectiveFmtGap<Fmt>(cg)), iface_chips(ic),
+          view(iv), iface_idx(ii), det_ifaces(di),
+          raw_size(chip_pixels * iface_chips),
+          asm_size(raw_size + (iface_chips - XY1) * chip_gap),
+          size(IsRaw<Fmt>() ? raw_size : asm_size),
           chip_step(chip_pixels + (IsRaw<Fmt>() ? XY0 : chip_gap)) {}
 
     constexpr auto getChipView(const XY &chip_idx) const {
@@ -207,8 +249,8 @@ template <class Fmt> struct RecvGeom {
     constexpr RecvGeom(const XY &cp, const XY &cg, const XY &ic, const XY &ri,
                        const MapView &rv, const XY &ridx = XY0,
                        const XY &dr = XY1)
-        : chip_pixels(cp), chip_gap(cg), iface_chips(ic), recv_ifaces(ri),
-          view(rv), recv_idx(ridx), det_recvs(dr),
+        : chip_pixels(cp), chip_gap(EffectiveFmtGap<Fmt>(cg)), iface_chips(ic),
+          recv_ifaces(ri), view(rv), recv_idx(ridx), det_recvs(dr),
           iface_geom_size(
               IfaceGeom<Fmt>(chip_pixels, chip_gap, iface_chips, EmptyView)
                   .size),
@@ -247,8 +289,8 @@ template <class Fmt, class ModRecvFlip> struct ModGeom {
     constexpr ModGeom(const XY &cp, const XY &cg, const XY &ic, const XY &ri,
                       const XY &mr, const MapView &mv, const XY &mi = XY0,
                       const XY &dm = XY1)
-        : chip_pixels(cp), chip_gap(cg), iface_chips(ic), recv_ifaces(ri),
-          mod_recvs(mr), view(mv), mod_idx(mi), det_mods(dm),
+        : chip_pixels(cp), chip_gap(EffectiveFmtGap<Fmt>(cg)), iface_chips(ic),
+          recv_ifaces(ri), mod_recvs(mr), view(mv), mod_idx(mi), det_mods(dm),
           recv_geom_size(RecvGeom<Fmt>(chip_pixels, chip_gap, iface_chips,
                                        recv_ifaces, EmptyView)
                              .size),
@@ -282,8 +324,9 @@ template <class Fmt, class ModRecvFlip> struct DetGeom {
 
     constexpr DetGeom(const XY &cp, const XY &cg, const XY &ic, const XY &ri,
                       const XY &mr, const XY &mg, const XY &dm)
-        : chip_pixels(cp), chip_gap(cg), iface_chips(ic), recv_ifaces(ri),
-          mod_recvs(mr), mod_gap(mg), det_mods(dm),
+        : chip_pixels(cp), chip_gap(EffectiveFmtGap<Fmt>(cg)), iface_chips(ic),
+          recv_ifaces(ri), mod_recvs(mr), mod_gap(EffectiveFmtGap<Fmt>(mg)),
+          det_mods(dm),
           mod_geom_size(ModGeom<Fmt, ModRecvFlip>(chip_pixels, chip_gap,
                                                   iface_chips, recv_ifaces,
                                                   mod_recvs, EmptyView)

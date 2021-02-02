@@ -58,7 +58,7 @@ template <int NbUDPIfaces, int Idx> struct GeomHelper {
     SCA RawIfaceGeom = GeomJungfrau::IfaceGeom<NbUDPIfaces, Idx, RawFmt>;
     SCA RawIfaceSize = RawIfaceGeom.size;
     // std (image) geometry
-    SCA RecvGeom = GeomJungfrau::RecvGeom<NbUDPIfaces, StdFmt>;
+    SCA RecvGeom = GeomJungfrau::RecvGeom<NbUDPIfaces, AsmWithGapFmt>;
     SCA RecvView = RecvGeom.view;
     SCA IfaceGeom1 = RecvGeom.getIfaceGeom(XY{0, 0});
     SCA IfaceView1 = IfaceGeom1.view;
@@ -144,12 +144,12 @@ void CopyHelper<NbUDPIfaces, Idx>::assemblePackets(BlockPtr block, char *buf) {
 }
 
 /**
- * StdFrameAssembler
+ * FrameAssembler
  */
 
 template <int NbUDPIfaces, class FP>
 template <int Idx>
-void StdFrameAssembler<NbUDPIfaces, FP>::Worker::assembleIface(Stream<Idx> *s) {
+void FrameAssembler<NbUDPIfaces, FP>::Worker::assembleIface(Stream<Idx> *s) {
     auto block = s->getPacketBlock(frame);
     int packet_count = block ? block->getValidPackets() : 0;
     if (packet_count == 0)
@@ -172,7 +172,7 @@ void StdFrameAssembler<NbUDPIfaces, FP>::Worker::assembleIface(Stream<Idx> *s) {
 }
 
 template <int NbUDPIfaces, class FP>
-Result StdFrameAssembler<NbUDPIfaces, FP>::Worker::result() {
+Result FrameAssembler<NbUDPIfaces, FP>::Worker::result() {
     constexpr bool fp_partial = std::is_same_v<FP, PartialFrameDiscard>;
     if (fp_partial && (mask.count() != NbUDPIfaces))
         return Result{NbUDPIfaces, 0};
@@ -181,8 +181,9 @@ Result StdFrameAssembler<NbUDPIfaces, FP>::Worker::result() {
 }
 
 template <int NbUDPIfaces, class FP>
-Result StdFrameAssembler<NbUDPIfaces, FP>::assembleFrame(
-    uint64_t frame, RecvHeader *recv_header, char *buf) {
+Result FrameAssembler<NbUDPIfaces, FP>::assembleFrame(uint64_t frame,
+                                                      RecvHeader *recv_header,
+                                                      char *buf) {
     Worker w(frame, recv_header, buf);
 
     for (int i = 0; i < NbUDPIfaces; ++i) {
@@ -196,7 +197,7 @@ Result StdFrameAssembler<NbUDPIfaces, FP>::assembleFrame(
 }
 
 template <int NbUDPIfaces, class FP>
-void StdFrameAssembler<NbUDPIfaces, FP>::stop() {
+void FrameAssembler<NbUDPIfaces, FP>::stop() {
     for (int i = 0; i < NbUDPIfaces; ++i) {
         if (i == 0)
             std::get<0>(stream)->stop();
@@ -209,8 +210,8 @@ void StdFrameAssembler<NbUDPIfaces, FP>::stop() {
 } // namespace FrameAssembler
 
 FrameAssemblerPtr
-FAJungfrau::CreateStdFrameAssembler(int num_udp_ifaces, FramePolicy fp,
-                                    DefaultFrameAssemblerList a) {
+FAJungfrau::CreateFrameAssembler(int num_udp_ifaces, FramePolicy fp,
+                                 DefaultFrameAssemblerList a) {
     auto any_policy = AnyFramePolicyFromFP(fp);
     auto any_nb_ifaces =
         GeomJungfrau::AnyNbUDPIfacesFromNbUDPIfaces(num_udp_ifaces);
@@ -219,7 +220,7 @@ FAJungfrau::CreateStdFrameAssembler(int num_udp_ifaces, FramePolicy fp,
         [&](auto fp, auto nb) -> FrameAssemblerPtr {
             using FP = decltype(fp);
             constexpr int nb_ifaces = nb();
-            using Assembler = StdFrameAssembler<nb_ifaces, FP>;
+            using Assembler = FrameAssembler<nb_ifaces, FP>;
             typename Assembler::StreamList s;
             for (int i = 0; i < nb_ifaces; ++i) {
                 if (i == 0)

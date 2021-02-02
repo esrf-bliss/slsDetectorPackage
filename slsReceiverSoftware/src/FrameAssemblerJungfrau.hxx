@@ -50,7 +50,7 @@ struct Assembler : AssemblerBase<NbUDPIfaces, Idx, FP> {
 template <int NbUDPIfaces, int Idx> struct CopyHelper;
 
 template <int NbUDPIfaces, class FP>
-class StdFrameAssembler : public FrameAssemblerBase {
+class FrameAssembler : public FrameAssemblerBase {
   public:
     template <int Idx> using RealAssembler = Assembler<NbUDPIfaces, Idx, FP>;
     template <int Idx>
@@ -62,7 +62,7 @@ class StdFrameAssembler : public FrameAssemblerBase {
     using StreamList =
         std::conditional_t<NbUDPIfaces == 1, StreamList1, StreamList2>;
 
-    StdFrameAssembler(StreamList s) : stream(s) {}
+    FrameAssembler(StreamList s) : stream(s) {}
 
     Result assembleFrame(uint64_t frame, RecvHeader *recv_header,
                          char *buf) override;
@@ -95,8 +95,8 @@ class StdFrameAssembler : public FrameAssemblerBase {
     };
 };
 
-FrameAssemblerPtr CreateStdFrameAssembler(int num_udp_ifaces, FramePolicy fp,
-                                          DefaultFrameAssemblerList a);
+FrameAssemblerPtr CreateFrameAssembler(int num_udp_ifaces, FramePolicy fp,
+                                       DefaultFrameAssemblerList a);
 
 } // namespace Jungfrau
 } // namespace FrameAssembler

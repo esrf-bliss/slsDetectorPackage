@@ -294,19 +294,19 @@ Listener::CreateFrameAssembler(std::vector<Ptr> &listener) {
     int nb_ports = listener.size();
     bool raw = !gd->gapEnable;
     frameDiscardPolicy fp = *listener[0]->frameDiscardMode;
-    FrameAssembler::DefaultFrameAssemblerList a;
+    using namespace FrameAssembler;
+    DefaultFrameAssemblerList a;
     for (auto &l : listener)
         a.push_back(l->frameAssembler);
     if (raw) {
         fa = std::make_shared<FrameAssembler::RawFrameAssembler>(a);
     } else if (d == slsDetectorDefs::EIGER) {
-        using namespace FrameAssembler::Eiger;
         int pixel_bpp = gd->dynamicRange;
         int recv_idx = *listener[0]->flippedDataX ? 1 : 0;
-        fa = CreateStdFrameAssembler(pixel_bpp, fp, gd->tgEnable, recv_idx, a);
+        fa = FrameAssembler::Eiger::CreateFrameAssembler(
+            pixel_bpp, fp, gd->tgEnable, recv_idx, a);
     } else if (d == slsDetectorDefs::JUNGFRAU) {
-        using namespace FrameAssembler::Jungfrau;
-        fa = CreateStdFrameAssembler(nb_ports, fp, a);
+        fa = FrameAssembler::Jungfrau::CreateFrameAssembler(nb_ports, fp, a);
     } else
         throw sls::RuntimeError("FrameAssembler not available for " +
                                 sls::ToString(d));

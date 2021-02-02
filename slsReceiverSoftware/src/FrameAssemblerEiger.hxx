@@ -50,7 +50,7 @@ template <class P, class RG> struct Expand4BitsHelper;
 template <class P, class RG> struct CopyHelper;
 
 template <class P, class FP, class RG>
-class StdFrameAssembler : public FrameAssemblerBase {
+class FrameAssembler : public FrameAssemblerBase {
   public:
     using Helper =
         std::conditional_t<std::is_same_v<P, Pixel4>, Expand4BitsHelper<P, RG>,
@@ -62,7 +62,7 @@ class StdFrameAssembler : public FrameAssemblerBase {
         std::decay_t<decltype(std::declval<RealAssembler>().getStream())>;
     using StreamList = std::array<Stream *, NbIfaces>;
 
-    StdFrameAssembler(StreamList s) : stream(s) {}
+    FrameAssembler(StreamList s) : stream(s) {}
 
     Result assembleFrame(uint64_t frame, RecvHeader *recv_header,
                          char *buf) override;
@@ -80,9 +80,9 @@ class StdFrameAssembler : public FrameAssemblerBase {
     Helper helper;
 };
 
-FrameAssemblerPtr CreateStdFrameAssembler(int pixel_bpp, FramePolicy fp,
-                                          bool enable_tg, int recv_idx,
-                                          DefaultFrameAssemblerList a);
+FrameAssemblerPtr CreateFrameAssembler(int pixel_bpp, FramePolicy fp,
+                                       bool enable_tg, int recv_idx,
+                                       DefaultFrameAssemblerList a);
 
 } // namespace Eiger
 } // namespace FrameAssembler
