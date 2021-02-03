@@ -15,13 +15,16 @@ using Pixel = Pixel16;
 
 constexpr int PacketPixels = PacketDataLen / Pixel::depth();
 
+template <int NbUDPIfaces>
+using Jungfrau500kGeom = sls::Geom::Jungfrau::Jungfrau500kGeom<NbUDPIfaces>;
+
 template <int NbUDPIfaces, int Idx>
-constexpr auto IfaceGeom =
-    sls::Geom::Jungfrau::IfaceGeom<NbUDPIfaces, Idx, RawFmt>;
+constexpr auto RawIfaceGeom =
+    Jungfrau500kGeom<NbUDPIfaces>::template RawIfaceGeom<Idx>::geom;
 
 template <int NbUDPIfaces>
 constexpr int
-    FramePackets = IfaceGeom<NbUDPIfaces, 0>.calcFramePackets(PacketPixels);
+    FramePackets = RawIfaceGeom<NbUDPIfaces, 0>.calcFramePackets(PacketPixels);
 
 template <int NbUDPIfaces>
 using PacketData = StdPacketData<PacketDataLen, FramePackets<NbUDPIfaces>>;
@@ -47,11 +50,13 @@ struct Assembler : AssemblerBase<NbUDPIfaces, Idx, FP> {
  *@short Jungfrau frame assembler in standard mode: Default frame assembler
  */
 
-template <int NbUDPIfaces, int Idx> struct CopyHelper;
+//  GD: Geom data, FP: Frame discard policy
+template <class GD, int Idx> struct CopyHelper;
 
-template <int NbUDPIfaces, class FP>
-class FrameAssembler : public FrameAssemblerBase {
+template <class GD, class FP> class FrameAssembler : public FrameAssemblerBase {
   public:
+    static constexpr int NbUDPIfaces = GD::num_udp_ifaces;
+
     template <int Idx> using RealAssembler = Assembler<NbUDPIfaces, Idx, FP>;
     template <int Idx>
     using Stream =
@@ -95,7 +100,8 @@ class FrameAssembler : public FrameAssemblerBase {
     };
 };
 
-FrameAssemblerPtr CreateFrameAssembler(int num_udp_ifaces, FramePolicy fp,
+FrameAssemblerPtr CreateFrameAssembler(int det_ifaces[2], int num_udp_ifaces,
+                                       FramePolicy fp,
                                        DefaultFrameAssemblerList a);
 
 } // namespace Jungfrau

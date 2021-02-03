@@ -42,7 +42,8 @@ uint32_t StreamData<NbUDPIfaces, Idx>::getPacketNumber(uint32_t packet_idx) {
  * GeomHelper
  */
 
-template <int NbUDPIfaces, int Idx> struct GeomHelper {
+//  GD: Geom data, FP: Frame discard policy
+template <class GD, int Idx> struct GeomHelper {
 
     using SrcPixel = Pixel;
     using DstPixel = Pixel;
@@ -50,17 +51,17 @@ template <int NbUDPIfaces, int Idx> struct GeomHelper {
 #define SCA static constexpr auto
 #define SCI static constexpr int
 
+    SCI NbUDPIfaces = GD::num_udp_ifaces;
     SCI PacketPixels = PacketDataLen / SrcPixel::depth();
 
     using BlockPtr = PacketBlockPtr<Packet<NbUDPIfaces>>;
 
     // raw (packet) geometry
-    SCA RawIfaceGeom = GeomJungfrau::IfaceGeom<NbUDPIfaces, Idx, RawFmt>;
-    SCA RawIfaceSize = RawIfaceGeom.size;
+    SCA RawIfaceSize = RawIfaceGeom<NbUDPIfaces, Idx>.size;
     // std (image) geometry
-    SCA RecvGeom = GeomJungfrau::RecvGeom<NbUDPIfaces, AsmWithGapFmt>;
+    SCA RecvGeom = GD::RecvGeom::geom;
     SCA RecvView = RecvGeom.view;
-    SCA IfaceGeom1 = RecvGeom.getIfaceGeom(XY{0, 0});
+    SCA IfaceGeom1 = RecvGeom.getIfaceGeom(XY0);
     SCA IfaceView1 = IfaceGeom1.view;
 
     SCA getPacketView(int PacketIdx) {
@@ -100,17 +101,16 @@ template <int NbUDPIfaces, int Idx> struct GeomHelper {
  * CopyHelper
  */
 
-template <int NbUDPIfaces, int Idx>
-struct CopyHelper : GeomHelper<NbUDPIfaces, Idx> {
+template <class GD, int Idx> struct CopyHelper : GeomHelper<GD, Idx> {
 
-    using H = GeomHelper<NbUDPIfaces, Idx>;
+    using H = GeomHelper<GD, Idx>;
     using BlockPtr = typename H::BlockPtr;
 
     static void assemblePackets(BlockPtr block, char *buf);
 };
 
-template <int NbUDPIfaces, int Idx>
-void CopyHelper<NbUDPIfaces, Idx>::assemblePackets(BlockPtr block, char *buf) {
+template <class GD, int Idx>
+void CopyHelper<GD, Idx>::assemblePackets(BlockPtr block, char *buf) {
     H h;
     char *d = buf;
     int line = 0;
@@ -147,9 +147,9 @@ void CopyHelper<NbUDPIfaces, Idx>::assemblePackets(BlockPtr block, char *buf) {
  * FrameAssembler
  */
 
-template <int NbUDPIfaces, class FP>
+template <class GD, class FP>
 template <int Idx>
-void FrameAssembler<NbUDPIfaces, FP>::Worker::assembleIface(Stream<Idx> *s) {
+void FrameAssembler<GD, FP>::Worker::assembleIface(Stream<Idx> *s) {
     auto block = s->getPacketBlock(frame);
     int packet_count = block ? block->getValidPackets() : 0;
     if (packet_count == 0)
@@ -165,14 +165,13 @@ void FrameAssembler<NbUDPIfaces, FP>::Worker::assembleIface(Stream<Idx> *s) {
         header_empty = false;
     }
 
-    using Helper = CopyHelper<NbUDPIfaces, Idx>;
+    using Helper = CopyHelper<GD, Idx>;
     Helper::assemblePackets(std::move(block), buf);
     if (buf)
         buf += Helper::dst_iface_step;
 }
 
-template <int NbUDPIfaces, class FP>
-Result FrameAssembler<NbUDPIfaces, FP>::Worker::result() {
+template <class GD, class FP> Result FrameAssembler<GD, FP>::Worker::result() {
     constexpr bool fp_partial = std::is_same_v<FP, PartialFrameDiscard>;
     if (fp_partial && (mask.count() != NbUDPIfaces))
         return Result{NbUDPIfaces, 0};
@@ -180,10 +179,10 @@ Result FrameAssembler<NbUDPIfaces, FP>::Worker::result() {
     return Result{NbUDPIfaces, mask};
 }
 
-template <int NbUDPIfaces, class FP>
-Result FrameAssembler<NbUDPIfaces, FP>::assembleFrame(uint64_t frame,
-                                                      RecvHeader *recv_header,
-                                                      char *buf) {
+template <class GD, class FP>
+Result FrameAssembler<GD, FP>::assembleFrame(uint64_t frame,
+                                             RecvHeader *recv_header,
+                                             char *buf) {
     Worker w(frame, recv_header, buf);
 
     for (int i = 0; i < NbUDPIfaces; ++i) {
@@ -196,8 +195,7 @@ Result FrameAssembler<NbUDPIfaces, FP>::assembleFrame(uint64_t frame,
     return w.result();
 }
 
-template <int NbUDPIfaces, class FP>
-void FrameAssembler<NbUDPIfaces, FP>::stop() {
+template <class GD, class FP> void FrameAssembler<GD, FP>::stop() {
     for (int i = 0; i < NbUDPIfaces; ++i) {
         if (i == 0)
             std::get<0>(stream)->stop();
@@ -210,27 +208,37 @@ void FrameAssembler<NbUDPIfaces, FP>::stop() {
 } // namespace FrameAssembler
 
 FrameAssemblerPtr
-FAJungfrau::CreateFrameAssembler(int num_udp_ifaces, FramePolicy fp,
-                                 DefaultFrameAssemblerList a) {
+FAJungfrau::CreateFrameAssembler(int det_ifaces[2], int num_udp_ifaces,
+                                 FramePolicy fp, DefaultFrameAssemblerList a) {
     auto any_policy = AnyFramePolicyFromFP(fp);
     auto any_nb_ifaces =
         GeomJungfrau::AnyNbUDPIfacesFromNbUDPIfaces(num_udp_ifaces);
 
     return std::visit(
-        [&](auto fp, auto nb) -> FrameAssemblerPtr {
-            using FP = decltype(fp);
-            constexpr int nb_ifaces = nb();
-            using Assembler = FrameAssembler<nb_ifaces, FP>;
-            typename Assembler::StreamList s;
-            for (int i = 0; i < nb_ifaces; ++i) {
-                if (i == 0)
-                    std::get<0>(s) =
-                        Assembler::template rawAssemblerStream<0>(a[0]);
-                else if constexpr (nb_ifaces == 2)
-                    std::get<1>(s) =
-                        Assembler::template rawAssemblerStream<1>(a[1]);
-            }
-            return std::make_shared<Assembler>(s);
+        [&](auto nb) {
+            constexpr int nb_ifaces = nb;
+            constexpr XY iface_size = RawIfaceGeom<nb_ifaces, 0>.size;
+            XY det_size = iface_size * XY{det_ifaces[0], det_ifaces[1]};
+
+            auto any_det_geom =
+                GeomJungfrau::AnyDetGeomFromDetSize<nb_ifaces>(det_size);
+            return std::visit(
+                [&, nb_ifaces](auto fp, auto gd) -> FrameAssemblerPtr {
+                    using FP = decltype(fp);
+                    using GD = decltype(gd);
+                    using Assembler = FrameAssembler<GD, FP>;
+                    typename Assembler::StreamList s;
+                    for (int i = 0; i < nb_ifaces; ++i) {
+                        if (i == 0)
+                            std::get<0>(s) =
+                                Assembler::template rawAssemblerStream<0>(a[0]);
+                        else if constexpr (nb_ifaces == 2)
+                            std::get<1>(s) =
+                                Assembler::template rawAssemblerStream<1>(a[1]);
+                    }
+                    return std::make_shared<Assembler>(s);
+                },
+                any_policy, any_det_geom);
         },
-        any_policy, any_nb_ifaces);
+        any_nb_ifaces);
 }

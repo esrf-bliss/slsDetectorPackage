@@ -287,7 +287,7 @@ void Listener::ThreadExecution() {
 }
 
 Listener::FrameAssemblerPtr
-Listener::CreateFrameAssembler(std::vector<Ptr> &listener) {
+Listener::CreateFrameAssembler(std::vector<Ptr> &listener, int det_ifaces[2]) {
     FrameAssemblerPtr fa;
     GeneralData *gd = listener[0]->generalData;
     detectorType d = listener[0]->myDetectorType;
@@ -304,9 +304,10 @@ Listener::CreateFrameAssembler(std::vector<Ptr> &listener) {
         int pixel_bpp = gd->dynamicRange;
         int recv_idx = *listener[0]->flippedDataX ? 1 : 0;
         fa = FrameAssembler::Eiger::CreateFrameAssembler(
-            pixel_bpp, fp, gd->tgEnable, recv_idx, a);
+            pixel_bpp, fp, gd->tgEnable, det_ifaces, recv_idx, a);
     } else if (d == slsDetectorDefs::JUNGFRAU) {
-        fa = FrameAssembler::Jungfrau::CreateFrameAssembler(nb_ports, fp, a);
+        fa = FrameAssembler::Jungfrau::CreateFrameAssembler(det_ifaces,
+                                                            nb_ports, fp, a);
     } else
         throw sls::RuntimeError("FrameAssembler not available for " +
                                 sls::ToString(d));

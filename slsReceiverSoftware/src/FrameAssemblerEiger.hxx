@@ -21,7 +21,8 @@ struct TenGigaEnable {
 
 using AnyTenGiga = std::variant<TenGigaDisable, TenGigaEnable>;
 
-constexpr auto RawIfaceGeom = sls::Geom::Eiger::RawIfaceGeom;
+using Eiger500kGeom = sls::Geom::Eiger::Eiger500kGeom;
+constexpr auto RawIfaceGeom = Eiger500kGeom::RawIfaceGeom::geom;
 
 template <class Pixel, class TenGiga = TenGigaEnable>
 constexpr int PacketPixels = TenGiga::PacketDataLen / Pixel::depth();
@@ -46,15 +47,16 @@ using Assembler = FrameAssembler::DefaultFrameAssembler<
  *@short Eiger frame assembler in std mode: port interleaving
  */
 
-template <class P, class RG> struct Expand4BitsHelper;
-template <class P, class RG> struct CopyHelper;
+//  P: Src Pixel, GD: Geom data, FP: Frame discard policy
+template <class P, class GD, int Idx> struct Expand4BitsHelper;
+template <class P, class GD, int Idx> struct CopyHelper;
 
-template <class P, class FP, class RG>
+template <class P, class FP, class GD, int Idx>
 class FrameAssembler : public FrameAssemblerBase {
   public:
-    using Helper =
-        std::conditional_t<std::is_same_v<P, Pixel4>, Expand4BitsHelper<P, RG>,
-                           CopyHelper<P, RG>>;
+    using Helper = std::conditional_t<std::is_same_v<P, Pixel4>,
+                                      Expand4BitsHelper<P, GD, Idx>,
+                                      CopyHelper<P, GD, Idx>>;
     using DP = typename Helper::DstPixel;
     using BlockPtr = typename Helper::BlockPtr;
     using RealAssembler = Assembler<P, FP, DP>;
@@ -81,7 +83,8 @@ class FrameAssembler : public FrameAssemblerBase {
 };
 
 FrameAssemblerPtr CreateFrameAssembler(int pixel_bpp, FramePolicy fp,
-                                       bool enable_tg, int recv_idx,
+                                       bool enable_tg, int det_ifaces[2],
+                                       int recv_idx,
                                        DefaultFrameAssemblerList a);
 
 } // namespace Eiger

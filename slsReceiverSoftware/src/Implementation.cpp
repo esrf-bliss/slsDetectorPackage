@@ -105,7 +105,7 @@ void Implementation::SetupFifoStructure() {
 void Implementation::SetupFrameAssembler() {
     if (passiveMode && listener.size()) {
         try {
-            frameAssembler = Listener::CreateFrameAssembler(listener);
+            frameAssembler = Listener::CreateFrameAssembler(listener, numDet);
         } catch (...) {
             shutDownUDPSockets();
             throw;

@@ -6,13 +6,13 @@ namespace Geom {
 
 namespace Eiger {
 
-template <class DetGeom> struct GeomData {
+template <class DetGeom> struct TestGeomData {
     int chip_size, iface_chips, recv_ifaces, mod_recvs, chip_gap, mod_gap,
         recv_chips;
     XY det_mods, raw_mod_size, raw_size, asm_ng_mod_size, asm_ng_size,
         asm_wg_mod_size, asm_wg_size;
 
-    constexpr GeomData(const DetGeom &det_geom)
+    constexpr TestGeomData(const DetGeom &det_geom)
         : chip_size(ChipPixels.x), iface_chips(IfaceChips.x),
           recv_ifaces(RecvIfaces.x), mod_recvs(ModRecvs.y), chip_gap(ChipGap.x),
           mod_gap(ModGap.x), recv_chips(iface_chips * recv_ifaces),
@@ -82,17 +82,7 @@ template <class DetGeom> struct GeomData {
 
 #define CA constexpr auto
 
-template <class Fmt> struct TestEiger500kDetGeom {
-    static CA geom = Eiger500kDetGeom<Fmt>;
-};
-
-template <class Fmt> struct TestEiger2MDetGeom {
-    static CA geom = Eiger2MDetGeom<Fmt>;
-};
-
-template <template <class Fmt> class TestGeom> struct TestSuite {
-
-    template <class Fmt> static CA det_geom = TestGeom<Fmt>::geom;
+template <class GeomData> struct TestSuite {
 
     template <int mod_idx> static void run() {
         std::cout << "In sls::Geom::Eiger::TestSuite::run<" << mod_idx
@@ -121,8 +111,8 @@ template <template <class Fmt> class TestGeom> struct TestSuite {
     assert_equal(cn.calcMapPixelIndex(XY{x, y}), v)
 
     template <int mod_idx> static void run_raw() {
-        CA raw_det = det_geom<RawFmt>;
-        constexpr GeomData d(raw_det);
+        CA raw_det = GeomData::raw_geom;
+        constexpr TestGeomData d(raw_det);
         assert_size(raw_det, d.raw_size);
 
 #define assert_raw_pixel(cn, r, i, c, x, y)                                    \
@@ -162,8 +152,8 @@ template <template <class Fmt> class TestGeom> struct TestSuite {
     }
 
     template <int mod_idx> static void run_asm_with_no_gap() {
-        CA asm_ng_det = det_geom<AsmWithNoGapFmt>;
-        constexpr GeomData d(asm_ng_det);
+        CA asm_ng_det = GeomData::asm_ng_geom;
+        constexpr TestGeomData d(asm_ng_det);
         assert_size(asm_ng_det, d.asm_ng_size);
 
 #define assert_asm_ng_pixel(cn, r, i, c, x, y)                                 \
@@ -196,8 +186,8 @@ template <template <class Fmt> class TestGeom> struct TestSuite {
     }
 
     template <int mod_idx> static void run_asm_with_gap() {
-        CA asm_wg_det = det_geom<AsmWithGapFmt>;
-        constexpr GeomData d(asm_wg_det);
+        CA asm_wg_det = GeomData::asm_wg_geom;
+        constexpr TestGeomData d(asm_wg_det);
         assert_size(asm_wg_det, d.asm_wg_size);
 
 #define assert_asm_wg_pixel(cn, r, i, c, x, y)                                 \
@@ -236,8 +226,20 @@ template <template <class Fmt> class TestGeom> struct TestSuite {
 };
 
 inline void test() {
-    TestSuite<TestEiger500kDetGeom>::run<0>();
-    TestSuite<TestEiger2MDetGeom>::run<3>();
+    TestSuite<Eiger500kGeom>::run<0>();
+    TestSuite<Eiger2MGeom>::run<3>();
+
+#define assert_equal(a, b)                                                     \
+    static_assert(a == b);                                                     \
+    CHECK(a == b);                                                             \
+    std::cout << #a " == " #b " (" << b << ")" << std::endl
+
+    assert_equal(AnyDetGeomFromDetSize({1024, 512}).index(),
+                 AnyDetGeom(Eiger500kGeom()).index());
+    assert_equal(AnyDetGeomFromDetSize({1024, 2048}).index(),
+                 AnyDetGeom(Eiger2MGeom()).index());
+
+#undef assert_equal
 }
 
 } // namespace Eiger

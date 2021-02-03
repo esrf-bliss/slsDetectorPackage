@@ -347,6 +347,43 @@ template <class Fmt, class ModRecvFlip> struct DetGeom {
     }
 };
 
+// Detector geometry data: stores all geometry for a particular detector
+// MX, MY: detector modules, G: detector geometry generator
+template <int MX, int MY, template <int x, int y, class Fmt> class G>
+struct DetGeomData {
+    static constexpr auto raw_geom = G<MX, MY, RawFmt>()();
+    static constexpr auto asm_ng_geom = G<MX, MY, AsmWithNoGapFmt>()();
+    static constexpr auto asm_wg_geom = G<MX, MY, AsmWithGapFmt>()();
+};
+
+// Detector collections: variants of all possible detector geometries
+
+template <class V, std::size_t N = std::variant_size_v<V> - 1>
+constexpr V GetValidVariant(std::size_t i) {
+    if (i == N)
+        return V(std::in_place_index_t<N>());
+    if constexpr (N > 0)
+        return GetValidVariant<V, N - 1>(i);
+    else
+        return V(std::in_place_index_t<N>());
+}
+
+template <class V, std::size_t I>
+constexpr bool DetCollectIdxMatchesDetSize(const XY &det_size) {
+    using geom_data = std::variant_alternative_t<I, V>;
+    return (geom_data::asm_ng_geom.size == det_size);
+}
+
+template <class V, std::size_t I = std::variant_size_v<V> - 1>
+constexpr std::size_t GetDetCollectIdxFromDetSize(const XY &det_size) {
+    if (DetCollectIdxMatchesDetSize<V, I>(det_size))
+        return I;
+    if constexpr (I > 0)
+        return GetDetCollectIdxFromDetSize<V, I - 1>(det_size);
+    else
+        return -1;
+}
+
 // Pixel types
 template <typename T> struct PixelIterator {
     using pointer_type = std::add_pointer_t<T>;
@@ -532,52 +569,53 @@ struct ModRecvFlip {
 };
 constexpr XY ModRecvs{1, 2};
 constexpr XY ModGap{36, 36};
-constexpr XY Eiger500kDetMods{1, 1};
-constexpr XY Eiger2MDetMods{1, 4};
 
-template <class Fmt>
-constexpr Geom::DetGeom<Fmt, ModRecvFlip>
-    Eiger500kDetGeom(ChipPixels, ChipGap, IfaceChips, RecvIfaces, ModRecvs,
-                     ModGap, Eiger500kDetMods);
-
-template <class Fmt>
-constexpr auto ModGeom = Eiger500kDetGeom<Fmt>.getModGeom(XY{0, 0});
-
-template <class Fmt>
-constexpr auto TopRecvGeom = ModGeom<Fmt>.getRecvGeom(XY{0, 0});
-template <class Fmt>
-constexpr auto BottomRecvGeom = ModGeom<Fmt>.getRecvGeom(XY{0, 1});
-
-template <class Fmt, int Idx> struct RecvGeom {
-    static constexpr auto geom = ModGeom<Fmt>.getRecvGeom(XY{0, Idx});
+template <int MX, int MY, class Fmt> struct TiledDetGeom {
+    constexpr auto operator()() {
+        return Geom::DetGeom<Fmt, ModRecvFlip>(ChipPixels, ChipGap, IfaceChips,
+                                               RecvIfaces, ModRecvs, ModGap,
+                                               XY{MX, MY});
+    }
 };
 
-template <class Fmt>
-using AnyRecvGeom = std::variant<RecvGeom<Fmt, 0>, RecvGeom<Fmt, 1>>;
+template <int MX, int MY>
+using GeomDataBase = DetGeomData<MX, MY, TiledDetGeom>;
 
-template <class Fmt> AnyRecvGeom<Fmt> AnyRecvGeomFromIndex(int recv_idx) {
-    if (recv_idx % ModRecvs.y == 0)
-        return AnyRecvGeom<Fmt>(std::in_place_index_t<0>());
+template <int MX, int MY> struct GeomData : GeomDataBase<MX, MY> {
+    using B = GeomDataBase<MX, MY>;
+
+    struct RawIfaceGeom {
+        static constexpr auto geom =
+            B::raw_geom.getModGeom(XY0).getRecvGeom(XY0).getIfaceGeom(XY0);
+    };
+
+    template <int Idx> struct RecvGeom {
+        static constexpr auto geom =
+            B::asm_wg_geom.getModGeom(XY0).getRecvGeom(XY{0, Idx});
+    };
+};
+
+using Eiger500kGeom = GeomData<1, 1>;
+using Eiger2MGeom = GeomData<1, 4>;
+
+using AnyDetGeom = std::variant<Eiger500kGeom, Eiger2MGeom>;
+
+constexpr auto AnyDetGeomFromDetSize(const XY &det_size) {
+    auto idx = GetDetCollectIdxFromDetSize<AnyDetGeom>(det_size);
+    if (idx < std::variant_size_v<AnyDetGeom>)
+        return GetValidVariant<AnyDetGeom>(idx);
     else
-        return AnyRecvGeom<Fmt>(std::in_place_index_t<1>());
+        throw std::runtime_error(
+            "Invalid detector size: " + std::to_string(det_size.x) + "," +
+            std::to_string(det_size.y));
 }
 
-template <class Fmt>
-constexpr auto TopLeftIfaceGeom = TopRecvGeom<Fmt>.getIfaceGeom(XY{0, 0});
-template <class Fmt>
-constexpr auto TopRightIfaceGeom = TopRecvGeom<Fmt>.getIfaceGeom(XY{1, 0});
-template <class Fmt>
-constexpr auto BottomLeftIfaceGeom = BottomRecvGeom<Fmt>.getIfaceGeom(XY{0, 0});
-template <class Fmt>
-constexpr auto BottomRightIfaceGeom = BottomRecvGeom<Fmt>.getIfaceGeom(XY{1,
-                                                                          0});
+using AnyRecvIdx = std::variant<std::integral_constant<int, 0>,
+                                std::integral_constant<int, 1>>;
 
-constexpr auto RawIfaceGeom = TopLeftIfaceGeom<RawFmt>;
-
-template <class Fmt>
-constexpr Geom::DetGeom<Fmt, ModRecvFlip>
-    Eiger2MDetGeom(ChipPixels, ChipGap, IfaceChips, RecvIfaces, ModRecvs,
-                   ModGap, Eiger2MDetMods);
+constexpr auto AnyRecvIdxFromRecvIdx(int recv_idx) {
+    return GetValidVariant<AnyRecvIdx>(recv_idx);
+}
 
 }; // namespace Eiger
 
@@ -591,51 +629,72 @@ template <int NbUDPIfaces> constexpr XY RecvIfaces{1, NbUDPIfaces};
 using ModRecvFlip = DefaultModRecvFlip;
 constexpr XY ModRecvs{1, 1};
 constexpr XY ModGap{36, 36};
-constexpr XY Jungfrau500kDetMods{1, 1};
-constexpr XY Jungfrau4MDetMods{2, 4};
 
-template <int NbUDPIfaces, class Fmt>
-constexpr Geom::DetGeom<Fmt, ModRecvFlip>
-    Jungfrau500kDetGeom(ChipPixels, ChipGap, IfaceChips<NbUDPIfaces>,
-                        RecvIfaces<NbUDPIfaces>, ModRecvs, ModGap,
-                        Jungfrau500kDetMods);
-
-template <int NbUDPIfaces, class Fmt>
-constexpr auto
-    ModGeom = Jungfrau500kDetGeom<NbUDPIfaces, Fmt>.getModGeom(XY{0, 0});
-
-template <int NbUDPIfaces, class Fmt>
-constexpr auto RecvGeom = ModGeom<NbUDPIfaces, Fmt>.getRecvGeom(XY{0, 0});
-
-template <int NbUDPIfaces, int Idx, class Fmt>
-constexpr auto IfaceGeom = RecvGeom<NbUDPIfaces, Fmt>.getIfaceGeom(XY{0, Idx});
-
-template <int NbUDPIfaces, int Idx, class Fmt> struct Iface {
-    static constexpr auto Geom = IfaceGeom<NbUDPIfaces, Idx, Fmt>;
+template <int NbUDPIfaces> struct TiledDetGeom {
+    template <int MX, int MY, class Fmt> struct Generator {
+        constexpr auto operator()() {
+            return Geom::DetGeom<Fmt, ModRecvFlip>(
+                ChipPixels, ChipGap, IfaceChips<NbUDPIfaces>,
+                RecvIfaces<NbUDPIfaces>, ModRecvs, ModGap, XY{MX, MY});
+        }
+    };
 };
 
-template <class Fmt> using Iface1 = Iface<1, 0, Fmt>;
-template <class Fmt> using Iface2Top = Iface<2, 0, Fmt>;
-template <class Fmt> using Iface2Bottom = Iface<2, 0, Fmt>;
+template <int NbUDPIfaces, int MX, int MY>
+using GeomDataBase =
+    DetGeomData<MX, MY, TiledDetGeom<NbUDPIfaces>::template Generator>;
 
-template <class Fmt>
-using AnyIface = std::variant<Iface1<Fmt>, Iface2Top<Fmt>, Iface2Bottom<Fmt>>;
+template <int NbUDPIfaces, int MX, int MY>
+struct GeomData : GeomDataBase<NbUDPIfaces, MX, MY> {
+    using B = GeomDataBase<NbUDPIfaces, MX, MY>;
+
+    static constexpr int num_udp_ifaces = NbUDPIfaces;
+
+    template <int Idx> struct RawIfaceGeom {
+        static constexpr auto geom =
+            B::raw_geom.getModGeom(XY0).getRecvGeom(XY0).getIfaceGeom(
+                XY{0, Idx});
+    };
+
+    struct RecvGeom {
+        static constexpr auto geom =
+            B::asm_wg_geom.getModGeom(XY0).getRecvGeom(XY0);
+    };
+
+    template <int Idx> struct IfaceGeom {
+        static constexpr auto geom = RecvGeom::geom.getIfaceGeom(XY{0, Idx});
+    };
+};
+
+template <int NbUDPIfaces> using Jungfrau500kGeom = GeomData<NbUDPIfaces, 1, 1>;
+template <int NbUDPIfaces> using Jungfrau1MGeom = GeomData<NbUDPIfaces, 1, 2>;
+template <int NbUDPIfaces> using Jungfrau1MWGeom = GeomData<NbUDPIfaces, 2, 1>;
+template <int NbUDPIfaces> using Jungfrau4MGeom = GeomData<NbUDPIfaces, 2, 4>;
+
+template <int NbUDPIfaces>
+using AnyDetGeom =
+    std::variant<Jungfrau500kGeom<NbUDPIfaces>, Jungfrau1MGeom<NbUDPIfaces>,
+                 Jungfrau1MWGeom<NbUDPIfaces>, Jungfrau4MGeom<NbUDPIfaces>>;
+
+template <int NbUDPIfaces>
+constexpr auto AnyDetGeomFromDetSize(const XY &det_size) {
+    using AnyDet = AnyDetGeom<NbUDPIfaces>;
+    auto idx = GetDetCollectIdxFromDetSize<AnyDet>(det_size);
+    if (idx < std::variant_size_v<AnyDet>)
+        return GetValidVariant<AnyDet>(idx);
+    else
+        throw std::runtime_error(
+            "Invalid detector size: " + std::to_string(det_size.x) + "," +
+            std::to_string(det_size.y));
+}
 
 using AnyNbUDPIfaces = std::variant<std::integral_constant<int, 1>,
                                     std::integral_constant<int, 2>>;
 
-inline auto AnyNbUDPIfacesFromNbUDPIfaces(int num_udp_ifaces) {
-    if (num_udp_ifaces == 1)
-        return AnyNbUDPIfaces(std::in_place_index_t<0>());
-    else
-        return AnyNbUDPIfaces(std::in_place_index_t<1>());
+constexpr auto AnyNbUDPIfacesFromNbUDPIfaces(int num_udp_ifaces) {
+    return GetValidVariant<AnyNbUDPIfaces>(num_udp_ifaces - 1);
 }
 
-template <int NbUDPIfaces, class Fmt>
-constexpr Geom::DetGeom<Fmt, ModRecvFlip>
-    Jungfrau4MDetGeom(ChipPixels, ChipGap, IfaceChips<NbUDPIfaces>,
-                      RecvIfaces<NbUDPIfaces>, ModRecvs, ModGap,
-                      Jungfrau4MDetMods);
 }; // namespace Jungfrau
 
 }; // namespace Geom
