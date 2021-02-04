@@ -344,7 +344,7 @@ class PacketStream<P, SD, FP>::WriterThread {
         P packet = getNextPacket();
         char *b = static_cast<char *>(packet.networkBuffer());
         int ret = ps.socket->ReceiveDataOnly(b);
-        if ((ret < 0) || ((packet.frame() == 0) && ps.wasStopped()))
+        if (ps.wasStopped() || (ret < 0))
             return false;
 
         packet.initSoftHeader();
