@@ -150,9 +150,9 @@ constexpr auto CalcAsmArraySize(const XY &elem_size, const XY &array_size,
     return (elem_size * array_size + (array_size - XY1) * gap);
 }
 
-constexpr auto GetAsmElementView(const XY &elem_size, const XY &array_size,
-                                 const XY &gap, const XY &idx,
-                                 const MapView &view, const XY &flip) {
+constexpr auto GetAsmElementView(const XY &elem_size, const XY &gap,
+                                 const XY &idx, const MapView &view,
+                                 const XY &flip) {
     return view.getSubView((elem_size + gap) * idx, elem_size, flip);
 }
 
@@ -167,10 +167,11 @@ struct AsmWithNoGapFmt {
     }
 
     static constexpr auto getElementView(const XY &elem_size,
-                                         const XY &array_size, const XY &gap,
-                                         const XY &idx, const MapView &view,
+                                         const XY & /*array_size*/,
+                                         const XY &gap, const XY &idx,
+                                         const MapView &view,
                                          const XY &flip = NoFlip) {
-        return GetAsmElementView(elem_size, array_size, gap, idx, view, flip);
+        return GetAsmElementView(elem_size, gap, idx, view, flip);
     }
 };
 
@@ -185,10 +186,11 @@ struct AsmWithGapFmt {
     }
 
     static constexpr auto getElementView(const XY &elem_size,
-                                         const XY &array_size, const XY &gap,
-                                         const XY &idx, const MapView &view,
+                                         const XY & /*array_size*/,
+                                         const XY &gap, const XY &idx,
+                                         const MapView &view,
                                          const XY &flip = NoFlip) {
-        return GetAsmElementView(elem_size, array_size, gap, idx, view, flip);
+        return GetAsmElementView(elem_size, gap, idx, view, flip);
     }
 };
 
@@ -382,6 +384,22 @@ constexpr std::size_t GetDetCollectIdxFromDetSize(const XY &det_size) {
         return GetDetCollectIdxFromDetSize<V, I - 1>(det_size);
     else
         return -1;
+}
+
+// Module gap filling
+
+using AnyGapFilling = std::variant<std::false_type, std::true_type>;
+struct AnyModGapFilling {
+    AnyGapFilling x, y;
+};
+
+template <class DG>
+constexpr AnyModGapFilling AnyModGapFillingFromModPos(const DG &det_geom,
+                                                      const XY &mod_pos) {
+    auto det_mods = det_geom.det_mods;
+    XY has_gap{mod_pos.x < det_mods.x - 1, mod_pos.y < det_mods.y - 1};
+    return {GetValidVariant<AnyGapFilling>(has_gap.x),
+            GetValidVariant<AnyGapFilling>(has_gap.y)};
 }
 
 // Pixel types

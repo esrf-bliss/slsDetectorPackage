@@ -137,7 +137,8 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
      * Create the top-level frame assembler depending on the detector
      */
     static FrameAssemblerPtr CreateFrameAssembler(std::vector<Ptr> &listener,
-                                                  int det_ifaces[2]);
+                                                  int recv_idx,
+                                                  int num_det_ifaces[2]);
 
     /**
      * Clear all buffers

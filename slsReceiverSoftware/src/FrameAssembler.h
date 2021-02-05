@@ -381,7 +381,11 @@ class DefaultFrameAssembler : public DefaultFrameAssemblerBase {
 class RawFrameAssembler : public FrameAssemblerBase {
 
   public:
-    RawFrameAssembler(DefaultFrameAssemblerList a) : assembler(a) {}
+    RawFrameAssembler(DefaultFrameAssemblerList a, int recv_idx)
+        : assembler(a) {
+        int iface_size = assembler[0]->getImageSize();
+        data_offset = assembler.size() * iface_size * recv_idx;
+    }
 
     Result assembleFrame(uint64_t frame, RecvHeader *recv_header,
                          char *buf) override;
@@ -392,6 +396,7 @@ class RawFrameAssembler : public FrameAssemblerBase {
 
   private:
     DefaultFrameAssemblerList assembler;
+    int data_offset;
 };
 
 } // namespace FrameAssembler

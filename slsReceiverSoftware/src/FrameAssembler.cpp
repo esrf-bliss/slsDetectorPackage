@@ -574,6 +574,8 @@ DefaultFrameAssemblerPtr FrameAssembler::CreateDefaultFrameAssembler(
 
 Result RawFrameAssembler::assembleFrame(uint64_t frame, RecvHeader *recv_header,
                                         char *buf) {
+    if (buf)
+        buf += data_offset;
     const int NbIfaces = assembler.size();
     Result res{NbIfaces, 0};
     for (int i = 0; i < NbIfaces; ++i) {

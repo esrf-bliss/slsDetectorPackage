@@ -17,8 +17,8 @@ constexpr int IfaceHorzChips = GeomEiger::IfaceChips.x;
  * GeomHelper
  */
 
-// P: Pixel Type, GD: Geom data, FP: Frame discard policy
-template <class P, class GD, int Idx> struct GeomHelper {
+// P: Pixel Type, FP: Frame discard policy, GD: Geom data, MGX/Y: Module gap X/Y
+template <class P, class GD, bool MGX, bool MGY, int Idx> struct GeomHelper {
 
 #define SCA static constexpr auto
 #define SCI static constexpr int
@@ -44,11 +44,15 @@ template <class P, class GD, int Idx> struct GeomHelper {
         return IfaceGeom1.getPacketView(PacketPixels, PacketIdx);
     }
 
+    SCI chip_cols = GeomEiger::ChipPixels.x;
+    SCI chip_lines = GeomEiger::ChipPixels.y;
+    SCA chip_gap_pixels = GeomEiger::ChipGap;
+    SCA mod_gap_pixels = GeomEiger::ModGap;
     SCI frame_packets = FramePackets<SrcPixel>;
     SCI packet_lines = RawIfaceSize.y / frame_packets;
     SCI flipped = (RecvView.pixelDir().y < 0);
     SCF src_pixel_size = SrcPixel::depth();
-    SCI src_chip_size = GeomEiger::ChipPixels.x * src_pixel_size;
+    SCI src_chip_size = chip_cols * src_pixel_size;
     SCI src_line_size = RawIfaceSize.x * src_pixel_size;
     SCI src_dir = flipped ? -1 : 1;
     SCI src_line_step = src_line_size * src_dir;
@@ -56,10 +60,10 @@ template <class P, class GD, int Idx> struct GeomHelper {
     SCI dst_chip_pixels = IfaceGeom1.chip_step.x;
     SCI dst_chip_size = dst_chip_pixels * dst_pixel_size;
     SCI dst_line_size = RecvView.pixelStep().y * dst_pixel_size * src_dir;
-    SCI chip_gap_cols = GeomEiger::ChipGap.x;
-    SCI chip_gap_lines = GeomEiger::ChipGap.y;
-    SCI gap_cols_size = chip_gap_cols * dst_pixel_size;
-    SCI gap_lines_size = chip_gap_lines * dst_line_size;
+    SCI dst_iface_cols = IfaceView1.size.x + (MGX ? mod_gap_pixels.x : 0);
+    SCI dst_iface_line_size = dst_iface_cols * dst_pixel_size;
+    SCI cg_cols_size = chip_gap_pixels.x * dst_pixel_size;
+    SCI mg_cols_size = mod_gap_pixels.x * dst_pixel_size;
     SCI src_first_line = IfaceView1.calcViewOrigin().y;
     SCI src_first_packet = src_first_line / packet_lines;
     SCA first_packet_view = getPacketView(src_first_packet);
@@ -70,16 +74,31 @@ template <class P, class GD, int Idx> struct GeomHelper {
 #undef SCF
 #undef SCI
 #undef SCA
+
+    void addGapLines(char *buf) {
+        constexpr bool fill_chip_gap_lines = (Idx == 0);
+        constexpr bool fill_mod_gap_lines = MGY;
+        constexpr int gap_lines =
+            (fill_chip_gap_lines ? chip_gap_pixels.y
+                                 : (fill_mod_gap_lines ? mod_gap_pixels.y : 0));
+        if constexpr (gap_lines > 0) {
+            char *d = buf + chip_lines * dst_line_size;
+            for (int i = 0; i < gap_lines; ++i) {
+                memset(d, 0, dst_iface_line_size);
+                d += dst_line_size;
+            }
+        }
+    }
 };
 
 /**
  * Expand4BitsHelper
  */
 
-template <class P, class GD, int Idx>
-struct Expand4BitsHelper : GeomHelper<P, GD, Idx> {
+template <class P, class GD, bool MGX, bool MGY, int Idx>
+struct Expand4BitsHelper : GeomHelper<P, GD, MGX, MGY, Idx> {
 
-    using H = GeomHelper<P, GD, Idx>;
+    using H = GeomHelper<P, GD, MGX, MGY, Idx>;
     using BlockPtr = typename H::BlockPtr;
 
 #define SCI static constexpr int
@@ -128,9 +147,9 @@ struct Expand4BitsHelper : GeomHelper<P, GD, Idx> {
     }
 };
 
-template <class P, class GD, int Idx>
-int Expand4BitsHelper<P, GD, Idx>::Worker::load_packet(BlockPtr block[NbIfaces],
-                                                       int packet) {
+template <class P, class GD, bool MGX, bool MGY, int Idx>
+int Expand4BitsHelper<P, GD, MGX, MGY, Idx>::Worker::load_packet(
+    BlockPtr block[NbIfaces], int packet) {
     Packet<P> p0 = (*block[0])[packet];
     Packet<P> p1 = (*block[1])[packet];
     s[0] = (const __m128i *)(p0.data() + h.src_offset);
@@ -144,8 +163,8 @@ int Expand4BitsHelper<P, GD, Idx>::Worker::load_packet(BlockPtr block[NbIfaces],
     return 0;
 }
 
-template <class P, class GD, int Idx>
-void Expand4BitsHelper<P, GD, Idx>::Worker::load_dst128(char *buf) {
+template <class P, class GD, bool MGX, bool MGY, int Idx>
+void Expand4BitsHelper<P, GD, MGX, MGY, Idx>::Worker::load_dst128(char *buf) {
     char *d = buf;
     dest_misalign = ((unsigned long)d & 15);
     dst128 = (__m128i *)(d - dest_misalign);
@@ -163,8 +182,8 @@ void Expand4BitsHelper<P, GD, Idx>::Worker::load_dst128(char *buf) {
     }
 }
 
-template <class P, class GD, int Idx>
-void Expand4BitsHelper<P, GD, Idx>::Worker::load_shift_store128() {
+template <class P, class GD, bool MGX, bool MGY, int Idx>
+void Expand4BitsHelper<P, GD, MGX, MGY, Idx>::Worker::load_shift_store128() {
     __m128i p4_raw;
     if (valid_data)
         p4_raw = _mm_load_si128(src128);
@@ -205,8 +224,8 @@ void Expand4BitsHelper<P, GD, Idx>::Worker::load_shift_store128() {
     prev = _mm_or_si128(d31, d4);
 }
 
-template <class P, class GD, int Idx>
-void Expand4BitsHelper<P, GD, Idx>::Worker::pad_dst128() {
+template <class P, class GD, bool MGX, bool MGY, int Idx>
+void Expand4BitsHelper<P, GD, MGX, MGY, Idx>::Worker::pad_dst128() {
     shift_l += h.gap_bits;
     if (shift_l % 64 == 0)
         shift_l128 = _mm_setzero_si128();
@@ -220,8 +239,8 @@ void Expand4BitsHelper<P, GD, Idx>::Worker::pad_dst128() {
     }
 }
 
-template <class P, class GD, int Idx>
-void Expand4BitsHelper<P, GD, Idx>::Worker::sync_dst128() {
+template <class P, class GD, bool MGX, bool MGY, int Idx>
+void Expand4BitsHelper<P, GD, MGX, MGY, Idx>::Worker::sync_dst128() {
     if (shift_l != 0) {
         __m128i m0;
         m0 = _mm_sll_epi64(_mm_set1_epi8(0xff), shift_l128);
@@ -232,9 +251,13 @@ void Expand4BitsHelper<P, GD, Idx>::Worker::sync_dst128() {
     }
 }
 
-template <class P, class GD, int Idx>
-void Expand4BitsHelper<P, GD, Idx>::Worker::assemblePackets(
+template <class P, class GD, bool MGX, bool MGY, int Idx>
+void Expand4BitsHelper<P, GD, MGX, MGY, Idx>::Worker::assemblePackets(
     BlockPtr block[NbIfaces], char *buf) {
+    if constexpr (MGX) {
+        LOG(logERROR) << "Expand4BitsHelper not supported in horiz. tile";
+        return;
+    }
     const int &hm_chips = h.half_module_chips;
     int packet = h.src_first_packet;
     load_dst128(buf);
@@ -258,28 +281,25 @@ void Expand4BitsHelper<P, GD, Idx>::Worker::assemblePackets(
     }
     sync_dst128();
 
-    constexpr bool top_recv = h.flipped;
-    bool fill_chip_gap_lines = top_recv;
-    if (fill_chip_gap_lines)
-        memset(buf + h.dst_iface_step - h.gap_lines_size, 0, h.gap_lines_size);
+    h.addGapLines(buf);
 }
 
 /**
  * CopyHelper
  */
 
-template <class P, class GD, int Idx>
-struct CopyHelper : GeomHelper<P, GD, Idx> {
+template <class P, class GD, bool MGX, bool MGY, int Idx>
+struct CopyHelper : GeomHelper<P, GD, MGX, MGY, Idx> {
 
-    using H = GeomHelper<P, GD, Idx>;
+    using H = GeomHelper<P, GD, MGX, MGY, Idx>;
     using BlockPtr = typename H::BlockPtr;
 
     void assemblePackets(BlockPtr block[NbIfaces], char *buf);
 };
 
-template <class P, class GD, int Idx>
-void CopyHelper<P, GD, Idx>::assemblePackets(BlockPtr block[NbIfaces],
-                                             char *buf) {
+template <class P, class GD, bool MGX, bool MGY, int Idx>
+void CopyHelper<P, GD, MGX, MGY, Idx>::assemblePackets(BlockPtr block[NbIfaces],
+                                                       char *buf) {
     H h;
     int packet = h.src_first_packet;
     char *d = buf;
@@ -297,32 +317,33 @@ void CopyHelper<P, GD, Idx>::assemblePackets(BlockPtr block[NbIfaces],
                         memcpy(ld, ls, h.src_chip_size);
                     else
                         memset(ld, 0xff, h.src_chip_size);
+                    ls += h.src_chip_size;
+                    ld += h.src_chip_size;
                     bool fill_chip_gap_cols =
                         ((i == 0) || (c < IfaceHorzChips - 1));
+                    constexpr bool fill_mod_gap_cols = MGX;
                     if (fill_chip_gap_cols)
-                        memset(ld + h.src_chip_size, 0, h.gap_cols_size);
-                    ls += h.src_chip_size;
-                    ld += h.dst_chip_size;
+                        memset(ld, 0, h.cg_cols_size);
+                    else if constexpr (fill_mod_gap_cols)
+                        memset(ld, 0, h.mg_cols_size);
+                    ld += h.dst_chip_size - h.src_chip_size;
                 }
                 s[i] += h.src_line_step;
             }
             d += h.dst_line_size;
         }
     }
-    constexpr bool top_recv = h.flipped;
-    bool fill_chip_gap_lines = top_recv;
-    if (fill_chip_gap_lines)
-        memset(d, 0, h.gap_lines_size);
+
+    h.addGapLines(buf);
 }
 
 /**
  * FrameAssembler
  */
 
-template <class P, class FP, class GD, int Idx>
-Result FrameAssembler<P, FP, GD, Idx>::assembleFrame(uint64_t frame,
-                                                     RecvHeader *recv_header,
-                                                     char *buf) {
+template <class P, class FP, class GD, bool MGX, bool MGY, int Idx>
+Result FrameAssembler<P, FP, GD, MGX, MGY, Idx>::assembleFrame(
+    uint64_t frame, RecvHeader *recv_header, char *buf) {
     PortsMask mask;
     bool header_empty = true;
 
@@ -352,7 +373,7 @@ Result FrameAssembler<P, FP, GD, Idx>::assembleFrame(uint64_t frame,
         return Result{NbIfaces, 0};
 
     if (mask.any() && buf)
-        helper.assemblePackets(block, buf);
+        helper.assemblePackets(block, buf + data_offset);
 
     return Result{NbIfaces, mask};
 }
@@ -361,8 +382,8 @@ Result FrameAssembler<P, FP, GD, Idx>::assembleFrame(uint64_t frame,
 } // namespace FrameAssembler
 
 FrameAssemblerPtr FAEiger::CreateFrameAssembler(int pixel_bpp, FramePolicy fp,
-                                                bool enable_tg,
-                                                int det_ifaces[2], int recv_idx,
+                                                bool enable_tg, XY det_ifaces,
+                                                XY mod_pos, int recv_idx,
                                                 DefaultFrameAssemblerList a) {
 
     if (!enable_tg) {
@@ -371,24 +392,40 @@ FrameAssemblerPtr FAEiger::CreateFrameAssembler(int pixel_bpp, FramePolicy fp,
         throw std::runtime_error(error);
     }
 
-    XY det_size = RawIfaceGeom.size * XY{det_ifaces[0], det_ifaces[1]};
+    XY det_size = RawIfaceGeom.size * det_ifaces;
 
     auto any_pixel = AnyPixelFromBpp(pixel_bpp);
     auto any_fp = AnyFramePolicyFromFP(fp);
     auto any_det_geom = GeomEiger::AnyDetGeomFromDetSize(det_size);
     auto any_recv_idx = GeomEiger::AnyRecvIdxFromRecvIdx(recv_idx);
-
     return std::visit(
-        [&](auto pixel, auto fp, auto gd, auto i) -> FrameAssemblerPtr {
-            using P = decltype(pixel);
-            using FP = decltype(fp);
+        [&](auto gd) {
             using GD = decltype(gd);
-            constexpr int Idx = i;
-            using Assembler = FrameAssembler<P, FP, GD, Idx>;
-            typename Assembler::StreamList s;
-            auto f = [](auto a) { return Assembler::rawAssemblerStream(a); };
-            std::transform(std::begin(a), std::end(a), std::begin(s), f);
-            return std::make_shared<Assembler>(s);
+            auto any_fill =
+                AnyModGapFillingFromModPos(GD::asm_wg_geom, mod_pos);
+            return std::visit(
+                [&](auto pixel, auto fp, auto gx, auto gy,
+                    auto i) -> FrameAssemblerPtr {
+                    using P = decltype(pixel);
+                    using FP = decltype(fp);
+                    constexpr bool MGX = gx, MGY = gy;
+                    constexpr int Idx = i;
+                    using Assembler = FrameAssembler<P, FP, GD, MGX, MGY, Idx>;
+                    typename Assembler::StreamList s;
+                    auto f = [](auto a) {
+                        return Assembler::rawAssemblerStream(a);
+                    };
+                    constexpr auto det_geom = GD::asm_wg_geom;
+                    auto mod_geom = det_geom.getModGeom(mod_pos);
+                    auto recv_view = mod_geom.getRecvView({0, Idx});
+                    auto origin = recv_view.calcViewOrigin();
+                    int pixel_offset = recv_view.calcMapPixelIndex(origin);
+                    int data_offset = pixel_offset * Assembler::DP::depth();
+                    std::transform(std::begin(a), std::end(a), std::begin(s),
+                                   f);
+                    return std::make_shared<Assembler>(s, data_offset);
+                },
+                any_pixel, any_fp, any_fill.x, any_fill.y, any_recv_idx);
         },
-        any_pixel, any_fp, any_det_geom, any_recv_idx);
+        any_det_geom);
 }

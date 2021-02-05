@@ -50,10 +50,11 @@ struct Assembler : AssemblerBase<NbUDPIfaces, Idx, FP> {
  *@short Jungfrau frame assembler in standard mode: Default frame assembler
  */
 
-//  GD: Geom data, FP: Frame discard policy
-template <class GD, int Idx> struct CopyHelper;
+//  FP: Frame discard policy, GD: Geom data, MGX/Y: Module gap X/Y
+template <class GD, bool MGX, bool MGY, int Idx> struct CopyHelper;
 
-template <class GD, class FP> class FrameAssembler : public FrameAssemblerBase {
+template <class FP, class GD, bool MGX, bool MGY>
+class FrameAssembler : public FrameAssemblerBase {
   public:
     static constexpr int NbUDPIfaces = GD::num_udp_ifaces;
 
@@ -67,7 +68,7 @@ template <class GD, class FP> class FrameAssembler : public FrameAssemblerBase {
     using StreamList =
         std::conditional_t<NbUDPIfaces == 1, StreamList1, StreamList2>;
 
-    FrameAssembler(StreamList s) : stream(s) {}
+    FrameAssembler(StreamList s, int offset) : stream(s), data_offset(offset) {}
 
     Result assembleFrame(uint64_t frame, RecvHeader *recv_header,
                          char *buf) override;
@@ -80,6 +81,7 @@ template <class GD, class FP> class FrameAssembler : public FrameAssemblerBase {
 
   private:
     StreamList stream;
+    int data_offset;
 
     struct Worker {
         PortsMask mask;
@@ -100,8 +102,9 @@ template <class GD, class FP> class FrameAssembler : public FrameAssemblerBase {
     };
 };
 
-FrameAssemblerPtr CreateFrameAssembler(int det_ifaces[2], int num_udp_ifaces,
-                                       FramePolicy fp,
+using XY = sls::Geom::XY;
+FrameAssemblerPtr CreateFrameAssembler(XY det_ifaces, XY mod_pos,
+                                       int num_udp_ifaces, FramePolicy fp,
                                        DefaultFrameAssemblerList a);
 
 } // namespace Jungfrau

@@ -287,7 +287,8 @@ void Listener::ThreadExecution() {
 }
 
 Listener::FrameAssemblerPtr
-Listener::CreateFrameAssembler(std::vector<Ptr> &listener, int det_ifaces[2]) {
+Listener::CreateFrameAssembler(std::vector<Ptr> &listener, int recv_idx,
+                               int num_det_ifaces[2]) {
     FrameAssemblerPtr fa;
     GeneralData *gd = listener[0]->generalData;
     detectorType d = listener[0]->myDetectorType;
@@ -295,18 +296,35 @@ Listener::CreateFrameAssembler(std::vector<Ptr> &listener, int det_ifaces[2]) {
     bool raw = !gd->gapEnable;
     frameDiscardPolicy fp = *listener[0]->frameDiscardMode;
     using namespace FrameAssembler;
+    using XY = sls::Geom::XY;
     DefaultFrameAssemblerList a;
+    XY det_ifaces{num_det_ifaces[0], num_det_ifaces[1]};
+    auto getModPos = [&](auto recv_ifaces, auto mod_recvs) {
+        auto det_mods = det_ifaces / (mod_recvs * recv_ifaces);
+        int mod_idx = recv_idx / mod_recvs.area();
+        return XY{mod_idx / det_mods.y, mod_idx % det_mods.y};
+    };
     for (auto &l : listener)
         a.push_back(l->frameAssembler);
     if (raw) {
-        fa = std::make_shared<FrameAssembler::RawFrameAssembler>(a);
+        fa = std::make_shared<FrameAssembler::RawFrameAssembler>(a, recv_idx);
     } else if (d == slsDetectorDefs::EIGER) {
+        using namespace sls::Geom::Eiger;
+        auto mod_pos = getModPos(RecvIfaces, ModRecvs);
         int pixel_bpp = gd->dynamicRange;
-        int recv_idx = *listener[0]->flippedDataX ? 1 : 0;
+        recv_idx %= ModRecvs.y;
         fa = FrameAssembler::Eiger::CreateFrameAssembler(
-            pixel_bpp, fp, gd->tgEnable, det_ifaces, recv_idx, a);
+            pixel_bpp, fp, gd->tgEnable, det_ifaces, mod_pos, recv_idx, a);
     } else if (d == slsDetectorDefs::JUNGFRAU) {
-        fa = FrameAssembler::Jungfrau::CreateFrameAssembler(det_ifaces,
+        using namespace sls::Geom::Jungfrau;
+        XY mod_pos;
+        std::visit(
+            [&](auto nb) {
+                constexpr int num_udp_ifaces = nb;
+                mod_pos = getModPos(RecvIfaces<num_udp_ifaces>, ModRecvs);
+            },
+            AnyNbUDPIfacesFromNbUDPIfaces(nb_ports));
+        fa = FrameAssembler::Jungfrau::CreateFrameAssembler(det_ifaces, mod_pos,
                                                             nb_ports, fp, a);
     } else
         throw sls::RuntimeError("FrameAssembler not available for " +
