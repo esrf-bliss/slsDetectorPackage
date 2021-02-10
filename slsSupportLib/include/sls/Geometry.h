@@ -116,6 +116,14 @@ constexpr auto ViewFromMap(const XY &map_size) {
 
 constexpr auto EmptyView = ViewFromMap({0, 0});
 
+// Helper pixel iterator
+#define view_for_each_pixel(view, pixel, body)                                 \
+    for (int _pixely = 0; _pixely < view.size.y; ++_pixely)                    \
+        for (int _pixelx = 0; _pixelx < view.size.x; ++_pixelx) {              \
+            XY pixel = {_pixelx, _pixely};                                     \
+            body;                                                              \
+        }
+
 /*
  * Raw format: all the network Ifaces (ports) are vertically concatenated
  */
@@ -239,6 +247,15 @@ template <class Fmt> struct IfaceGeom {
     }
 };
 
+// Helper chip iterator
+#define iface_for_each_chip(iface_geom, chip, chip_view, body)                 \
+    for (int _chipy = 0; _chipy < iface_geom.iface_chips.y; ++_chipy)          \
+        for (int _chipx = 0; _chipx < iface_geom.iface_chips.x; ++_chipx) {    \
+            XY chip = {_chipx, _chipy};                                        \
+            auto chip_view = iface_geom.getChipView(chip);                     \
+            body;                                                              \
+        }
+
 // RecvGeom: multi-UDP interface receiver geometry
 template <class Fmt> struct RecvGeom {
     XY chip_pixels, chip_gap, iface_chips, recv_ifaces;
@@ -279,6 +296,15 @@ struct DefaultModRecvFlip {
     }
 };
 
+// Helper iface iterator
+#define recv_for_each_iface(recv_geom, iface, iface_geom, body)                \
+    for (int _ifacey = 0; _ifacey < recv_geom.recv_ifaces.y; ++_ifacey)        \
+        for (int _ifacex = 0; _ifacex < recv_geom.recv_ifaces.x; ++_ifacex) {  \
+            XY iface = {_ifacex, _ifacey};                                     \
+            auto iface_geom = recv_geom.getIfaceGeom(iface);                   \
+            body;                                                              \
+        }
+
 // ModGeom: multi-receiver module geometry
 template <class Fmt, class ModRecvFlip> struct ModGeom {
     XY chip_pixels, chip_gap, iface_chips, recv_ifaces, mod_recvs;
@@ -315,6 +341,15 @@ template <class Fmt, class ModRecvFlip> struct ModGeom {
     }
 };
 
+// Helper recv iterator
+#define mod_for_each_recv(mod_geom, recv, recv_geom, body)                     \
+    for (int _recvy = 0; _recvy < mod_geom.mod_recvs.y; ++_recvy)              \
+        for (int _recvx = 0; _recvx < mod_geom.mod_recvs.x; ++_recvx) {        \
+            XY recv = {_recvx, _recvy};                                        \
+            auto recv_geom = mod_geom.getRecvGeom(recv);                       \
+            body;                                                              \
+        }
+
 // DetGeom: multi-module detector geometry
 template <class Fmt, class ModRecvFlip> struct DetGeom {
     XY chip_pixels, chip_gap, iface_chips, recv_ifaces, mod_recvs, mod_gap;
@@ -348,6 +383,15 @@ template <class Fmt, class ModRecvFlip> struct DetGeom {
             getModView(mod_idx), mod_idx, det_mods);
     }
 };
+
+// Helper module iterator
+#define det_for_each_mod(det_geom, mod, mod_geom, body)                        \
+    for (int _mody = 0; _mody < det_geom.det_mods.y; ++_mody)                  \
+        for (int _modx = 0; _modx < det_geom.det_mods.x; ++_modx) {            \
+            XY mod = {_modx, _mody};                                           \
+            auto mod_geom = det_geom.getModGeom(mod);                          \
+            body;                                                              \
+        }
 
 // Detector geometry data: stores all geometry for a particular detector
 // MX, MY: detector modules, G: detector geometry generator
