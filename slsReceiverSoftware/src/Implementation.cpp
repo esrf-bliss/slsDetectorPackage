@@ -832,7 +832,11 @@ int Implementation::getNumberofUDPInterfaces() const {
 void Implementation::setNumberofUDPInterfaces(const int n) {
 
     if (numUDPInterfaces != n) {
+        // remove previous correction of interface geometry (ports) in x/y dirs
+        // the new port geometry correction will be done in setDetectorSize
         PortGeometry prev_geom = GetPortGeometry();
+        numDet[X] /= prev_geom[X];
+        numDet[Y] /= prev_geom[Y];
 
         // clear all threads and fifos
         listener.clear();
@@ -844,12 +848,6 @@ void Implementation::setNumberofUDPInterfaces(const int n) {
         generalData->SetNumberofInterfaces(n);
         numUDPInterfaces = n;
         numThreads = n;
-
-        // update number of detectors in x/y dir (cols/rows) if the
-        // geometry of interfaces (ports) change
-        PortGeometry curr_geom = GetPortGeometry();
-        numDet[X] *= float(curr_geom[X]) / prev_geom[X];
-        numDet[Y] *= float(curr_geom[Y]) / prev_geom[Y];
 
         // fifo
         udpSocketBufferSize = generalData->defaultUdpSocketBufferSize;
