@@ -15,7 +15,7 @@ template <class DetGeom> struct TestGeomData {
     constexpr TestGeomData(const DetGeom &det_geom)
         : chip_size(ChipPixels.x), iface_chips(IfaceChips.x),
           recv_ifaces(RecvIfaces.x), mod_recvs(ModRecvs.y), chip_gap(ChipGap.x),
-          mod_gap(ModGap.x), recv_chips(iface_chips * recv_ifaces),
+          mod_gap(ModGap.y), recv_chips(iface_chips * recv_ifaces),
           det_mods(det_geom.det_mods),
           // Raw mode: vertical concatenation of 4x dual-chip ports (512x256)
           raw_mod_size(
@@ -58,7 +58,7 @@ template <class DetGeom> struct TestGeomData {
         return chipsWithLastGap(chips) - chip_gap;
     }
 
-    // Asm mode: image reconstruction with module gap insertion: (36x36) x (0x3)
+    // Asm mode: image reconstruction with module gap insertion: (9x36) x (0x3)
     constexpr int modsWithLastGap(int mods) const {
         return (asm_wg_mod_size.y + mod_gap) * mods;
     }

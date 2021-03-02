@@ -6,6 +6,7 @@
  * optimize frame assembling tasks
  ***********************************************/
 
+#include <functional>
 #include <iostream>
 #include <type_traits>
 #include <utility>
@@ -117,12 +118,21 @@ constexpr auto ViewFromMap(const XY &map_size) {
 constexpr auto EmptyView = ViewFromMap({0, 0});
 
 // Helper pixel iterator
-#define view_for_each_pixel(view, pixel, body)                                 \
-    for (int _pixely = 0; _pixely < view.size.y; ++_pixely)                    \
-        for (int _pixelx = 0; _pixelx < view.size.x; ++_pixelx) {              \
-            XY pixel = {_pixelx, _pixely};                                     \
-            body;                                                              \
-        }
+inline void
+view_for_each_pixel(const MapView &view,
+                    std::function<void(const MapView &, const XY &)> f) {
+    for (int pixely = 0; pixely < view.size.y; ++pixely)
+        for (int pixelx = 0; pixelx < view.size.x; ++pixelx)
+            f(view, {pixelx, pixely});
+}
+
+inline void view2_for_each_pixel(
+    const MapView &view1, const MapView &view2,
+    std::function<void(const MapView &, const MapView &, const XY &)> f) {
+    for (int pixely = 0; pixely < view1.size.y; ++pixely)
+        for (int pixelx = 0; pixelx < view1.size.x; ++pixelx)
+            f(view1, view2, {pixelx, pixely});
+}
 
 /*
  * Raw format: all the network Ifaces (ports) are vertically concatenated
@@ -248,13 +258,38 @@ template <class Fmt> struct IfaceGeom {
 };
 
 // Helper chip iterator
-#define iface_for_each_chip(iface_geom, chip, chip_view, body)                 \
-    for (int _chipy = 0; _chipy < iface_geom.iface_chips.y; ++_chipy)          \
-        for (int _chipx = 0; _chipx < iface_geom.iface_chips.x; ++_chipx) {    \
-            XY chip = {_chipx, _chipy};                                        \
-            auto chip_view = iface_geom.getChipView(chip);                     \
-            body;                                                              \
+template <class IG>
+void iface_for_each_chip(
+    const IG &iface_geom,
+    std::function<void(
+        const XY &,
+        const decltype(std::declval<IG>().getChipView(std::declval<XY>())) &)>
+        f) {
+    for (int chipy = 0; chipy < iface_geom.iface_chips.y; ++chipy) {
+        for (int chipx = 0; chipx < iface_geom.iface_chips.x; ++chipx) {
+            XY chip = {chipx, chipy};
+            f(chip, iface_geom.getChipView(chip));
         }
+    }
+}
+
+template <class IG1, class IG2>
+void iface2_for_each_chip(
+    const IG1 &iface_geom1, const IG2 &iface_geom2,
+    std::function<void(
+        const XY &,
+        const decltype(std::declval<IG1>().getChipView(std::declval<XY>())) &,
+        const decltype(std::declval<IG2>().getChipView(std::declval<XY>())) &)>
+        f) {
+    for (int chipy = 0; chipy < iface_geom1.iface_chips.y; ++chipy) {
+        for (int chipx = 0; chipx < iface_geom1.iface_chips.x; ++chipx) {
+            XY chip = {chipx, chipy};
+            auto chip_view1 = iface_geom1.getChipView(chip);
+            auto chip_view2 = iface_geom2.getChipView(chip);
+            f(chip, chip_view1, chip_view2);
+        }
+    }
+}
 
 // RecvGeom: multi-UDP interface receiver geometry
 template <class Fmt> struct RecvGeom {
@@ -297,13 +332,38 @@ struct DefaultModRecvFlip {
 };
 
 // Helper iface iterator
-#define recv_for_each_iface(recv_geom, iface, iface_geom, body)                \
-    for (int _ifacey = 0; _ifacey < recv_geom.recv_ifaces.y; ++_ifacey)        \
-        for (int _ifacex = 0; _ifacex < recv_geom.recv_ifaces.x; ++_ifacex) {  \
-            XY iface = {_ifacex, _ifacey};                                     \
-            auto iface_geom = recv_geom.getIfaceGeom(iface);                   \
-            body;                                                              \
+template <class RG>
+void recv_for_each_iface(
+    const RG &recv_geom,
+    std::function<void(
+        const XY &,
+        const decltype(std::declval<RG>().getIfaceGeom(std::declval<XY>())) &)>
+        f) {
+    for (int ifacey = 0; ifacey < recv_geom.recv_ifaces.y; ++ifacey) {
+        for (int ifacex = 0; ifacex < recv_geom.recv_ifaces.x; ++ifacex) {
+            XY iface = {ifacex, ifacey};
+            f(iface, recv_geom.getIfaceGeom(iface));
         }
+    }
+}
+
+template <class RG1, class RG2>
+void recv2_for_each_iface(
+    const RG1 &recv_geom1, const RG2 &recv_geom2,
+    std::function<void(
+        const XY &,
+        const decltype(std::declval<RG1>().getIfaceGeom(std::declval<XY>())) &,
+        const decltype(std::declval<RG2>().getIfaceGeom(std::declval<XY>())) &)>
+        f) {
+    for (int ifacey = 0; ifacey < recv_geom1.recv_ifaces.y; ++ifacey) {
+        for (int ifacex = 0; ifacex < recv_geom1.recv_ifaces.x; ++ifacex) {
+            XY iface = {ifacex, ifacey};
+            auto iface_geom1 = recv_geom1.getIfaceGeom(iface);
+            auto iface_geom2 = recv_geom2.getIfaceGeom(iface);
+            f(iface, iface_geom1, iface_geom2);
+        }
+    }
+}
 
 // ModGeom: multi-receiver module geometry
 template <class Fmt, class ModRecvFlip> struct ModGeom {
@@ -342,13 +402,38 @@ template <class Fmt, class ModRecvFlip> struct ModGeom {
 };
 
 // Helper recv iterator
-#define mod_for_each_recv(mod_geom, recv, recv_geom, body)                     \
-    for (int _recvy = 0; _recvy < mod_geom.mod_recvs.y; ++_recvy)              \
-        for (int _recvx = 0; _recvx < mod_geom.mod_recvs.x; ++_recvx) {        \
-            XY recv = {_recvx, _recvy};                                        \
-            auto recv_geom = mod_geom.getRecvGeom(recv);                       \
-            body;                                                              \
+template <class MG>
+void mod_for_each_recv(
+    const MG &mod_geom,
+    std::function<void(
+        const XY &,
+        const decltype(std::declval<MG>().getRecvGeom(std::declval<XY>())) &)>
+        f) {
+    for (int recvy = 0; recvy < mod_geom.mod_recvs.y; ++recvy) {
+        for (int recvx = 0; recvx < mod_geom.mod_recvs.x; ++recvx) {
+            XY recv = {recvx, recvy};
+            f(recv, mod_geom.getRecvGeom(recv));
         }
+    }
+}
+
+template <class MG1, class MG2>
+void mod2_for_each_recv(
+    const MG1 &mod_geom1, const MG2 &mod_geom2,
+    std::function<void(
+        const XY &,
+        const decltype(std::declval<MG1>().getRecvGeom(std::declval<XY>())) &,
+        const decltype(std::declval<MG2>().getRecvGeom(std::declval<XY>())) &)>
+        f) {
+    for (int recvy = 0; recvy < mod_geom1.mod_recvs.y; ++recvy) {
+        for (int recvx = 0; recvx < mod_geom1.mod_recvs.x; ++recvx) {
+            XY recv = {recvx, recvy};
+            auto recv_geom1 = mod_geom1.getRecvGeom(recv);
+            auto recv_geom2 = mod_geom2.getRecvGeom(recv);
+            f(recv, recv_geom1, recv_geom2);
+        }
+    }
+}
 
 // DetGeom: multi-module detector geometry
 template <class Fmt, class ModRecvFlip> struct DetGeom {
@@ -385,13 +470,100 @@ template <class Fmt, class ModRecvFlip> struct DetGeom {
 };
 
 // Helper module iterator
-#define det_for_each_mod(det_geom, mod, mod_geom, body)                        \
-    for (int _mody = 0; _mody < det_geom.det_mods.y; ++_mody)                  \
-        for (int _modx = 0; _modx < det_geom.det_mods.x; ++_modx) {            \
-            XY mod = {_modx, _mody};                                           \
-            auto mod_geom = det_geom.getModGeom(mod);                          \
-            body;                                                              \
+template <class DG>
+void det_for_each_mod(
+    const DG &det_geom,
+    std::function<void(const XY &, const decltype(std::declval<DG>().getModGeom(
+                                       std::declval<XY>())) &)>
+        f) {
+    for (int mody = 0; mody < det_geom.det_mods.y; ++mody) {
+        for (int modx = 0; modx < det_geom.det_mods.x; ++modx) {
+            XY mod = {modx, mody};
+            f(mod, det_geom.getModGeom(mod));
         }
+    }
+}
+
+template <class DG1, class DG2>
+void det2_for_each_mod(
+    const DG1 &det_geom1, const DG2 &det_geom2,
+    std::function<void(
+        const XY &,
+        const decltype(std::declval<DG1>().getModGeom(std::declval<XY>())) &,
+        const decltype(std::declval<DG2>().getModGeom(std::declval<XY>())) &)>
+        f) {
+    for (int mody = 0; mody < det_geom1.det_mods.y; ++mody) {
+        for (int modx = 0; modx < det_geom1.det_mods.x; ++modx) {
+            XY mod = {modx, mody};
+            auto mod_geom1 = det_geom1.getModGeom(mod);
+            auto mod_geom2 = det_geom2.getModGeom(mod);
+            f(mod, mod_geom1, mod_geom2);
+        }
+    }
+}
+
+// Helper detector iterator
+
+template <class DG>
+void det_for_each_chip(const DG &det_geom,
+                       std::function<void(const XY &, const MapView &)> f) {
+    det_for_each_mod(det_geom, [&](auto &mod, auto &mod_geom) {
+        mod_for_each_recv(mod_geom, [&](auto &recv, auto &recv_geom) {
+            recv_for_each_iface(recv_geom, [&](auto &iface, auto &iface_geom) {
+                iface_for_each_chip(
+                    iface_geom, [&](auto &chip, auto &chip_view) {
+                        auto first_chip =
+                            (iface_geom.iface_idx * iface_geom.iface_chips);
+                        f(first_chip + chip, chip_view);
+                    });
+            });
+        });
+    });
+}
+
+template <class DG>
+void det_for_each_pixel(const DG &det_geom,
+                        std::function<void(const MapView &, const XY &)> f) {
+    det_for_each_chip(det_geom, [&](auto &chip, auto &chip_view) {
+        view_for_each_pixel(chip_view, f);
+    });
+}
+
+template <class DG1, class DG2>
+void det2_for_each_chip(
+    const DG1 &det_geom1, const DG2 &det_geom2,
+    std::function<void(const XY &, const MapView &, const MapView &)> f) {
+    det2_for_each_mod(
+        det_geom1, det_geom2, [&](auto &mod, auto &mod_geom1, auto &mod_geom2) {
+            mod2_for_each_recv(
+                mod_geom1, mod_geom2,
+                [&](auto &recv, auto &recv_geom1, auto &recv_geom2) {
+                    recv2_for_each_iface(
+                        recv_geom1, recv_geom2,
+                        [&](auto &iface, auto &iface_geom1, auto &iface_geom2) {
+                            iface2_for_each_chip(
+                                iface_geom1, iface_geom2,
+                                [&](auto &chip, auto &chip_view1,
+                                    auto &chip_view2) {
+                                    auto first_chip = (iface_geom1.iface_idx *
+                                                       iface_geom1.iface_chips);
+                                    f(first_chip + chip, chip_view1,
+                                      chip_view2);
+                                });
+                        });
+                });
+        });
+}
+
+template <class DG1, class DG2>
+void det2_for_each_pixel(
+    const DG1 &det_geom1, const DG2 &det_geom2,
+    std::function<void(const MapView &, const MapView &, const XY &)> f) {
+    det2_for_each_chip(det_geom1, det_geom2,
+                       [&](auto &chip, auto &chip_view1, auto &chip_view2) {
+                           view2_for_each_pixel(chip_view1, chip_view2, f);
+                       });
+}
 
 // Detector geometry data: stores all geometry for a particular detector
 // MX, MY: detector modules, G: detector geometry generator
@@ -630,7 +802,7 @@ struct ModRecvFlip {
     }
 };
 constexpr XY ModRecvs{1, 2};
-constexpr XY ModGap{36, 36};
+constexpr XY ModGap{9, 36};
 
 template <int MX, int MY, class Fmt> struct TiledDetGeom {
     constexpr auto operator()() {
@@ -690,7 +862,7 @@ template <int NbUDPIfaces> constexpr XY IfaceChips{4, 2 / NbUDPIfaces};
 template <int NbUDPIfaces> constexpr XY RecvIfaces{1, NbUDPIfaces};
 using ModRecvFlip = DefaultModRecvFlip;
 constexpr XY ModRecvs{1, 1};
-constexpr XY ModGap{36, 36};
+constexpr XY ModGap{9, 36};
 
 template <int NbUDPIfaces> struct TiledDetGeom {
     template <int MX, int MY, class Fmt> struct Generator {
@@ -732,11 +904,13 @@ template <int NbUDPIfaces> using Jungfrau500kGeom = GeomData<NbUDPIfaces, 1, 1>;
 template <int NbUDPIfaces> using Jungfrau1MGeom = GeomData<NbUDPIfaces, 1, 2>;
 template <int NbUDPIfaces> using Jungfrau1MWGeom = GeomData<NbUDPIfaces, 2, 1>;
 template <int NbUDPIfaces> using Jungfrau4MGeom = GeomData<NbUDPIfaces, 2, 4>;
+template <int NbUDPIfaces> using Jungfrau16MGeom = GeomData<NbUDPIfaces, 4, 8>;
 
 template <int NbUDPIfaces>
 using AnyDetGeom =
     std::variant<Jungfrau500kGeom<NbUDPIfaces>, Jungfrau1MGeom<NbUDPIfaces>,
-                 Jungfrau1MWGeom<NbUDPIfaces>, Jungfrau4MGeom<NbUDPIfaces>>;
+                 Jungfrau1MWGeom<NbUDPIfaces>, Jungfrau4MGeom<NbUDPIfaces>,
+                 Jungfrau16MGeom<NbUDPIfaces>>;
 
 template <int NbUDPIfaces>
 constexpr auto AnyDetGeomFromDetSize(const XY &det_size) {
