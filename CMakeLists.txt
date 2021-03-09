@@ -4,6 +4,9 @@ set(PROJECT_VERSION 5.1.0)
 include(CheckIPOSupported)
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
+# Additional compile definitions
+add_compile_definitions(NO_WARN_X86_INTRINSICS)
+
 cmake_policy(SET CMP0074 NEW)
 include(cmake/project_version.cmake)
 
@@ -229,9 +232,9 @@ if (SLS_USE_CTBGUI)
     add_subdirectory(ctbGui)
 endif(SLS_USE_CTBGUI)
 
-configure_file( .clang-tidy  
-    ${CMAKE_BINARY_DIR}/.clang-tidy  
-)
+#configure_file( .clang-tidy  
+#    ${CMAKE_BINARY_DIR}/.clang-tidy  
+#)
 
 if (SLS_BUILD_EXAMPLES)
     add_subdirectory(sample)
