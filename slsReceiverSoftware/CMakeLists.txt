@@ -41,6 +41,10 @@ target_include_directories(slsReceiverObject PUBLIC
     ${NUMA_INCLUDE_DIR}
 )
 
+target_compile_options(slsReceiverObject PRIVATE
+    "-Wno-address-of-packed-member"
+)
+
 target_link_libraries(slsReceiverObject 
   PUBLIC
     slsProjectOptions
