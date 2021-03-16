@@ -170,26 +170,26 @@ void DataProcessor::EndofAcquisition(bool anyPacketsCaught, uint64_t numf) {
 }
 
 void DataProcessor::ThreadExecution() {
-    char *buffer = nullptr;
-    fifo->PopAddress(buffer);
-    LOG(logDEBUG5) << "DataProcessor " << index
-                   << ", "
-                      "pop 0x"
-                   << std::hex << (void *)(buffer) << std::dec << ":" << buffer;
+    FifoFrame *frame;
+    fifo->PopFrame(frame);
+    LOG(logDEBUG5) << "DataProcessor " << index << ", " << std::hex << "pop 0x"
+                   << (void *)frame << " "
+                   << "[data: 0x" << (void *)frame->recvFrame.data << "]"
+                   << std::dec;
 
     // check dummy
-    auto numBytes = (uint32_t)(*((uint32_t *)buffer));
+    auto &numBytes = frame->recvFrame.numBytes;
     LOG(logDEBUG1) << "DataProcessor " << index << ", Numbytes:" << numBytes;
-    if (numBytes == DUMMY_PACKET_VALUE) {
-        StopProcessing(buffer);
+    if (frame->end) {
+        StopProcessing(frame);
         return;
     }
 
     uint64_t fnum = 0;
     try {
-        fnum = ProcessAnImage(buffer);
+        fnum = ProcessAnImage(frame);
     } catch (const std::exception &e) {
-        fifo->FreeAddress(buffer);
+        fifo->FreeFrame(frame);
         return;
     }
     // stream (if time/freq to stream) or free
@@ -198,23 +198,22 @@ void DataProcessor::ThreadExecution() {
         // not be the first)
         if (firstStreamerFrame) {
             firstStreamerFrame = false;
-            (*((uint32_t *)(buffer + FIFO_DATASIZE_NUMBYTES))) =
-                (uint32_t)(fnum - firstIndex);
+            frame->firstStreamerFrame = (uint32_t)(fnum - firstIndex);
         }
-        fifo->PushAddressToStream(buffer);
+        fifo->PushFrameToStream(frame);
     } else {
-        fifo->FreeAddress(buffer);
+        fifo->FreeFrame(frame);
     }
 }
 
-void DataProcessor::StopProcessing(char *buf) {
+void DataProcessor::StopProcessing(FifoFrame *frame) {
     LOG(logDEBUG1) << "DataProcessing " << index << ": Dummy";
 
     // stream or free
     if (*dataStreamEnable)
-        fifo->PushAddressToStream(buf);
+        fifo->PushFrameToStream(frame);
     else
-        fifo->FreeAddress(buf);
+        fifo->FreeFrame(frame);
 
     if (file != nullptr)
         file->CloseCurrentFile();
@@ -222,9 +221,9 @@ void DataProcessor::StopProcessing(char *buf) {
     LOG(logDEBUG1) << index << ": Processing Completed";
 }
 
-uint64_t DataProcessor::ProcessAnImage(char *buf) {
+uint64_t DataProcessor::ProcessAnImage(FifoFrame *frame) {
 
-    auto *rheader = (sls_receiver_header *)(buf + FIFO_HEADER_NUMBYTES);
+    auto *rheader = &frame->recvFrame.header;
     sls_detector_header header = rheader->detHeader;
     uint64_t fnum = header.frameNumber;
     currentFrameIndex = fnum;
@@ -250,34 +249,28 @@ uint64_t DataProcessor::ProcessAnImage(char *buf) {
 
     // frame padding
     if (*activated && *framePadding && nump < generalData->packetsPerFrame)
-        PadMissingPackets(buf);
+        PadMissingPackets(frame);
 
     // deactivated and padding enabled
     else if (!(*activated) && *deactivatedPaddingEnable)
-        PadMissingPackets(buf);
+        PadMissingPackets(frame);
 
     // rearrange ctb digital bits (if ctbDbitlist is not empty)
-    if (!(*ctbDbitList).empty()) {
-        RearrangeDbitData(buf);
-    }
+    if (!(*ctbDbitList).empty())
+        RearrangeDbitData(frame);
 
+    char *buf = frame->recvFrame.data;
+    auto &numBytes = frame->recvFrame.numBytes;
     try {
         // normal call back
         if (rawDataReadyCallBack != nullptr) {
-            rawDataReadyCallBack((char *)rheader,
-                                 buf + FIFO_HEADER_NUMBYTES +
-                                     sizeof(sls_receiver_header),
-                                 (uint32_t)(*((uint32_t *)buf)), pRawDataReady);
+            rawDataReadyCallBack((char *)rheader, buf, numBytes, pRawDataReady);
         }
 
         // call back with modified size
         else if (rawDataModifyReadyCallBack != nullptr) {
-            auto revsize = (uint32_t)(*((uint32_t *)buf));
-            rawDataModifyReadyCallBack((char *)rheader,
-                                       buf + FIFO_HEADER_NUMBYTES +
-                                           sizeof(sls_receiver_header),
-                                       revsize, pRawDataReady);
-            (*((uint32_t *)buf)) = revsize;
+            rawDataModifyReadyCallBack((char *)rheader, buf, numBytes,
+                                       pRawDataReady);
         }
     } catch (const std::exception &e) {
         throw sls::RuntimeError("Get Data Callback Error: " +
@@ -287,12 +280,10 @@ uint64_t DataProcessor::ProcessAnImage(char *buf) {
     // write to file
     if (file != nullptr) {
         try {
-            file->WriteToFile(
-                buf + FIFO_HEADER_NUMBYTES,
-                sizeof(sls_receiver_header) +
-                    (uint32_t)(*((uint32_t *)buf)), //+ size of data (resizable
-                                                    // from previous call back
-                fnum - firstIndex, nump);
+            // header + size of data (resizable from previous call back)
+            auto writeSize = sizeof(sls_receiver_header) + numBytes;
+            file->WriteToFile((char *)rheader, writeSize, fnum - firstIndex,
+                              nump);
         } catch (const sls::RuntimeError &e) {
             ; // ignore write exception for now (TODO: send error message
               // via stopReceiver tcp)
@@ -363,23 +354,23 @@ void DataProcessor::registerCallBackRawDataModifyReady(
     pRawDataReady = arg;
 }
 
-void DataProcessor::PadMissingPackets(char *buf) {
+void DataProcessor::PadMissingPackets(FifoFrame *frame) {
     LOG(logDEBUG) << index << ": Padding Missing Packets";
 
     uint32_t pperFrame = generalData->packetsPerFrame;
-    auto *header = (sls_receiver_header *)(buf + FIFO_HEADER_NUMBYTES);
+    auto *header = &frame->recvFrame.header;
     uint32_t nmissing = pperFrame - header->detHeader.packetNumber;
     sls_bitset pmask = header->packetsMask;
+    LOG(logDEBUG1) << "bitmask: " << pmask.to_string();
 
     uint32_t dsize = generalData->dataSize;
     if (myDetectorType == GOTTHARD2 && index != 0) {
         dsize = generalData->vetoDataSize;
     }
-    uint32_t fifohsize = generalData->fifoBufferHeaderSize;
     uint32_t corrected_dsize =
         dsize - ((pperFrame * dsize) - generalData->imageSize);
-    LOG(logDEBUG1) << "bitmask: " << pmask.to_string();
 
+    char *buf = frame->recvFrame.data;
     for (unsigned int pnum = 0; pnum < pperFrame; ++pnum) {
 
         // not missing packet
@@ -401,19 +392,19 @@ void DataProcessor::PadMissingPackets(char *buf) {
         //              640*2 bytes data !!
         case GOTTHARD:
             if (pnum == 0u)
-                memset(buf + fifohsize + (pnum * dsize), 0xFF, dsize - 2);
+                memset(buf + (pnum * dsize), 0xFF, dsize - 2);
             else
-                memset(buf + fifohsize + (pnum * dsize), 0xFF, dsize + 2);
+                memset(buf + (pnum * dsize), 0xFF, dsize + 2);
             break;
         case CHIPTESTBOARD:
         case MOENCH:
             if (pnum == (pperFrame - 1))
-                memset(buf + fifohsize + (pnum * dsize), 0xFF, corrected_dsize);
+                memset(buf + (pnum * dsize), 0xFF, corrected_dsize);
             else
-                memset(buf + fifohsize + (pnum * dsize), 0xFF, dsize);
+                memset(buf + (pnum * dsize), 0xFF, dsize);
             break;
         default:
-            memset(buf + fifohsize + (pnum * dsize), 0xFF, dsize);
+            memset(buf + (pnum * dsize), 0xFF, dsize);
             break;
         }
         --nmissing;
@@ -421,9 +412,10 @@ void DataProcessor::PadMissingPackets(char *buf) {
 }
 
 /** ctb specific */
-void DataProcessor::RearrangeDbitData(char *buf) {
+void DataProcessor::RearrangeDbitData(FifoFrame *frame) {
+    char *buf = frame->recvFrame.data;
     // TODO! (Erik) Refactor and add tests
-    int totalSize = (int)(*((uint32_t *)buf));
+    auto &totalSize = frame->recvFrame.numBytes;
     int ctbDigitalDataBytes =
         totalSize - (*ctbAnalogDataBytes) - (*ctbDbitOffset);
 
@@ -435,8 +427,7 @@ void DataProcessor::RearrangeDbitData(char *buf) {
     }
 
     const int numSamples = (ctbDigitalDataBytes / sizeof(uint64_t));
-    const int digOffset = FIFO_HEADER_NUMBYTES + sizeof(sls_receiver_header) +
-                          (*ctbAnalogDataBytes);
+    const int digOffset = *ctbAnalogDataBytes;
 
     // ceil as numResult8Bits could be decimal
     const int numResult8Bits =
@@ -471,5 +462,5 @@ void DataProcessor::RearrangeDbitData(char *buf) {
 
     // copy back to buf and update size
     memcpy(buf + digOffset, result.data(), numResult8Bits * sizeof(uint8_t));
-    (*((uint32_t *)buf)) = numResult8Bits * sizeof(uint8_t);
+    totalSize = numResult8Bits * sizeof(uint8_t);
 }

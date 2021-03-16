@@ -191,21 +191,21 @@ void Listener::SetHardCodedPosition(uint16_t r, uint16_t c) {
 }
 
 void Listener::ThreadExecution() {
-    char *buffer;
+    FifoFrame *frame;
     int rc = 0;
 
-    fifo->GetNewAddress(buffer);
-    LOG(logDEBUG5) << "Listener " << index
-                   << ", "
-                      "pop 0x"
-                   << std::hex << (void *)(buffer) << std::dec << ":" << buffer;
+    fifo->GetNewFrame(frame);
+    LOG(logDEBUG5) << "Listener " << index << ", " << std::hex << "pop 0x"
+                   << (void *)frame << " "
+                   << "[data: 0x" << (void *)frame->recvFrame.data << "]"
+                   << std::dec;
+
+    sls_receiver_header *recv_header = &frame->recvFrame.header;
+    char *image_data = frame->recvFrame.data;
 
     // udpsocket doesnt exist
     if (*activated && !udpSocketAlive && !carryOverFlag) {
-        // LOG(logERROR) << "Listening_Thread " << index << ": UDP Socket not
-        // created or shut down earlier";
-        (*((uint32_t *)buffer)) = 0;
-        StopListening(buffer);
+        StopListening(frame);
         return;
     }
 
@@ -219,28 +219,24 @@ void Listener::ThreadExecution() {
     // rc should be > 0
     if (rc == 0) {
         if (!udpSocketAlive) {
-            (*((uint32_t *)buffer)) = 0;
-            StopListening(buffer);
+            StopListening(frame);
         } else
-            fifo->FreeAddress(buffer);
+            fifo->FreeFrame(frame);
         return;
-    }
-
-    // discarding image
-    else if (rc < 0) {
+    } else if (rc < 0) { // discarding image
         LOG(logDEBUG) << index << " discarding fnum:" << currentFrameIndex;
-        fifo->FreeAddress(buffer);
+        fifo->FreeFrame(frame);
         currentFrameIndex++;
         return;
     }
 
-    (*((uint32_t *)buffer)) = rc;
-    (*((uint64_t *)(buffer + FIFO_HEADER_NUMBYTES))) =
-        currentFrameIndex; // for those returning earlier
+    frame->recvFrame.numBytes = rc;
+    // for those returning earlier
+    recv_header->detHeader.frameNumber = currentFrameIndex;
     currentFrameIndex++;
 
     // push into fifo
-    fifo->PushAddress(buffer);
+    fifo->PushFrame(frame);
 
     // Statistics
     if (!(*silentMode)) {
@@ -253,9 +249,61 @@ void Listener::ThreadExecution() {
     }
 }
 
-void Listener::StopListening(char *buf) {
-    (*((uint32_t *)buf)) = DUMMY_PACKET_VALUE;
-    fifo->PushAddress(buf);
+Listener::FrameAssemblerPtr
+Listener::CreateFrameAssembler(std::vector<Ptr> &listener, int recv_idx,
+                               int num_det_ifaces[2]) {
+    FrameAssemblerPtr fa;
+    GeneralData *gd = listener[0]->generalData;
+    detectorType d = listener[0]->myDetectorType;
+    int nb_ports = listener.size();
+    bool raw = !gd->gapEnable;
+    frameDiscardPolicy fp = *listener[0]->frameDiscardMode;
+    using namespace FrameAssembler;
+    using XY = sls::Geom::XY;
+    DefaultFrameAssemblerList a;
+    XY det_ifaces{num_det_ifaces[0], num_det_ifaces[1]};
+    auto getModPos = [&](auto recv_ifaces, auto mod_recvs) {
+        auto det_mods = det_ifaces / (mod_recvs * recv_ifaces);
+        int mod_idx = recv_idx / mod_recvs.area();
+        return XY{mod_idx / det_mods.y, mod_idx % det_mods.y};
+    };
+    for (auto &l : listener)
+        a.push_back(l->frameAssembler);
+    if (raw) {
+        fa = std::make_shared<FrameAssembler::RawFrameAssembler>(a, recv_idx);
+    } else if (d == slsDetectorDefs::EIGER) {
+        using namespace sls::Geom::Eiger;
+        auto mod_pos = getModPos(RecvIfaces, ModRecvs);
+        int pixel_bpp = gd->dynamicRange;
+        recv_idx %= ModRecvs.y;
+        fa = FrameAssembler::Eiger::CreateFrameAssembler(
+            pixel_bpp, fp, gd->tgEnable, det_ifaces, mod_pos, recv_idx, a);
+    } else if (d == slsDetectorDefs::JUNGFRAU) {
+        using namespace sls::Geom::Jungfrau;
+        XY mod_pos;
+        std::visit(
+            [&](auto nb) {
+                constexpr int num_udp_ifaces = nb;
+                mod_pos = getModPos(RecvIfaces<num_udp_ifaces>, ModRecvs);
+            },
+            AnyNbUDPIfacesFromNbUDPIfaces(nb_ports));
+        fa = FrameAssembler::Jungfrau::CreateFrameAssembler(det_ifaces, mod_pos,
+                                                            nb_ports, fp, a);
+    } else
+        throw sls::RuntimeError("FrameAssembler not available for " +
+                                sls::ToString(d));
+
+    return fa;
+}
+
+void Listener::ClearAllBuffers() {
+    if (frameAssembler)
+        frameAssembler->clearBuffers();
+}
+
+void Listener::StopListening(FifoFrame *frame) {
+    frame->end = true;
+    fifo->PushFrame(frame);
     StopRunning();
     LOG(logDEBUG1) << index << ": Listening Packets (" << *udpPortNumber
                    << ") : " << numPacketsCaught;

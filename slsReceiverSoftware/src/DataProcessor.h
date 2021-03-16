@@ -195,17 +195,17 @@ class DataProcessor : private virtual slsDetectorDefs, public ThreadObject {
     /**
      * Frees dummy buffer,
      * reset running mask by calling StopRunning()
-     * @param buf address of pointer
+     * @param frame pointer to frame
      */
-    void StopProcessing(char *buf);
+    void StopProcessing(FifoFrame *frame);
 
     /**
      * Process an image popped from fifo,
      * write to file if fw enabled & update parameters
-     * @param buf address of pointer
+     * @param frame pointer to frame
      * @returns frame number
      */
-    uint64_t ProcessAnImage(char *buf);
+    uint64_t ProcessAnImage(FifoFrame *frame);
 
     /**
      * Calls CheckTimer and CheckCount for streaming frequency and timer
@@ -230,15 +230,15 @@ class DataProcessor : private virtual slsDetectorDefs, public ThreadObject {
 
     /**
      * Pad Missing Packets from the bit mask
-     * @param buf buffer
+     * @param frame pointer to frame
      */
-    void PadMissingPackets(char *buf);
+    void PadMissingPackets(FifoFrame *frame);
 
     /**
      * Align corresponding digital bits together (CTB only if ctbDbitlist is not
      * empty)
      */
-    void RearrangeDbitData(char *buf);
+    void RearrangeDbitData(FifoFrame *frame);
 
     /** type of thread */
     static const std::string TypeName;

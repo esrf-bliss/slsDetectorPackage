@@ -33,8 +33,6 @@ class GeneralData {
     uint32_t packetIndexMask{0};
     uint32_t packetIndexOffset{0};
     uint32_t maxFramesPerFile{0};
-    /** Header size of data saved into fifo buffer at a time*/
-    uint32_t fifoBufferHeaderSize{0};
     uint32_t defaultFifoDepth{0};
     uint32_t numUDPInterfaces{1};
     uint32_t headerPacketSize{0};
@@ -188,8 +186,6 @@ class GotthardData : public GeneralData {
         frameIndexOffset = 1;
         packetIndexMask = 1;
         maxFramesPerFile = MAX_FRAMES_PER_FILE;
-        fifoBufferHeaderSize =
-            FIFO_HEADER_NUMBYTES + sizeof(slsDetectorDefs::sls_receiver_header);
         defaultFifoDepth = 50000;
     };
 
@@ -234,8 +230,6 @@ class GotthardData : public GeneralData {
             frameIndexOffset = 1;
             packetIndexMask = 1;
             maxFramesPerFile = MAX_FRAMES_PER_FILE;
-            fifoBufferHeaderSize = FIFO_HEADER_NUMBYTES +
-                                   sizeof(slsDetectorDefs::sls_receiver_header);
             defaultFifoDepth = 50000;
             nPixelsXComplete = 0;
             nPixelsYComplete = 0;
@@ -253,8 +247,6 @@ class GotthardData : public GeneralData {
             frameIndexOffset = 0;
             packetIndexMask = 0;
             maxFramesPerFile = SHORT_MAX_FRAMES_PER_FILE;
-            fifoBufferHeaderSize = FIFO_HEADER_NUMBYTES +
-                                   sizeof(slsDetectorDefs::sls_receiver_header);
             defaultFifoDepth = 75000;
             nPixelsXComplete = 1280;
             nPixelsYComplete = 1;
@@ -330,8 +322,6 @@ class EigerData : public GeneralData {
         numUDPInterfaces = 2;
         headerSizeinPacket = sizeof(slsDetectorDefs::sls_detector_header);
         maxFramesPerFile = EIGER_MAX_FRAMES_PER_FILE;
-        fifoBufferHeaderSize =
-            FIFO_HEADER_NUMBYTES + sizeof(slsDetectorDefs::sls_receiver_header);
         headerPacketSize = 40;
         standardheader = true;
         UpdateImageSize();
@@ -381,8 +371,6 @@ class JungfrauData : public GeneralData {
         dataSize = 8192;
         packetSize = headerSizeinPacket + dataSize;
         maxFramesPerFile = JFRAU_MAX_FRAMES_PER_FILE;
-        fifoBufferHeaderSize =
-            FIFO_HEADER_NUMBYTES + sizeof(slsDetectorDefs::sls_receiver_header);
         defaultFifoDepth = 2500;
         standardheader = true;
         UpdateImageSize();
@@ -425,8 +413,6 @@ class Mythen3Data : public GeneralData {
         dynamicRange = 32;
         tgEnable = true;
         maxFramesPerFile = MYTHEN3_MAX_FRAMES_PER_FILE;
-        fifoBufferHeaderSize =
-            FIFO_HEADER_NUMBYTES + sizeof(slsDetectorDefs::sls_receiver_header);
         defaultFifoDepth = 50000;
         standardheader = true;
         defaultUdpSocketBufferSize = (1000 * 1024 * 1024);
@@ -507,8 +493,6 @@ class Gotthard2Data : public GeneralData {
         packetsPerFrame = 1;
         imageSize = dataSize * packetsPerFrame;
         maxFramesPerFile = GOTTHARD2_MAX_FRAMES_PER_FILE;
-        fifoBufferHeaderSize =
-            FIFO_HEADER_NUMBYTES + sizeof(slsDetectorDefs::sls_receiver_header);
         defaultFifoDepth = 50000;
         standardheader = true;
         defaultUdpSocketBufferSize = (1000 * 1024 * 1024);
@@ -568,8 +552,6 @@ class ChipTestBoardData : public GeneralData {
         packetsPerFrame =
             ceil((double)imageSize / (double)UDP_PACKET_DATA_BYTES);
         maxFramesPerFile = CTB_MAX_FRAMES_PER_FILE;
-        fifoBufferHeaderSize =
-            FIFO_HEADER_NUMBYTES + sizeof(slsDetectorDefs::sls_receiver_header);
         defaultFifoDepth = 2500;
         standardheader = true;
     };
@@ -649,8 +631,6 @@ class MoenchData : public GeneralData {
             ceil((double)imageSize / (double)UDP_PACKET_DATA_BYTES);
         frameIndexMask = 0xFFFFFF;
         maxFramesPerFile = MOENCH_MAX_FRAMES_PER_FILE;
-        fifoBufferHeaderSize =
-            FIFO_HEADER_NUMBYTES + sizeof(slsDetectorDefs::sls_receiver_header);
         defaultFifoDepth = 2500;
         standardheader = true;
     };

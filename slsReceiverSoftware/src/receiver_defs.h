@@ -27,11 +27,18 @@
 // binary
 #define FILE_BUFFER_SIZE (16 * 1024 * 1024) // 16mb
 
-// fifo
-#define FIFO_HEADER_NUMBYTES   (8)
-#define FIFO_DATASIZE_NUMBYTES (4)
-#define FIFO_PADDING_NUMBYTES                                                  \
-    (4) // for 8 byte alignment due to sls_receiver_header structure
+// memory
+struct RecvFrame {
+    uint32_t numBytes{0};
+    slsDetectorDefs::sls_receiver_header header;
+    char data[1];
+};
+
+struct FifoFrame {
+    uint32_t firstStreamerFrame{0};
+    bool end{false};
+    RecvFrame recvFrame;
+};
 
 // hdf5
 #define MAX_CHUNKED_IMAGES (1)
@@ -42,8 +49,6 @@
 
 // to differentiate between gotthard and short gotthard
 #define GOTTHARD_PACKET_SIZE (1286)
-
-#define DUMMY_PACKET_VALUE (0xFFFFFFFF)
 
 #define LISTENER_PRIORITY  (90)
 #define PROCESSOR_PRIORITY (70)
