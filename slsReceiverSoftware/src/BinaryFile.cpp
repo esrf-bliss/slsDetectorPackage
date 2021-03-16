@@ -86,8 +86,8 @@ int BinaryFile::WriteData(char *buf, int bsize) {
     return fwrite(buf, 1, bsize, filefd);
 }
 
-void BinaryFile::WriteToFile(char *buffer, int buffersize,
-                             uint64_t currentFrameNumber,
+void BinaryFile::WriteToFile(sls_receiver_header *header, char *buffer,
+                             int buffersize, uint64_t currentFrameNumber,
                              uint32_t numPacketsCaught) {
     // check if maxframesperfile = 0 for infinite
     if ((*maxFramesPerFile) && (numFramesInFile >= (*maxFramesPerFile))) {
@@ -101,32 +101,38 @@ void BinaryFile::WriteToFile(char *buffer, int buffersize,
     // write to file
     int ret = 0;
 
+    constexpr int headersize =
+        (sizeof(sls_detector_header) + sizeof(bitset_storage));
+
     // contiguous bitset
     if (sizeof(sls_bitset) == sizeof(bitset_storage)) {
-        ret = WriteData(buffer, buffersize);
+        ret += WriteData((char *)header, sizeof(sls_receiver_header));
+        ret += WriteData(buffer, buffersize);
+
+        static_assert(sizeof(sls_receiver_header) == headersize);
     }
 
     // not contiguous bitset
     else {
         // write detector header
-        ret = WriteData(buffer, sizeof(sls_detector_header));
+        sls_detector_header *detHeader = &header->detHeader;
+        ret = WriteData((char *)detHeader, sizeof(sls_detector_header));
 
         // get contiguous representation of bit mask
         bitset_storage storage;
         memset(storage, 0, sizeof(bitset_storage));
-        sls_bitset bits = *(sls_bitset *)(buffer + sizeof(sls_detector_header));
+        sls_bitset bits = header->packetsMask;
         for (int i = 0; i < MAX_NUM_PACKETS; ++i)
             storage[i >> 3] |= (bits[i] << (i & 7));
         // write bitmask
         ret += WriteData((char *)storage, sizeof(bitset_storage));
 
         // write data
-        ret += WriteData(buffer + sizeof(sls_detector_header),
-                         buffersize - sizeof(sls_receiver_header));
+        ret += WriteData(buffer, buffersize);
     }
 
     // if write error
-    if (ret != buffersize) {
+    if (ret != (headersize + buffersize)) {
         throw sls::RuntimeError(std::to_string(index) +
                                 " : Write to file failed for image number " +
                                 std::to_string(currentFrameNumber));

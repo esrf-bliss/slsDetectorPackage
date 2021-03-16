@@ -45,7 +45,8 @@ class BinaryFile : private virtual slsDetectorDefs, public File {
                           MasterAttributes *attr) override;
     void CloseCurrentFile() override;
     void CloseAllFiles() override;
-    void WriteToFile(char *buffer, int buffersize, uint64_t currentFrameNumber,
+    void WriteToFile(sls_receiver_header *header, char *buffer, int buffersize,
+                     uint64_t currentFrameNumber,
                      uint32_t numPacketsCaught) override;
 
   private:

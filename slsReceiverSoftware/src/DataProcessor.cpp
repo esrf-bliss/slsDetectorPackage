@@ -280,10 +280,8 @@ uint64_t DataProcessor::ProcessAnImage(FifoFrame *frame) {
     // write to file
     if (file != nullptr) {
         try {
-            // header + size of data (resizable from previous call back)
-            auto writeSize = sizeof(sls_receiver_header) + numBytes;
-            file->WriteToFile((char *)rheader, writeSize, fnum - firstIndex,
-                              nump);
+            // size of data (resizable from previous call back)
+            file->WriteToFile(rheader, buf, numBytes, fnum - firstIndex, nump);
         } catch (const sls::RuntimeError &e) {
             ; // ignore write exception for now (TODO: send error message
               // via stopReceiver tcp)
