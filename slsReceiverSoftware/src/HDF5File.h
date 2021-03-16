@@ -48,8 +48,9 @@ class HDF5File : private virtual slsDetectorDefs, public File {
     void CreateFile();
     void CloseCurrentFile();
     void CloseAllFiles();
-    void WriteToFile(char *buffer, int bufferSize, uint64_t currentFrameNumber,
-                     uint32_t numPacketsCaught);
+    void WriteToFile(sls_receiver_header *header, char *buffer, int bufferSize,
+                     uint64_t currentFrameNumber,
+                     uint32_t numPacketsCaught) override;
     void CreateMasterFile(bool masterFileWriteEnable,
                           MasterAttributes *attr) override;
     void EndofAcquisition(bool anyPacketsCaught, uint64_t numImagesCaught);

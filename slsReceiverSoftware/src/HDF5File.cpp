@@ -129,8 +129,8 @@ void HDF5File::CloseAllFiles() {
     delete dataspace;
 }
 
-void HDF5File::WriteToFile(char *buffer, int bufferSize,
-                           uint64_t currentFrameNumber,
+void HDF5File::WriteToFile(sls_receiver_header *header, char *buffer,
+                           int bufferSize, uint64_t currentFrameNumber,
                            uint32_t numPacketsCaught) {
 
     // check if maxframesperfile = 0 for infinite
@@ -148,8 +148,8 @@ void HDF5File::WriteToFile(char *buffer, int bufferSize,
         ExtendDataset();
     }
 
-    WriteDataFile(currentFrameNumber, buffer + sizeof(sls_receiver_header));
-    WriteParameterDatasets(currentFrameNumber, (sls_receiver_header *)(buffer));
+    WriteDataFile(currentFrameNumber, buffer);
+    WriteParameterDatasets(currentFrameNumber, header);
 }
 
 void HDF5File::CreateMasterFile(bool masterFileWriteEnable,

@@ -80,8 +80,8 @@ class File : private virtual slsDetectorDefs {
      * @param fnum current image number
      * @param nump number of packets caught
      */
-    virtual void WriteToFile(char *buffer, int buffersize, uint64_t fnum,
-                             uint32_t nump) = 0;
+    virtual void WriteToFile(sls_receiver_header *header, char *buffer,
+                             int buffersize, uint64_t fnum, uint32_t nump) = 0;
 
     /**
      * Create master file
