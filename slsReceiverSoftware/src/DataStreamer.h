@@ -8,6 +8,7 @@
  */
 
 #include "ThreadObject.h"
+#include "receiver_defs.h"
 #include "sls/network_utils.h"
 
 class GeneralData;
@@ -107,7 +108,7 @@ class DataStreamer : private virtual slsDetectorDefs, public ThreadObject {
      * @param fnum current frame number
      * @param buf get frame index from buffer to calculate first index to record
      */
-    void RecordFirstIndex(uint64_t fnum, char *buf);
+    void RecordFirstIndex(uint64_t fnum, FifoFrame *frame);
 
     /**
      * Thread Exeution for DataStreamer Class
@@ -120,14 +121,14 @@ class DataStreamer : private virtual slsDetectorDefs, public ThreadObject {
      * reset running mask by calling StopRunning()
      * @param buf address of pointer
      */
-    void StopProcessing(char *buf);
+    void StopProcessing(FifoFrame *frame);
 
     /**
      * Process an image popped from fifo,
      * write to file if fw enabled & update parameters
      * @param buf address of pointer
      */
-    void ProcessAnImage(char *buf);
+    void ProcessAnImage(FifoFrame *frame);
 
     /**
      * Create and send Json Header

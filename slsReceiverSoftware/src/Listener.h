@@ -11,6 +11,7 @@
 
 #include "FrameAssembler.h"
 #include "ThreadObject.h"
+#include "receiver_defs.h"
 #include "sls/UdpRxSocket.h"
 #include <atomic>
 #include <memory>
@@ -163,9 +164,9 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
      * Pushes non empty buffers into fifo/ frees empty buffer,
      * pushes dummy buffer into fifo
      * and reset running mask by calling StopRunning()
-     * @param buf address of buffer
+     * @param frame pointer to frame
      */
-    void StopListening(char *buf);
+    void StopListening(FifoFrame *frame);
 
     /**
      * Listen to the UDP Socket for an image,

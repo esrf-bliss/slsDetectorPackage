@@ -20,7 +20,7 @@ template <typename Element> class CircularFifo {
     size_t tail{0};
     size_t head{0};
     size_t capacity;
-    std::vector<Element *> data;
+    std::vector<Element> data;
     mutable sem_t data_mutex;
     mutable sem_t free_mutex;
     size_t increment(size_t i) const;
@@ -39,8 +39,8 @@ template <typename Element> class CircularFifo {
         sem_destroy(&free_mutex);
     }
 
-    bool push(Element *&item, bool no_block = false);
-    bool pop(Element *&item, bool no_block = false);
+    bool push(Element &item, bool no_block = false);
+    bool pop(Element &item, bool no_block = false);
 
     bool isEmpty() const;
     bool isFull() const;
@@ -69,7 +69,7 @@ template <typename Element> int CircularFifo<Element>::getFreeValue() const {
  * \param no_block if true, return immediately if fifo is full
  * \return whether operation was successful or not */
 template <typename Element>
-bool CircularFifo<Element>::push(Element *&item, bool no_block) {
+bool CircularFifo<Element>::push(Element &item, bool no_block) {
     // check for fifo full
     if (no_block && isFull())
         return false;
@@ -89,7 +89,7 @@ bool CircularFifo<Element>::push(Element *&item, bool no_block) {
  * \param no_block if true, return immediately if fifo is full
  * \return whether operation was successful or not */
 template <typename Element>
-bool CircularFifo<Element>::pop(Element *&item, bool no_block) {
+bool CircularFifo<Element>::pop(Element &item, bool no_block) {
     // check for fifo empty
     if (no_block && isEmpty())
         return false;

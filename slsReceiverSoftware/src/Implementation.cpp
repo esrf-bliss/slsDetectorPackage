@@ -75,8 +75,7 @@ void Implementation::SetupFifoStructure() {
 
         // create fifo structure
         try {
-            fifo.push_back(sls::make_unique<Fifo>(
-                i, datasize + (generalData->fifoBufferHeaderSize), fifoDepth));
+            fifo.push_back(sls::make_unique<Fifo>(i, datasize, fifoDepth));
         } catch (...) {
             fifo.clear();
             fifoDepth = 0;
@@ -85,18 +84,17 @@ void Implementation::SetupFifoStructure() {
                 std::to_string(i) + ". FifoDepth is now 0.");
         }
         // set the listener & dataprocessor threads to point to the right fifo
+        Fifo *f = fifo[i].get();
         if (i < listener.size())
-            listener[i]->SetFifo(fifo[i].get());
+            listener[i]->SetFifo(f);
         if (i < dataProcessor.size())
-            dataProcessor[i]->SetFifo(fifo[i].get());
+            dataProcessor[i]->SetFifo(f);
         if (i < dataStreamer.size())
-            dataStreamer[i]->SetFifo(fifo[i].get());
+            dataStreamer[i]->SetFifo(f);
 
+        size_t framesize = f->GetFifoFrameSize();
         LOG(logINFO) << "Memory Allocated for Fifo " << i << ": "
-                     << (double)(((size_t)(datasize) +
-                                  (size_t)(generalData->fifoBufferHeaderSize)) *
-                                 (size_t)fifoDepth) /
-                            (double)(1024 * 1024)
+                     << (double)(framesize * fifoDepth) / (double)(1024 * 1024)
                      << " MB";
     }
     LOG(logINFO) << numThreads << " Fifo structure(s) reconstructed";
@@ -536,9 +534,7 @@ void Implementation::startReceiver() {
     if (startAcquisitionCallBack) {
         try {
             startAcquisitionCallBack(filePath, fileName, fileIndex,
-                                     (generalData->imageSize) +
-                                         (generalData->fifoBufferHeaderSize),
-                                     pStartAcquisition);
+                                     generalData->imageSize, pStartAcquisition);
         } catch (const std::exception &e) {
             throw sls::RuntimeError("Start Acquisition Callback Error: " +
                                     std::string(e.what()));

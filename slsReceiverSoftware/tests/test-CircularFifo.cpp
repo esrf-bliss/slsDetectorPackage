@@ -5,7 +5,7 @@
 using sls::CircularFifo;
 
 TEST_CASE("Empty buffer") {
-    CircularFifo<char> fifo(0);
+    CircularFifo<char *> fifo(0);
 
     // Since the fifo can hold zero elements
     // its both empty and full
@@ -24,7 +24,7 @@ TEST_CASE("Empty buffer") {
 }
 
 TEST_CASE("Push pop") {
-    CircularFifo<int> fifo(5);
+    CircularFifo<int *> fifo(5);
 
     std::vector<int> vec{3, 7, 12, 3, 4};
     int *p = &vec[0];

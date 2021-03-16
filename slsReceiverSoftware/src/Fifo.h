@@ -9,10 +9,10 @@
  *@short constructs the fifo structure
  */
 
+#include "receiver_defs.h"
+#include "sls/CircularFifo.h"
 #include "sls/logger.h"
 #include "sls/sls_detector_defs.h"
-
-#include "sls/CircularFifo.h"
 
 class Fifo : private virtual slsDetectorDefs {
 
@@ -21,10 +21,10 @@ class Fifo : private virtual slsDetectorDefs {
      * Constructor
      * Calls CreateFifos that creates fifos and allocates memory
      * @param ind self index
-     * @param fifoItemSize size of each fifo item
+     * @param imageSize size of each fifo item
      * @param depth fifo depth
      */
-    Fifo(int ind, uint32_t fifoItemSize, uint32_t depth);
+    Fifo(int ind, uint32_t imageSize, uint32_t depth);
 
     /**
      * Destructor
@@ -32,34 +32,34 @@ class Fifo : private virtual slsDetectorDefs {
     ~Fifo();
 
     /**
-     * Frees the bound address by pushing into fifoFree
+     * Frees the bound frame by pushing into fifoFree
      */
-    void FreeAddress(char *&address);
+    void FreeFrame(FifoFrame *frame);
 
     /**
-     * Pops free address from fifoFree
+     * Pops free frame from fifoFree
      */
-    void GetNewAddress(char *&address);
+    void GetNewFrame(FifoFrame *&frame);
 
     /**
-     * Pushes bound address into fifoBound
+     * Pushes bound frame into fifoBound
      */
-    void PushAddress(char *&address);
+    void PushFrame(FifoFrame *frame);
 
     /**
-     * Pops bound address from fifoBound to process data
+     * Pops bound frame from fifoBound to process data
      */
-    void PopAddress(char *&address);
+    void PopFrame(FifoFrame *&frame);
 
     /**
-     * Pushes bound address into fifoStream
+     * Pushes bound frame into fifoStream
      */
-    void PushAddressToStream(char *&address);
+    void PushFrameToStream(FifoFrame *frame);
 
     /**
-     * Pops bound address from fifoStream to stream data
+     * Pops bound frame from fifoStream to stream data
      */
-    void PopAddressToStream(char *&address);
+    void PopFrameToStream(FifoFrame *&frame);
 
     /**
      * Get Maximum Level filled in Fifo Bound
@@ -73,12 +73,17 @@ class Fifo : private virtual slsDetectorDefs {
      */
     int GetMinLevelForFifoFree();
 
+    /**
+     * Get the Fifo Frame Size
+     */
+    size_t GetFifoFrameSize();
+
   private:
     /**
      * Create Fifos, allocate memory & push addresses into fifo
-     * @param fifoItemSize size of each fifo item
+     * @param imageSize size of each fifo frame
      */
-    void CreateFifos(uint32_t fifoItemSize);
+    void CreateFifos(uint32_t imageSize);
 
     /**
      * Destroy Fifos and deallocate memory
@@ -92,16 +97,19 @@ class Fifo : private virtual slsDetectorDefs {
     char *memory;
 
     /** Circular Fifo pointing to addresses of bound data in memory */
-    sls::CircularFifo<char> *fifoBound;
+    sls::CircularFifo<FifoFrame *> *fifoBound;
 
     /** Circular Fifo pointing to addresses of freed data in memory */
-    sls::CircularFifo<char> *fifoFree;
+    sls::CircularFifo<FifoFrame *> *fifoFree;
 
     /** Circular Fifo pointing to addresses of to be streamed data in memory */
-    sls::CircularFifo<char> *fifoStream;
+    sls::CircularFifo<FifoFrame *> *fifoStream;
 
     /** Fifo depth set */
     int fifoDepth;
+
+    /** Fifo frame size */
+    size_t fifoFrameSize{0};
 
     volatile int status_fifoBound;
     volatile int status_fifoFree;

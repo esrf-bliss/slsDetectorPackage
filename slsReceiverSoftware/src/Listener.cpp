@@ -220,25 +220,22 @@ void Listener::SetHardCodedPosition(uint16_t r, uint16_t c) {
 }
 
 void Listener::ThreadExecution() {
-    char *buffer;
+    FifoFrame *frame;
     int rc = 0;
 
-    fifo->GetNewAddress(buffer);
-    LOG(logDEBUG5) << "Listener " << index
-                   << ", "
-                      "pop 0x"
-                   << std::hex << (void *)(buffer) << std::dec << ":" << buffer;
+    fifo->GetNewFrame(frame);
+    LOG(logDEBUG5) << "Listener " << index << ", " << std::hex << "pop 0x"
+                   << (void *)frame << " "
+                   << "[data: 0x" << (void *)frame->recvFrame.data << "]"
+                   << std::dec;
 
-    uint32_t *byte_count = (uint32_t *)buffer;
-    char *header_ptr = buffer + FIFO_HEADER_NUMBYTES;
-    sls_receiver_header *recv_header = (sls_receiver_header *)header_ptr;
-    char *image_data = (header_ptr + sizeof(sls_receiver_header));
+    sls_receiver_header *recv_header = &frame->recvFrame.header;
+    char *image_data = frame->recvFrame.data;
 
     // udpsocket doesnt exist
     bool carryOverFlag = frameAssembler->hasPendingPacket();
     if (*activated && !udpSocketAlive && !carryOverFlag) {
-        byte_count = 0;
-        StopListening(buffer);
+        StopListening(frame);
         return;
     }
 
@@ -252,28 +249,24 @@ void Listener::ThreadExecution() {
     // rc should be > 0
     if (rc == 0) {
         if (!udpSocketAlive) {
-            (*((uint32_t *)buffer)) = 0;
-            StopListening(buffer);
+            StopListening(frame);
         } else
-            fifo->FreeAddress(buffer);
+            fifo->FreeFrame(frame);
         return;
-    }
-
-    // discarding image
-    else if (rc < 0) {
+    } else if (rc < 0) { // discarding image
         LOG(logDEBUG) << index << " discarding fnum:" << currentFrameIndex;
-        fifo->FreeAddress(buffer);
+        fifo->FreeFrame(frame);
         currentFrameIndex++;
         return;
     }
 
-    *byte_count = rc;
-    recv_header->detHeader.frameNumber =
-        currentFrameIndex; // for those returning earlier
+    frame->recvFrame.numBytes = rc;
+    // for those returning earlier
+    recv_header->detHeader.frameNumber = currentFrameIndex;
     currentFrameIndex++;
 
     // push into fifo
-    fifo->PushAddress(buffer);
+    fifo->PushFrame(frame);
 
     // Statistics
     if (!(*silentMode)) {
@@ -338,10 +331,9 @@ void Listener::ClearAllBuffers() {
         frameAssembler->clearBuffers();
 }
 
-void Listener::StopListening(char *buf) {
-    uint32_t *byte_count = (uint32_t *)buf;
-    *byte_count = DUMMY_PACKET_VALUE;
-    fifo->PushAddress(buf);
+void Listener::StopListening(FifoFrame *frame) {
+    frame->end = true;
+    fifo->PushFrame(frame);
     StopRunning();
 }
 
