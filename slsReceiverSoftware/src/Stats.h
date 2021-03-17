@@ -4,10 +4,9 @@
  * @short helper classes calculating statistics
  ***********************************************/
 
+#include <cmath>
 #include <iostream>
 #include <mutex>
-
-namespace FrameAssembler {
 
 /**
  *@short X-Y linear regression statistics
@@ -108,5 +107,3 @@ inline std::ostream &operator<<(std::ostream &os, const XYStat::LinRegress &r) {
        << "n=" << r.n;
     return os << ">";
 }
-
-} // namespace FrameAssembler

@@ -5,7 +5,6 @@
  * This file is include in FrameAssembler.cpp
  ***********************************************/
 
-namespace FAJungfrau = FrameAssembler::Jungfrau;
 namespace GeomJungfrau = sls::Geom::Jungfrau;
 
 namespace FrameAssembler {
@@ -13,36 +12,14 @@ namespace Jungfrau {
 
 constexpr int IfaceHorzChips = GeomJungfrau::IfaceChips<1>.x;
 
-/**
- * Sequence of Jungfrau packets
- */
-
 template <int NbUDPIfaces, int Idx>
-uint32_t StreamData<NbUDPIfaces, Idx>::getPacketNumber(uint32_t packet_idx) {
-    constexpr int FramePackets = Jungfrau::FramePackets<NbUDPIfaces>;
-    constexpr int DirBottom = 1;
-    constexpr int DirTop = -1;
-    if constexpr (NbUDPIfaces == 1) {
-        constexpr int FirstBottom = FramePackets / 2;
-        constexpr int FirstTop = FirstBottom - 1;
-        bool top = ((packet_idx % 2) == 0);
-        int rel_row = packet_idx / 2;
-        int first = top ? FirstTop : FirstBottom;
-        int dir = top ? DirTop : DirBottom;
-        return first + rel_row * dir;
-    } else if constexpr (Idx == 0) {
-        constexpr int FirstTop = FramePackets - 1;
-        return FirstTop + packet_idx * DirTop;
-    } else {
-        return packet_idx;
-    }
-}
+constexpr auto RawIfaceGeom = ::Jungfrau::RawIfaceGeom<NbUDPIfaces, Idx>;
 
 /**
  * GeomHelper
  */
 
-//  FP: Frame discard policy, GD: Geom data, MGX/Y: Module gap X/Y
+//  GD: Geom data, MGX/Y: Module gap X/Y
 template <class GD, bool MGX, bool MGY, int Idx> struct GeomHelper {
 
     using SrcPixel = Pixel;
@@ -52,9 +29,10 @@ template <class GD, bool MGX, bool MGY, int Idx> struct GeomHelper {
 #define SCI static constexpr int
 
     SCI NbUDPIfaces = GD::num_udp_ifaces;
-    SCI PacketPixels = PacketDataLen / SrcPixel::depth();
 
     using BlockPtr = PacketBlockPtr<Packet<NbUDPIfaces>>;
+
+    using PacketData = typename Packet<NbUDPIfaces>::Data;
 
     // raw (packet) geometry
     SCA RawIfaceSize = RawIfaceGeom<NbUDPIfaces, Idx>.size;
@@ -65,14 +43,14 @@ template <class GD, bool MGX, bool MGY, int Idx> struct GeomHelper {
     SCA IfaceView1 = IfaceGeom1.view;
 
     SCA getPacketView(int PacketIdx) {
-        return IfaceGeom1.getPacketView(PacketPixels, PacketIdx);
+        return IfaceGeom1.getPacketView(PacketData::PacketPixels, PacketIdx);
     }
 
     SCI chip_cols = GeomJungfrau::ChipPixels.x;
     SCI chip_lines = GeomJungfrau::ChipPixels.y;
     SCA chip_gap_pixels = GeomJungfrau::ChipGap;
     SCA mod_gap_pixels = GeomJungfrau::ModGap;
-    SCI frame_packets = FramePackets<NbUDPIfaces>;
+    SCI frame_packets = PacketData::PacketsPerFrame;
     SCI packet_lines = RawIfaceSize.y / frame_packets;
     SCI flipped = (RecvView.pixelDir().y < 0);
     SCI src_pixel_size = SrcPixel::depth();
@@ -163,11 +141,18 @@ void CopyHelper<GD, MGX, MGY, Idx>::assemblePackets(BlockPtr block, char *buf) {
  * FrameAssembler
  */
 
-template <class FP, class GD, bool MGX, bool MGY>
+template <class GD, bool MGX, bool MGY>
 template <int Idx>
-void FrameAssembler<FP, GD, MGX, MGY>::Worker::assembleIface(Stream<Idx> *s) {
-    auto block = s->getPacketBlock(frame);
-    int packet_count = block ? block->getValidPackets() : 0;
+void FrameAssembler<GD, MGX, MGY>::Worker::assembleIface(
+    AnyPacketBlockPtr &&block) {
+    using Helper = CopyHelper<GD, MGX, MGY, Idx>;
+    using BlockPtr = typename Helper::BlockPtr;
+
+    if (!std::holds_alternative<BlockPtr>(block))
+        throw std::runtime_error("Invalid packet block");
+
+    BlockPtr b = std::get<BlockPtr>(std::move(block));
+    int packet_count = b ? b->getValidPackets() : 0;
     if (packet_count == 0)
         return;
 
@@ -176,74 +161,63 @@ void FrameAssembler<FP, GD, MGX, MGY>::Worker::assembleIface(Stream<Idx> *s) {
 
     // write header
     if (header_empty) {
-        auto p = (*block)[0];
+        auto p = (*b)[0];
         p.fillDetHeader(det_header);
         header_empty = false;
     }
 
-    using Helper = CopyHelper<GD, MGX, MGY, Idx>;
-    Helper::assemblePackets(std::move(block), buf);
+    Helper::assemblePackets(std::move(b), buf);
     if (buf)
         buf += Helper::dst_iface_step;
 }
 
-template <class FP, class GD, bool MGX, bool MGY>
-Result FrameAssembler<FP, GD, MGX, MGY>::Worker::result() {
-    constexpr bool fp_partial = std::is_same_v<FP, PartialFrameDiscard>;
-    if (fp_partial && (mask.count() != NbUDPIfaces))
-        return Result{NbUDPIfaces, 0};
-
+template <class GD, bool MGX, bool MGY>
+Result FrameAssembler<GD, MGX, MGY>::Worker::result() {
     return Result{NbUDPIfaces, mask};
 }
 
-template <class FP, class GD, bool MGX, bool MGY>
-Result FrameAssembler<FP, GD, MGX, MGY>::assembleFrame(uint64_t frame,
-                                                       RecvHeader *recv_header,
-                                                       char *buf) {
+template <class GD, bool MGX, bool MGY>
+Result FrameAssembler<GD, MGX, MGY>::assembleFrame(AnyPacketBlockList &&blocks,
+                                                   RecvHeader *recv_header,
+                                                   char *buf) {
+    if (blocks.size() != std::size_t(NbUDPIfaces))
+        throw std::runtime_error("Invalid packet block list");
+
     if (buf)
         buf += data_offset;
 
-    Worker w(frame, recv_header, buf);
+    Worker w(recv_header, buf);
 
     for (int i = 0; i < NbUDPIfaces; ++i) {
         if (i == 0)
-            w.template assembleIface<0>(std::get<0>(stream));
+            w.template assembleIface<0>(std::move(blocks[0]));
         else if constexpr (NbUDPIfaces == 2)
-            w.template assembleIface<1>(std::get<1>(stream));
+            w.template assembleIface<1>(std::move(blocks[1]));
     }
 
     return w.result();
 }
 
-template <class FP, class GD, bool MGX, bool MGY>
-void FrameAssembler<FP, GD, MGX, MGY>::stop() {
-    for (int i = 0; i < NbUDPIfaces; ++i) {
-        if (i == 0)
-            std::get<0>(stream)->stop();
-        else if constexpr (NbUDPIfaces == 2)
-            std::get<1>(stream)->stop();
-    }
-}
-
 } // namespace Jungfrau
 } // namespace FrameAssembler
 
-FrameAssemblerPtr
-FAJungfrau::CreateFrameAssembler(XY det_ifaces, XY mod_pos, int num_udp_ifaces,
-                                 FramePolicy fp, DefaultFrameAssemblerList a) {
-    auto any_policy = AnyFramePolicyFromFP(fp);
+MPFrameAssemblerPtr
+FrameAssembler::Jungfrau::CreateFrameAssembler(GeneralDataPtr gd, XY det_ifaces,
+                                               XY mod_pos) {
+
     auto any_nb_ifaces =
-        GeomJungfrau::AnyNbUDPIfacesFromNbUDPIfaces(num_udp_ifaces);
+        GeomJungfrau::AnyNbUDPIfacesFromNbUDPIfaces(gd->numUDPInterfaces);
 
     return std::visit(
-        [&](auto nb) {
-            constexpr int nb_ifaces = nb;
-            constexpr XY iface_size = RawIfaceGeom<nb_ifaces, 0>.size;
+        [&](auto nb_ifaces) {
+            constexpr int NbUDPIfaces = nb_ifaces;
+            constexpr XY iface_size = RawIfaceGeom<NbUDPIfaces, 0>.size;
             XY det_size = iface_size * det_ifaces;
             auto any_det_geom =
-                GeomJungfrau::AnyDetGeomFromDetSize<nb_ifaces>(det_size);
+                GeomJungfrau::AnyDetGeomFromDetSize<NbUDPIfaces>(det_size);
+
             return std::visit(
-                [&, nb_ifaces](auto gd) {
+                [&](auto gd) {
                     using GD = decltype(gd);
                     constexpr auto det_geom = GD::asm_wg_geom;
                     auto mod_view = det_geom.getModView(mod_pos);
@@ -253,23 +227,13 @@ FAJungfrau::CreateFrameAssembler(XY det_ifaces, XY mod_pos, int num_udp_ifaces,
                     auto any_fill =
                         AnyModGapFillingFromModPos(det_geom, mod_pos);
                     return std::visit(
-                        [&, nb_ifaces](auto fp, auto gx,
-                                       auto gy) -> FrameAssemblerPtr {
-                            using FP = decltype(fp);
+                        [&, NbUDPIfaces](auto gx,
+                                         auto gy) -> MPFrameAssemblerPtr {
                             constexpr bool MGX = gx, MGY = gy;
-                            using Assembler = FrameAssembler<FP, GD, MGX, MGY>;
-                            typename Assembler::StreamList s;
-                            for (int i = 0; i < nb_ifaces; ++i) {
-#define stream(i) Assembler::template rawAssemblerStream<i>
-                                if (i == 0)
-                                    std::get<0>(s) = stream(0)(a[0]);
-                                else if constexpr (nb_ifaces == 2)
-                                    std::get<1>(s) = stream(1)(a[1]);
-#undef stream
-                            }
-                            return std::make_shared<Assembler>(s, data_offset);
+                            using Assembler = FrameAssembler<GD, MGX, MGY>;
+                            return std::make_shared<Assembler>(data_offset);
                         },
-                        any_policy, any_fill.x, any_fill.y);
+                        any_fill.x, any_fill.y);
                 },
                 any_det_geom);
         },

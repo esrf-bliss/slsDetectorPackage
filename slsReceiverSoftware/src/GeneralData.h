@@ -176,6 +176,8 @@ class GeneralData {
     }
 };
 
+typedef GeneralData *GeneralDataPtr;
+
 class GotthardData : public GeneralData {
 
   private:

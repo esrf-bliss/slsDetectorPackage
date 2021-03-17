@@ -283,7 +283,7 @@ class Implementation : private virtual slsDetectorDefs {
         void reset();
     };
 
-    using FrameAssemblerBase = FrameAssembler::FrameAssemblerBase;
+    using MPFrameAssemblerPtr = FrameAssembler::MPFrameAssemblerPtr;
 
     void SetLocalNetworkParameters();
     void SetThreadPriorities();
@@ -296,6 +296,8 @@ class Implementation : private virtual slsDetectorDefs {
     void StartRunning();
 
     PortGeometry GetPortGeometry();
+
+    MPFrameAssemblerPtr CreateFrameAssembler();
 
     /**************************************************
      *                                                *
@@ -412,7 +414,7 @@ class Implementation : private virtual slsDetectorDefs {
 
     /** Frame memory assembler in passive mode */
     bool passiveMode;
-    std::shared_ptr<FrameAssemblerBase> frameAssembler;
+    MPFrameAssemblerPtr frameAssembler;
     std::mutex frameAssemblerBusyMutex;
     std::condition_variable frameAssemblerBusyCond;
     int frameAssemblerBusyCount{0};

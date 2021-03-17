@@ -10,6 +10,7 @@
  */
 
 #include "FrameAssembler.h"
+#include "PacketStream.h"
 #include "ThreadObject.h"
 #include "receiver_defs.h"
 #include "sls/UdpRxSocket.h"
@@ -22,7 +23,6 @@ class Fifo;
 class Listener : private virtual slsDetectorDefs, public ThreadObject {
 
   public:
-    using FrameAssemblerPtr = FrameAssembler::FrameAssemblerPtr;
     using DefaultFrameAssemblerPtr = FrameAssembler::DefaultFrameAssemblerPtr;
 
     using Ptr = std::shared_ptr<Listener>;
@@ -105,6 +105,11 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
     void CreateUDPSockets();
 
     /**
+     * Stops UDP socket listening
+     */
+    void Stop();
+
+    /**
      * Shuts down and deletes UDP Sockets
      */
     void ShutDownUDPSocket();
@@ -135,11 +140,9 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
     void SetFifoNodeAffinity(unsigned long fifo_node_mask, int max_node);
 
     /**
-     * Create the top-level frame assembler depending on the detector
+     * Get frame packets
      */
-    static FrameAssemblerPtr CreateFrameAssembler(std::vector<Ptr> &listener,
-                                                  int recv_idx,
-                                                  int num_det_ifaces[2]);
+    AnyPacketBlockPtr GetFramePackets(uint64_t frame);
 
     /**
      * Clear all buffers
@@ -257,8 +260,11 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
      */
     uint64_t currentFrameIndex{0};
 
+    /** packet stream **/
+    AnyPacketStreamPtr packetStream;
+
     /** frame assembler **/
-    DefaultFrameAssemblerPtr frameAssembler{nullptr};
+    DefaultFrameAssemblerPtr frameAssembler;
 
     /** if the udp socket is connected */
     std::atomic<bool> udpSocketAlive{false};

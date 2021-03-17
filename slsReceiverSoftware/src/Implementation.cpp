@@ -103,14 +103,57 @@ void Implementation::SetupFifoStructure() {
 void Implementation::SetupFrameAssembler() {
     if (passiveMode && listener.size()) {
         try {
-            frameAssembler =
-                Listener::CreateFrameAssembler(listener, modulePos, numDet);
+            frameAssembler = CreateFrameAssembler();
         } catch (...) {
             shutDownUDPSockets();
             throw;
         }
         LOG(logDEBUG) << "FrameAssembler created successfully.";
     }
+}
+
+Implementation::MPFrameAssemblerPtr Implementation::CreateFrameAssembler() {
+
+    MPFrameAssemblerPtr fa;
+    GeneralDataPtr gd = generalData;
+    detectorType d = myDetectorType;
+    int nb_ports = listener.size();
+    bool raw = !gd->gapEnable;
+    int recv_idx = modulePos;
+    using namespace FrameAssembler;
+    using XY = sls::Geom::XY;
+    XY det_ifaces{numDet[0], numDet[1]};
+    auto getModPos = [&](auto recv_ifaces, auto mod_recvs) {
+        auto det_mods = det_ifaces / (mod_recvs * recv_ifaces);
+        int mod_idx = recv_idx / mod_recvs.area();
+        return XY{mod_idx / det_mods.y, mod_idx % det_mods.y};
+    };
+    if (raw) {
+        bool e4b = true;
+        using Assembler = FrameAssembler::RawFrameAssembler;
+        fa = std::make_shared<Assembler>(gd, recv_idx, e4b);
+    } else if (d == slsDetectorDefs::EIGER) {
+        using namespace sls::Geom::Eiger;
+        auto mod_pos = getModPos(RecvIfaces, ModRecvs);
+        recv_idx %= ModRecvs.y;
+        fa = FrameAssembler::Eiger::CreateFrameAssembler(gd, det_ifaces,
+                                                         mod_pos, recv_idx);
+    } else if (d == slsDetectorDefs::JUNGFRAU) {
+        using namespace sls::Geom::Jungfrau;
+        XY mod_pos;
+        std::visit(
+            [&](auto nb) {
+                constexpr int num_udp_ifaces = nb;
+                mod_pos = getModPos(RecvIfaces<num_udp_ifaces>, ModRecvs);
+            },
+            AnyNbUDPIfacesFromNbUDPIfaces(nb_ports));
+        fa = FrameAssembler::Jungfrau::CreateFrameAssembler(gd, det_ifaces,
+                                                            mod_pos);
+    } else
+        throw sls::RuntimeError("FrameAssembler not available for " +
+                                sls::ToString(d));
+
+    return fa;
 }
 
 /**************************************************
@@ -710,8 +753,9 @@ void Implementation::startReadout() {
 }
 
 void Implementation::shutDownUDPSockets() {
+    for (const auto &it : listener)
+        it->Stop();
     if (frameAssembler) {
-        frameAssembler->stop();
         std::unique_lock<std::mutex> l(frameAssemblerBusyMutex);
         while (frameAssemblerBusyCount > 0)
             frameAssemblerBusyCond.wait(l);
@@ -1752,8 +1796,24 @@ int Implementation::getImage(slsDetectorDefs::receiver_image_data &image_data) {
     if (status != RUNNING)
         return -1;
 
+    AnyPacketBlockList blocks;
+    size_t valid_ports = 0;
+    for (auto &l : listener) {
+        blocks.emplace_back(l->GetFramePackets(image_data.frame));
+        std::visit(
+            [&](auto &b) {
+                if (b)
+                    ++valid_ports;
+            },
+            blocks.back());
+    }
+
+    bool fp_partial = frameDiscardMode == DISCARD_PARTIAL_FRAMES;
+    if (fp_partial && (valid_ports != listener.size()))
+        return -1;
+
     FrameAssembler::Result res;
-    res = frameAssembler->assembleFrame(image_data.frame, &image_data.header,
+    res = frameAssembler->assembleFrame(std::move(blocks), &image_data.header,
                                         image_data.buffer);
     image_data.numberOfPorts = res.nb_ports;
     image_data.validPortData = res.valid_data;

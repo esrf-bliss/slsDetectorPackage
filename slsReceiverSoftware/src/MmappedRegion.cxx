@@ -3,14 +3,10 @@
  * @short helper class for allocating memory with mmap
  ***********************************************/
 
-#include "MmappedRegion.h"
-
 #include <memory.h>
 #include <numaif.h>
 #include <sys/mman.h>
 #include <unistd.h>
-
-namespace FrameAssembler {
 
 /**
  * MmappedRegion
@@ -61,5 +57,3 @@ template <typename T> void MmappedRegion<T>::release() {
 }
 
 template <typename T> void MmappedRegion<T>::clear() { memset(ptr, 0, len); }
-
-} // namespace FrameAssembler

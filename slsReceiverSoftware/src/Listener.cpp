@@ -37,15 +37,24 @@ Listener::Listener(int ind, detectorType dtype, Fifo *f,
 Listener::~Listener() = default;
 
 uint64_t Listener::GetPacketsCaught() const {
-    return frameAssembler ? frameAssembler->getNumPacketsCaught() : 0;
+    if (!packetStream)
+        return 0;
+    return std::visit([&](auto &ps) { return ps.getNumPacketsCaught(); },
+                      *packetStream);
 }
 
 uint64_t Listener::GetNumFramesCaught() {
-    return frameAssembler ? frameAssembler->getNumFramesCaught() : 0;
+    if (!packetStream)
+        return 0;
+    return std::visit([&](auto &ps) { return ps.getNumFramesCaught(); },
+                      *packetStream);
 }
 
 uint64_t Listener::GetLastFrameIndexCaught() const {
-    return frameAssembler ? frameAssembler->getLastFrameIndex() : 0;
+    if (!packetStream)
+        return 0;
+    return std::visit([&](auto &ps) { return ps.getLastFrameIndex(); },
+                      *packetStream);
 }
 
 uint64_t Listener::GetNumMissingPacket(bool stoppedFlag,
@@ -137,9 +146,12 @@ void Listener::CreateUDPSockets() {
     }
 
     try {
-        frameAssembler = FrameAssembler::CreateDefaultFrameAssembler(
-            udpSocket, generalData, index, cpuMask, fifoNodeMask, maxNode,
-            *frameDiscardMode, !doUdpRead);
+        packetStream =
+            CreatePacketStream(udpSocket, generalData, index, cpuMask,
+                               fifoNodeMask, maxNode, *frameDiscardMode);
+        bool e4b = !doUdpRead;
+        frameAssembler =
+            FrameAssembler::CreateDefaultFrameAssembler(generalData, e4b);
         LOG(logINFO) << index << ": Default FrameAssembler for port "
                      << *udpPortNumber;
     } catch (...) {
@@ -153,17 +165,20 @@ void Listener::CreateUDPSockets() {
     *actualUDPSocketBufferSize = udpSocket->getBufferSize();
 }
 
+void Listener::Stop() {
+    if (packetStream)
+        std::visit([&](auto &ps) { ps.stop(); }, *packetStream);
+}
+
 void Listener::ShutDownUDPSocket() {
     if (udpSocket) {
         bool was_alive = udpSocketAlive;
         udpSocketAlive = false;
         if (!doUdpRead)
             StopRunning();
-        if (frameAssembler) {
-            frameAssembler->stop();
-            if (was_alive)
-                frameAssembler->printStreamStats();
-        }
+        Stop();
+        if (packetStream && was_alive)
+            std::visit([&](auto &ps) { ps.printStats(); }, *packetStream);
         udpSocket->Shutdown();
         LOG(logINFO) << "Shut down of UDP port " << *udpPortNumber;
     }
@@ -233,7 +248,9 @@ void Listener::ThreadExecution() {
     char *image_data = frame->recvFrame.data;
 
     // udpsocket doesnt exist
-    bool carryOverFlag = frameAssembler->hasPendingPacket();
+    bool carryOverFlag;
+    std::visit([&](auto &ps) { carryOverFlag = ps.hasPendingPacket(); },
+               *packetStream);
     if (*activated && !udpSocketAlive && !carryOverFlag) {
         StopListening(frame);
         return;
@@ -279,56 +296,9 @@ void Listener::ThreadExecution() {
     }
 }
 
-Listener::FrameAssemblerPtr
-Listener::CreateFrameAssembler(std::vector<Ptr> &listener, int recv_idx,
-                               int num_det_ifaces[2]) {
-    FrameAssemblerPtr fa;
-    GeneralData *gd = listener[0]->generalData;
-    detectorType d = listener[0]->myDetectorType;
-    int nb_ports = listener.size();
-    bool raw = !gd->gapEnable;
-    frameDiscardPolicy fp = *listener[0]->frameDiscardMode;
-    using namespace FrameAssembler;
-    using XY = sls::Geom::XY;
-    DefaultFrameAssemblerList a;
-    XY det_ifaces{num_det_ifaces[0], num_det_ifaces[1]};
-    auto getModPos = [&](auto recv_ifaces, auto mod_recvs) {
-        auto det_mods = det_ifaces / (mod_recvs * recv_ifaces);
-        int mod_idx = recv_idx / mod_recvs.area();
-        return XY{mod_idx / det_mods.y, mod_idx % det_mods.y};
-    };
-    for (auto &l : listener)
-        a.push_back(l->frameAssembler);
-    if (raw) {
-        fa = std::make_shared<FrameAssembler::RawFrameAssembler>(a, recv_idx);
-    } else if (d == slsDetectorDefs::EIGER) {
-        using namespace sls::Geom::Eiger;
-        auto mod_pos = getModPos(RecvIfaces, ModRecvs);
-        int pixel_bpp = gd->dynamicRange;
-        recv_idx %= ModRecvs.y;
-        fa = FrameAssembler::Eiger::CreateFrameAssembler(
-            pixel_bpp, fp, gd->tgEnable, det_ifaces, mod_pos, recv_idx, a);
-    } else if (d == slsDetectorDefs::JUNGFRAU) {
-        using namespace sls::Geom::Jungfrau;
-        XY mod_pos;
-        std::visit(
-            [&](auto nb) {
-                constexpr int num_udp_ifaces = nb;
-                mod_pos = getModPos(RecvIfaces<num_udp_ifaces>, ModRecvs);
-            },
-            AnyNbUDPIfacesFromNbUDPIfaces(nb_ports));
-        fa = FrameAssembler::Jungfrau::CreateFrameAssembler(det_ifaces, mod_pos,
-                                                            nb_ports, fp, a);
-    } else
-        throw sls::RuntimeError("FrameAssembler not available for " +
-                                sls::ToString(d));
-
-    return fa;
-}
-
 void Listener::ClearAllBuffers() {
-    if (frameAssembler)
-        frameAssembler->clearBuffers();
+    if (packetStream)
+        std::visit([&](auto &ps) { ps.clearBuffers(); }, *packetStream);
 }
 
 void Listener::StopListening(FifoFrame *frame) {
@@ -368,11 +338,12 @@ int Listener::ListenToAnImage(sls_receiver_header *recv_header, char *buf) {
     }
 
     fnum = currentFrameIndex;
-    FrameAssembler::Result res;
-    res = frameAssembler->assembleFrame(fnum, recv_header, buf);
+    auto block = GetFramePackets(fnum);
+    bool ok;
+    ok = frameAssembler->assembleFrame(std::move(block), recv_header, buf);
     recv_header->detHeader.row = row;
     recv_header->detHeader.column = column;
-    if (res.valid_data.none())
+    if (!ok)
         return -1;
 
     // update parameters
@@ -382,6 +353,12 @@ int Listener::ListenToAnImage(sls_receiver_header *recv_header, char *buf) {
         RecordFirstIndex(fnum);
 
     return imageSize;
+}
+
+AnyPacketBlockPtr Listener::GetFramePackets(uint64_t frame) {
+    return std::visit(
+        [&](auto &ps) -> AnyPacketBlockPtr { return ps.getPacketBlock(frame); },
+        *packetStream);
 }
 
 void Listener::PrintFifoStatistics() {

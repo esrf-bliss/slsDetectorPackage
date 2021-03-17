@@ -244,12 +244,10 @@ template <class Fmt> struct IfaceGeom {
         return view.getSubView(chip_idx * chip_pixels + offset, chip_pixels);
     }
 
-    // PacketPixels: PacketDataLen / Pixel::depth()
-    constexpr int calcFramePackets(int packet_pixels) const {
-        return raw_size.area() / packet_pixels;
-    }
+    constexpr int pixels() const { return raw_size.area(); }
+
     constexpr int calcPacketLines(int packet_pixels) const {
-        return raw_size.y / calcFramePackets(packet_pixels);
+        return raw_size.y * packet_pixels / pixels();
     }
     constexpr auto getPacketView(int packet_pixels, int packet_number) const {
         XY packet_geom{size.x, calcPacketLines(packet_pixels)};

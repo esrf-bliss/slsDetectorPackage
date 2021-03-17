@@ -7,8 +7,6 @@
 #include <memory>
 #include <string>
 
-namespace FrameAssembler {
-
 /**
  *@short MmappedRegion
  */
@@ -39,7 +37,5 @@ template <typename T> class MmappedRegion {
     T *ptr;
     size_t len;
 };
-
-} // namespace FrameAssembler
 
 #include "MmappedRegion.cxx"

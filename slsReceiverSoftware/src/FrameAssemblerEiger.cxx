@@ -2,16 +2,17 @@
  * @file FrameAssemblerEiger.cxx
  * @short helper classes assembling Eiger frames
  * from udp packets
- * This file is include in FrameAssembler.cpp
+ * This file is included in FrameAssembler.cpp
  ***********************************************/
 
-namespace FAEiger = FrameAssembler::Eiger;
 namespace GeomEiger = sls::Geom::Eiger;
 
 namespace FrameAssembler {
 namespace Eiger {
 
 constexpr int IfaceHorzChips = GeomEiger::IfaceChips.x;
+
+constexpr auto RawIfaceGeom = ::Eiger::RawIfaceGeom;
 
 /**
  * GeomHelper
@@ -29,8 +30,7 @@ template <class P, class GD, bool MGX, bool MGY, int Idx> struct GeomHelper {
 
     using BlockPtr = PacketBlockPtr<Packet<SrcPixel>>;
 
-    SCI PacketDataLen = Packet<SrcPixel>::Data::PacketDataLen;
-    SCI PacketPixels = PacketDataLen / SrcPixel::depth();
+    using PacketData = typename Packet<SrcPixel>::Data;
 
     // raw (packet) geometry
     SCA RawIfaceSize = RawIfaceGeom.size;
@@ -41,14 +41,14 @@ template <class P, class GD, bool MGX, bool MGY, int Idx> struct GeomHelper {
     SCA IfaceView1 = IfaceGeom1.view;
 
     SCA getPacketView(int PacketIdx) {
-        return IfaceGeom1.getPacketView(PacketPixels, PacketIdx);
+        return IfaceGeom1.getPacketView(PacketData::PacketPixels, PacketIdx);
     }
 
     SCI chip_cols = GeomEiger::ChipPixels.x;
     SCI chip_lines = GeomEiger::ChipPixels.y;
     SCA chip_gap_pixels = GeomEiger::ChipGap;
     SCA mod_gap_pixels = GeomEiger::ModGap;
-    SCI frame_packets = FramePackets<SrcPixel>;
+    SCI frame_packets = PacketData::PacketsPerFrame;
     SCI packet_lines = RawIfaceSize.y / frame_packets;
     SCI flipped = (RecvView.pixelDir().y < 0);
     SCF src_pixel_size = SrcPixel::depth();
@@ -341,20 +341,25 @@ void CopyHelper<P, GD, MGX, MGY, Idx>::assemblePackets(BlockPtr block[NbIfaces],
  * FrameAssembler
  */
 
-template <class P, class FP, class GD, bool MGX, bool MGY, int Idx>
-Result FrameAssembler<P, FP, GD, MGX, MGY, Idx>::assembleFrame(
-    uint64_t frame, RecvHeader *recv_header, char *buf) {
+template <class P, class GD, bool MGX, bool MGY, int Idx>
+Result FrameAssembler<P, GD, MGX, MGY, Idx>::assembleFrame(
+    AnyPacketBlockList &&blocks, RecvHeader *recv_header, char *buf) {
+
+    if (blocks.size() != std::size_t(NbIfaces) ||
+        !std::holds_alternative<BlockPtr>(blocks[0]) ||
+        !std::holds_alternative<BlockPtr>(blocks[1]))
+        throw std::runtime_error("Invalid packet block list");
+
+    BlockPtr b[NbIfaces] = {std::get<BlockPtr>(std::move(blocks[0])),
+                            std::get<BlockPtr>(std::move(blocks[1]))};
     PortsMask mask;
     bool header_empty = true;
 
     DetHeader *det_header = &recv_header->detHeader;
-    det_header->frameNumber = frame;
     det_header->packetNumber = 0;
 
-    BlockPtr block[NbIfaces] = {stream[0]->getPacketBlock(frame),
-                                stream[1]->getPacketBlock(frame)};
     for (int i = 0; i < NbIfaces; ++i) {
-        int packet_count = block[i] ? block[i]->getValidPackets() : 0;
+        int packet_count = b[i] ? b[i]->getValidPackets() : 0;
         if (packet_count == 0)
             continue;
         mask.set(i, true);
@@ -362,18 +367,14 @@ Result FrameAssembler<P, FP, GD, MGX, MGY, Idx>::assembleFrame(
 
         // write header
         if (header_empty) {
-            Packet<P> p = (*block[i])[0];
+            Packet<P> p = (*b[i])[0];
             p.fillDetHeader(det_header);
             header_empty = false;
         }
     }
 
-    constexpr bool fp_partial = std::is_same_v<FP, PartialFrameDiscard>;
-    if (fp_partial && (mask.count() != NbIfaces))
-        return Result{NbIfaces, 0};
-
     if (mask.any() && buf)
-        helper.assemblePackets(block, buf + data_offset);
+        helper.assemblePackets(b, buf + data_offset);
 
     return Result{NbIfaces, mask};
 }
@@ -381,51 +382,39 @@ Result FrameAssembler<P, FP, GD, MGX, MGY, Idx>::assembleFrame(
 } // namespace Eiger
 } // namespace FrameAssembler
 
-FrameAssemblerPtr FAEiger::CreateFrameAssembler(int pixel_bpp, FramePolicy fp,
-                                                bool enable_tg, XY det_ifaces,
-                                                XY mod_pos, int recv_idx,
-                                                DefaultFrameAssemblerList a) {
-
-    if (!enable_tg) {
-        const char *error = "10 Giga not enabled!";
-        std::cerr << error << std::endl;
-        throw std::runtime_error(error);
-    }
+MPFrameAssemblerPtr
+FrameAssembler::Eiger::CreateFrameAssembler(GeneralDataPtr gd, XY det_ifaces,
+                                            XY mod_pos, int recv_idx) {
 
     XY det_size = RawIfaceGeom.size * det_ifaces;
-
-    auto any_pixel = AnyPixelFromBpp(pixel_bpp);
-    auto any_fp = AnyFramePolicyFromFP(fp);
     auto any_det_geom = GeomEiger::AnyDetGeomFromDetSize(det_size);
     auto any_recv_idx = GeomEiger::AnyRecvIdxFromRecvIdx(recv_idx);
+
+    AnyPixel any_pixel = AnyPixelFromBpp(gd->dynamicRange);
+    ;
+
     return std::visit(
         [&](auto gd) {
             using GD = decltype(gd);
             auto any_fill =
                 AnyModGapFillingFromModPos(GD::asm_wg_geom, mod_pos);
+
             return std::visit(
-                [&](auto pixel, auto fp, auto gx, auto gy,
-                    auto i) -> FrameAssemblerPtr {
+                [&](auto pixel, auto gx, auto gy,
+                    auto i) -> MPFrameAssemblerPtr {
                     using P = decltype(pixel);
-                    using FP = decltype(fp);
                     constexpr bool MGX = gx, MGY = gy;
                     constexpr int Idx = i;
-                    using Assembler = FrameAssembler<P, FP, GD, MGX, MGY, Idx>;
-                    typename Assembler::StreamList s;
-                    auto f = [](auto a) {
-                        return Assembler::rawAssemblerStream(a);
-                    };
+                    using Assembler = FrameAssembler<P, GD, MGX, MGY, Idx>;
                     constexpr auto det_geom = GD::asm_wg_geom;
                     auto mod_geom = det_geom.getModGeom(mod_pos);
                     auto recv_view = mod_geom.getRecvView({0, Idx});
                     auto origin = recv_view.calcViewOrigin();
                     int pixel_offset = recv_view.calcMapPixelIndex(origin);
                     int data_offset = pixel_offset * Assembler::DP::depth();
-                    std::transform(std::begin(a), std::end(a), std::begin(s),
-                                   f);
-                    return std::make_shared<Assembler>(s, data_offset);
+                    return std::make_shared<Assembler>(data_offset);
                 },
-                any_pixel, any_fp, any_fill.x, any_fill.y, any_recv_idx);
+                any_pixel, any_fill.x, any_fill.y, any_recv_idx);
         },
         any_det_geom);
 }
