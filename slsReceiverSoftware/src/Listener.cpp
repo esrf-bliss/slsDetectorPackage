@@ -23,13 +23,12 @@ Listener::Listener(int ind, detectorType dtype, Fifo *f,
                    std::atomic<runStatus> *s, uint32_t *portno, std::string *e,
                    uint64_t *nf, int *us, int *as, uint32_t *fpf,
                    frameDiscardPolicy *fdp, bool *act, bool *depaden, bool *sm,
-                   int *flx, bool do_udp_read)
-    : ThreadObject(ind, TypeName, do_udp_read), fifo(f), myDetectorType(dtype),
-      status(s), udpPortNumber(portno), eth(e), numImages(nf),
-      udpSocketBufferSize(us), actualUDPSocketBufferSize(as),
-      framesPerFile(fpf), frameDiscardMode(fdp), activated(act),
-      deactivatedPaddingEnable(depaden), silentMode(sm), flippedDataX(flx),
-      doUdpRead(do_udp_read) {
+                   int *flx, bool push_to_fifo)
+    : ThreadObject(ind, TypeName), fifo(f), myDetectorType(dtype), status(s),
+      udpPortNumber(portno), eth(e), numImages(nf), udpSocketBufferSize(us),
+      actualUDPSocketBufferSize(as), framesPerFile(fpf), frameDiscardMode(fdp),
+      activated(act), deactivatedPaddingEnable(depaden), silentMode(sm),
+      flippedDataX(flx), pushFramesToFifo(push_to_fifo) {
     LOG(logDEBUG) << "Listener " << ind << " created";
     CPU_ZERO(&cpuMask);
 }
@@ -146,10 +145,10 @@ void Listener::CreateUDPSockets() {
     }
 
     try {
-        packetStream =
-            CreatePacketStream(udpSocket, generalData, index, cpuMask,
-                               fifoNodeMask, maxNode, *frameDiscardMode);
-        bool e4b = !doUdpRead;
+        packetStream = CreatePacketStream(udpSocket, generalData, index,
+                                          cpuMask, fifoNodeMask, maxNode,
+                                          GetThreadId(), *frameDiscardMode);
+        bool e4b = !pushFramesToFifo;
         frameAssembler =
             FrameAssembler::CreateDefaultFrameAssembler(generalData, e4b);
         LOG(logINFO) << index << ": Default FrameAssembler for port "
@@ -174,8 +173,6 @@ void Listener::ShutDownUDPSocket() {
     if (udpSocket) {
         bool was_alive = udpSocketAlive;
         udpSocketAlive = false;
-        if (!doUdpRead)
-            StopRunning();
         Stop();
         if (packetStream && was_alive)
             std::visit([&](auto &ps) { ps.printStats(); }, *packetStream);
@@ -235,6 +232,12 @@ void Listener::SetHardCodedPosition(uint16_t r, uint16_t c) {
 }
 
 void Listener::ThreadExecution() {
+    if (!pushFramesToFifo) {
+        std::visit([&](auto &ps) { ps.threadFunction(); }, *packetStream);
+        StopRunning();
+        return;
+    }
+
     FifoFrame *frame;
     int rc = 0;
 

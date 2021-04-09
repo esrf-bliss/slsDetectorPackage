@@ -47,12 +47,12 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
      * @param depaden pointer to deactivated padding enable
      * @param sm pointer to silent mode
      * @param flx pointer to flipped data across x axis
-     * @param do_udp_read execute thread reading UDP socket
+     * @param push_to_fifo push frames to fifo
      */
     Listener(int ind, detectorType dtype, Fifo *f, std::atomic<runStatus> *s,
              uint32_t *portno, std::string *e, uint64_t *nf, int *us, int *as,
              uint32_t *fpf, frameDiscardPolicy *fdp, bool *act, bool *depaden,
-             bool *sm, int *flx, bool do_udp_read);
+             bool *sm, int *flx, bool push_to_fifo);
 
     /**
      * Destructor
@@ -276,10 +276,8 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
     /** number of images for statistic */
     uint32_t numFramesStatistic{0};
 
-    /**
-     * Do read UDP socket
-     */
-    bool doUdpRead;
+    /** push frames to FIFO */
+    bool pushFramesToFifo;
 
     /** frame assembler CPU affinity **/
     cpu_set_t cpuMask;

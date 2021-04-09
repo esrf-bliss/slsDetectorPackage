@@ -85,8 +85,10 @@ template <class P, class SD, class FP> class PacketStream {
     using MmappedBlockRegion = MmappedRegion<BlockLayout>;
 
     PacketStream(UdpRxSocketPtr s, cpu_set_t cpu_mask, unsigned long node_mask,
-                 int max_node);
+                 int max_node, pid_t thread_id);
     ~PacketStream();
+
+    void threadFunction();
 
     BlockPtr getPacketBlock(uint64_t frame);
 
@@ -218,6 +220,6 @@ using PacketStreamList = std::vector<AnyPacketStreamPtr>;
 AnyPacketStreamPtr CreatePacketStream(UdpRxSocketPtr s, GeneralDataPtr d,
                                       int idx, cpu_set_t cpu_mask,
                                       unsigned long node_mask, int max_node,
-                                      FramePolicy fp);
+                                      pid_t thread_id, FramePolicy fp);
 
 #include "PacketStream.cxx"

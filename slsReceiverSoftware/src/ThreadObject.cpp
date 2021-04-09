@@ -9,14 +9,9 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
-ThreadObject::ThreadObject(int threadIndex, std::string threadType,
-                           bool do_start)
+ThreadObject::ThreadObject(int threadIndex, std::string threadType)
     : index(threadIndex), type(threadType) {
     sem_init(&semaphore, 1, 0);
-    if (!do_start) {
-        LOG(logINFO) << type << " thread skipped: " << index;
-        return;
-    }
     try {
         threadObject = std::thread(&ThreadObject::RunningThread, this);
     } catch (...) {

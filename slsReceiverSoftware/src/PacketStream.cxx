@@ -77,7 +77,8 @@ bool PacketStream<P, SD, FP>::hasPendingPacket() {
 
 template <class P, class SD, class FP>
 PacketStream<P, SD, FP>::PacketStream(UdpRxSocketPtr s, cpu_set_t cpu_mask,
-                                      unsigned long node_mask, int max_node)
+                                      unsigned long node_mask, int max_node,
+                                      pid_t thread_id)
     : socket(s), num_frames(MaxBufferFrames), cpu_aff_mask(cpu_mask) {
 
     packet_buffer_array.alloc(num_frames, node_mask, max_node);
@@ -85,7 +86,7 @@ PacketStream<P, SD, FP>::PacketStream(UdpRxSocketPtr s, cpu_set_t cpu_mask,
     for (unsigned int i = 0; i < num_frames; ++i, ++p)
         free_queue.push(p);
 
-    thread = std::make_unique<WriterThread>(*this);
+    thread = std::make_unique<WriterThread>(*this, thread_id);
 }
 
 template <class P, class SD, class FP>
@@ -210,19 +211,56 @@ void PacketStream<P, SD, FP>::addPacketBlock(FramePacketBlock &&frame_block) {
 }
 
 template <class P, class SD, class FP>
+void PacketStream<P, SD, FP>::threadFunction() {
+    thread->threadFunction();
+}
+
+template <class P, class SD, class FP>
 class PacketStream<P, SD, FP>::WriterThread {
   public:
-    WriterThread(PacketStream &s) : ps(s), thread(threadFunctionStatic, this) {
+    WriterThread(PacketStream &s, pid_t thread_id) : ps(s) {
         struct sched_param param;
         param.sched_priority = 90;
-        int ret =
-            pthread_setschedparam(thread.native_handle(), SCHED_FIFO, &param);
+        int ret = sched_setscheduler(thread_id, SCHED_FIFO, &param);
         if (ret != 0)
             std::cerr << "Could not set packet thread RT priority!"
                       << std::endl;
     }
 
-    ~WriterThread() { thread.join(); }
+    ~WriterThread() {
+        std::unique_lock<std::mutex> l(ps.mutex);
+        while (running)
+            cond.wait(l);
+    }
+
+    void threadFunction() {
+        cpu_set_t &cpu_aff_mask = ps.cpu_aff_mask;
+        if (CPU_COUNT(&cpu_aff_mask) != 0) {
+            int size = sizeof(cpu_aff_mask);
+            int ret = sched_setaffinity(0, size, &cpu_aff_mask);
+            if (ret != 0)
+                std::cerr << "Could not set writer thread "
+                          << "cpu affinity mask" << std::endl;
+        }
+        {
+            std::lock_guard<std::mutex> l(ps.mutex);
+            running = true;
+        }
+        while (true) {
+            if (!processOnePacket())
+                break;
+
+            std::lock_guard<std::mutex> l(ps.mutex);
+            ++ps.packets_caught;
+        }
+        // release current block
+        block.reset();
+        {
+            std::lock_guard<std::mutex> l(ps.mutex);
+            running = false;
+            cond.notify_one();
+        }
+    }
 
   private:
     bool checkBlock() {
@@ -330,34 +368,14 @@ class PacketStream<P, SD, FP>::WriterThread {
         return addPacket(packet);
     }
 
-    static void threadFunctionStatic(WriterThread *wt) { wt->threadFunction(); }
-
-    void threadFunction() {
-        cpu_set_t &cpu_aff_mask = ps.cpu_aff_mask;
-        if (CPU_COUNT(&cpu_aff_mask) != 0) {
-            int size = sizeof(cpu_aff_mask);
-            int ret = sched_setaffinity(0, size, &cpu_aff_mask);
-            if (ret != 0)
-                std::cerr << "Could not set writer thread "
-                          << "cpu affinity mask" << std::endl;
-        }
-
-        while (true) {
-            if (!processOnePacket())
-                break;
-
-            std::lock_guard<std::mutex> l(ps.mutex);
-            ++ps.packets_caught;
-        }
-    }
-
     PacketStream &ps;
     Clock::time_point t0;
     BlockPtr block;
     uint64_t curr_frame{0};
     uint32_t curr_idx{uint32_t(-1)};
     uint32_t curr_packet{uint32_t(-1)};
-    std::thread thread;
+    bool running{false};
+    std::condition_variable cond;
 };
 
 namespace Jungfrau {
@@ -402,7 +420,8 @@ template <class PS, class... Args> auto PSFactory(Args &&... args) {
 inline AnyPacketStreamPtr CreatePacketStream(UdpRxSocketPtr s, GeneralDataPtr d,
                                              int idx, cpu_set_t cpu_mask,
                                              unsigned long node_mask,
-                                             int max_node, FramePolicy fp) {
+                                             int max_node, pid_t thread_id,
+                                             FramePolicy fp) {
 
     auto any_pixel = AnyPixelFromBpp(d->dynamicRange);
     auto any_fp = AnyFramePolicyFromFP(fp);
@@ -412,7 +431,7 @@ inline AnyPacketStreamPtr CreatePacketStream(UdpRxSocketPtr s, GeneralDataPtr d,
             using P = decltype(pixel);
             using FP = decltype(fp);
 
-#define args s, cpu_mask, node_mask, max_node
+#define args s, cpu_mask, node_mask, max_node, thread_id
 
             if (d->myDetectorType == slsDetectorDefs::EIGER) {
                 if (!d->tgEnable) {
