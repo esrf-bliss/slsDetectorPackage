@@ -123,21 +123,24 @@ template <class PacketData> struct StdPacket : Packet<PacketData> {
 // P: Packet
 template <class P> class PacketBlock {
   public:
-    static constexpr int NbPackets = P::Data::PacketsPerFrame;
-    using Layout = std::array<typename P::Layout, NbPackets>;
+    using Packet = P;
+    static constexpr int NbPackets = Packet::Data::PacketsPerFrame;
+    using Layout = std::array<typename Packet::Layout, NbPackets>;
     using LayoutPtr = std::unique_ptr<Layout, std::function<void(Layout *)>>;
 
     PacketBlock(LayoutPtr &&l) : layout(std::move(l)){};
 
-    P operator[](unsigned int i) { return P(&(*layout)[i]); }
+    Packet operator[](unsigned int i) { return Packet(&(*layout)[i]); }
 
     void setValid(unsigned int i, bool valid);
 
-    void moveToGood(P &p);
+    void moveToGood(Packet &p);
 
     bool hasFullFrame() { return valid_packets == NbPackets; }
 
     int getValidPackets() { return valid_packets; }
+
+    uint64_t frame_number{0};
 
   private:
     LayoutPtr layout;

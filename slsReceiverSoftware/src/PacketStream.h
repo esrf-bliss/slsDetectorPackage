@@ -7,18 +7,10 @@
 #include "sls/UdpRxSocket.h"
 #include "sls/logger.h"
 
-#include <condition_variable>
-#include <cstddef>
-#include <functional>
-#include <map>
 #include <mutex>
-#include <numeric>
-#include <queue>
 #include <variant>
 
-#include "GeneralData.h"
-#include "MmappedRegion.h"
-#include "Packet.h"
+#include "PacketContainer.h"
 #include "Stats.h"
 
 using FramePolicy = slsDetectorDefs::frameDiscardPolicy;
@@ -71,52 +63,38 @@ template <class Packet> struct StreamData {
 // P: Packet, SD: Stream Data, FP: Frame discard policy
 template <class P, class SD, class FP> class PacketStream {
 
-    static constexpr int MaxBufferFrames = 4;
-
   public:
     using Packet = P;
     using StreamData = SD;
     using FramePolicy = FP;
-    using Block = PacketBlock<P>;
-    using BlockPtr = PacketBlockPtr<P>;
+    using Block = PacketBlock<Packet>;
+    using BlockPtr = PacketBlockPtr<Packet>;
     using BlockLayout = typename Block::Layout;
     static constexpr int FramePackets = Block::NbPackets;
 
-    using MmappedBlockRegion = MmappedRegion<BlockLayout>;
-
-    PacketStream(UdpRxSocketPtr s, cpu_set_t cpu_mask, unsigned long node_mask,
-                 int max_node, pid_t thread_id);
+    PacketStream(UdpRxSocketPtr s, cpu_set_t cpu_mask, pid_t thread_id,
+                 AnyPacketContainerPtr pc);
     ~PacketStream();
 
     void threadFunction();
 
-    BlockPtr getPacketBlock(uint64_t frame);
-
-    bool hasPendingPacket();
     void stop();
-    bool wasStopped();
 
     int getNumPacketsCaught();
     uint64_t getNumFramesCaught();
     uint64_t getLastFrameIndex();
 
-    void clearBuffers();
-
     void printStats();
 
   private:
     struct WriterThread;
-    using PacketBlockMap = std::map<uint64_t, BlockPtr>;
-    using MapIterator = typename PacketBlockMap::iterator;
-    using FramePacketBlock = typename PacketBlockMap::value_type;
 
-    BlockPtr getEmptyBlock();
-    void addPacketBlock(FramePacketBlock &&frame_block);
-    void releaseReadyPacketBlocks();
-    void waitUsedPacketBlocks();
+    BlockPtr getEmptyBlock() { return packet_cont.getFreePacketBlock(); }
+    void addPacketBlock(BlockPtr &&block);
+
+    bool wasStopped();
 
     UdpRxSocketPtr socket;
-    const unsigned int num_frames;
     std::mutex mutex;
     int packets_caught{0};
     uint64_t frames_caught{0};
@@ -124,17 +102,10 @@ template <class P, class SD, class FP> class PacketStream {
     StreamData stream_data;
     int header_pad;
     int packet_len;
-    MmappedBlockRegion packet_buffer_array;
-    std::mutex free_mutex;
-    std::condition_variable free_cond;
-    std::queue<BlockLayout *> free_queue;
+    typename PacketContainer<Packet>::StreamIface packet_cont;
     bool stopped{false};
-    int waiting_reader_count{0};
-    std::mutex block_mutex;
-    std::condition_variable block_cond;
     cpu_set_t cpu_aff_mask;
     XYStat packet_delay_stat{1e6};
-    PacketBlockMap packet_block_map;
     std::unique_ptr<WriterThread> thread;
 };
 
@@ -219,7 +190,7 @@ using PacketStreamList = std::vector<AnyPacketStreamPtr>;
 
 AnyPacketStreamPtr CreatePacketStream(UdpRxSocketPtr s, GeneralDataPtr d,
                                       int idx, cpu_set_t cpu_mask,
-                                      unsigned long node_mask, int max_node,
-                                      pid_t thread_id, FramePolicy fp);
+                                      pid_t thread_id, FramePolicy fp,
+                                      AnyPacketContainerPtr any_pc);
 
 #include "PacketStream.cxx"

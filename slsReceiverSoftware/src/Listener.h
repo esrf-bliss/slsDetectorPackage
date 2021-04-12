@@ -260,6 +260,9 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
      */
     uint64_t currentFrameIndex{0};
 
+    /** packet container **/
+    AnyPacketContainerPtr packetContainer;
+
     /** packet stream **/
     AnyPacketStreamPtr packetStream;
 

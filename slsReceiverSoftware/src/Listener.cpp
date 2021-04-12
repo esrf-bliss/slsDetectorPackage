@@ -145,9 +145,26 @@ void Listener::CreateUDPSockets() {
     }
 
     try {
+        packetContainer =
+            CreatePacketContainer(generalData, fifoNodeMask, maxNode);
+        LOG(logINFO) << index << ": PacketContainer for port "
+                     << *udpPortNumber;
+    } catch (...) {
+        throw sls::RuntimeError("Could not create PacketContainer on port " +
+                                std::to_string(*udpPortNumber));
+    }
+
+    try {
         packetStream = CreatePacketStream(udpSocket, generalData, index,
-                                          cpuMask, fifoNodeMask, maxNode,
-                                          GetThreadId(), *frameDiscardMode);
+                                          cpuMask, GetThreadId(),
+                                          *frameDiscardMode, packetContainer);
+        LOG(logINFO) << index << ": PacketStream for port " << *udpPortNumber;
+    } catch (...) {
+        throw sls::RuntimeError("Could not create PacketStream on port " +
+                                std::to_string(*udpPortNumber));
+    }
+
+    try {
         bool e4b = !pushFramesToFifo;
         frameAssembler =
             FrameAssembler::CreateDefaultFrameAssembler(generalData, e4b);
@@ -177,6 +194,7 @@ void Listener::ShutDownUDPSocket() {
         if (packetStream && was_alive)
             std::visit([&](auto &ps) { ps.printStats(); }, *packetStream);
         udpSocket->Shutdown();
+        packetStream.reset();
         LOG(logINFO) << "Shut down of UDP port " << *udpPortNumber;
     }
 }
@@ -252,8 +270,8 @@ void Listener::ThreadExecution() {
 
     // udpsocket doesnt exist
     bool carryOverFlag;
-    std::visit([&](auto &ps) { carryOverFlag = ps.hasPendingPacket(); },
-               *packetStream);
+    std::visit([&](auto &pc) { carryOverFlag = pc.hasPendingPacket(); },
+               *packetContainer);
     if (*activated && !udpSocketAlive && !carryOverFlag) {
         StopListening(frame);
         return;
@@ -300,8 +318,8 @@ void Listener::ThreadExecution() {
 }
 
 void Listener::ClearAllBuffers() {
-    if (packetStream)
-        std::visit([&](auto &ps) { ps.clearBuffers(); }, *packetStream);
+    if (packetContainer)
+        std::visit([&](auto &pc) { pc.clearBuffers(); }, *packetContainer);
 }
 
 void Listener::StopListening(FifoFrame *frame) {
@@ -360,8 +378,10 @@ int Listener::ListenToAnImage(sls_receiver_header *recv_header, char *buf) {
 
 AnyPacketBlockPtr Listener::GetFramePackets(uint64_t frame) {
     return std::visit(
-        [&](auto &ps) -> AnyPacketBlockPtr { return ps.getPacketBlock(frame); },
-        *packetStream);
+        [&](auto &pc) -> AnyPacketBlockPtr {
+            return pc.getReadyPacketBlock(frame);
+        },
+        *packetContainer);
 }
 
 void Listener::PrintFifoStatistics() {
