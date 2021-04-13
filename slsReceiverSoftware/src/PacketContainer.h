@@ -24,10 +24,8 @@
 
 template <class P> class PacketContainer {
 
-    static constexpr int MaxBufferFrames = 4;
-
   public:
-    PacketContainer(unsigned long node_mask, int max_node);
+    PacketContainer(int frames, unsigned long node_mask, int max_node);
     ~PacketContainer();
 
     using Packet = P;
@@ -55,11 +53,12 @@ template <class P> class PacketContainer {
         Ptr pc;
     };
 
-    BlockPtr getReadyPacketBlock(uint64_t frame);
+    BlockPtr getReadyPacketBlock(uint64_t frame = uint64_t(-1));
 
     bool hasPendingPacket();
 
     void clearBuffers();
+    long long getMemorySize();
 
   private:
     friend class StreamIface;

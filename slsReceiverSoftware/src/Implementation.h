@@ -412,6 +412,10 @@ class Implementation : private virtual slsDetectorDefs {
     /** Listener Statistics */
     std::vector<ListenerStatistics> listenerStatistics;
 
+    /** Fifo node affinity **/
+    unsigned long fifoNodeMask{0};
+    int maxNode{0};
+
     /** Frame memory assembler in passive mode */
     bool passiveMode;
     MPFrameAssemblerPtr frameAssembler;

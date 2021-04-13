@@ -33,6 +33,8 @@ template <typename T> class MmappedRegion {
 
     void clear();
 
+    long long getMemorySize();
+
   private:
     T *ptr;
     size_t len;

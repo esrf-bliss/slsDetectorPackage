@@ -134,21 +134,6 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
      */
     void SetThreadCPUAffinity(const cpu_set_t &cpu_mask);
 
-    /**
-     * Set receiver fifo node affinity mask
-     */
-    void SetFifoNodeAffinity(unsigned long fifo_node_mask, int max_node);
-
-    /**
-     * Get frame packets
-     */
-    AnyPacketBlockPtr GetFramePackets(uint64_t frame);
-
-    /**
-     * Clear all buffers
-     */
-    void ClearAllBuffers();
-
   private:
     /**
      * Record First Acquisition Index
@@ -260,9 +245,6 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
      */
     uint64_t currentFrameIndex{0};
 
-    /** packet container **/
-    AnyPacketContainerPtr packetContainer;
-
     /** packet stream **/
     AnyPacketStreamPtr packetStream;
 
@@ -284,8 +266,4 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
 
     /** frame assembler CPU affinity **/
     cpu_set_t cpuMask;
-
-    /** Fifo node affinity **/
-    unsigned long fifoNodeMask{0};
-    int maxNode{0};
 };

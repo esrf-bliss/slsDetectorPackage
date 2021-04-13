@@ -20,8 +20,9 @@ template <class Duration> Seconds ToSeconds(const Duration &d) {
  */
 
 template <class P>
-PacketContainer<P>::PacketContainer(unsigned long node_mask, int max_node)
-    : num_frames(MaxBufferFrames) {
+PacketContainer<P>::PacketContainer(int frames, unsigned long node_mask,
+                                    int max_node)
+    : num_frames(frames) {
     packet_buffer_array.alloc(num_frames, node_mask, max_node);
     BlockLayout *p = packet_buffer_array.getPtr();
     for (unsigned int i = 0; i < num_frames; ++i, ++p)
@@ -71,16 +72,21 @@ PacketBlockPtr<P> PacketContainer<P>::getReadyPacketBlock(uint64_t frame) {
     std::unique_lock<std::mutex> l(block_mutex);
     WaitingCountHelper h(*this);
     MapIterator it;
+    bool any = (frame == uint64_t(-1));
     while (!stopped) {
         if (!packet_block_map.empty()) {
             it = packet_block_map.begin();
+            if (any)
+                break;
             bool too_old = (it->first > frame);
             if (too_old)
                 return nullptr;
         }
-        it = packet_block_map.find(frame);
-        if (it != packet_block_map.end())
-            break;
+        if (!any) {
+            it = packet_block_map.find(frame);
+            if (it != packet_block_map.end())
+                break;
+        }
         block_cond.wait(l);
     }
     if (stopped)
@@ -158,6 +164,10 @@ template <class P> void PacketContainer<P>::clearBuffers() {
     packet_buffer_array.clear();
 }
 
+template <class P> long long PacketContainer<P>::getMemorySize() {
+    return packet_buffer_array.getMemorySize();
+}
+
 /**
  * PacketContainer factory
  */
@@ -168,8 +178,9 @@ template <class P, class... Args> auto PCFactory(Args &&... args) {
                                                 std::forward<Args>(args)...);
 }
 
-inline AnyPacketContainerPtr
-CreatePacketContainer(GeneralDataPtr d, unsigned long node_mask, int max_node) {
+inline AnyPacketContainerPtr CreatePacketContainer(GeneralDataPtr d, int frames,
+                                                   unsigned long node_mask,
+                                                   int max_node) {
 
     auto any_pixel = AnyPixelFromBpp(d->dynamicRange);
 
@@ -177,7 +188,7 @@ CreatePacketContainer(GeneralDataPtr d, unsigned long node_mask, int max_node) {
         [&](auto pixel) {
             using P = decltype(pixel);
 
-#define args node_mask, max_node
+#define args frames, node_mask, max_node
 
             if (d->myDetectorType == slsDetectorDefs::EIGER) {
                 if (!d->tgEnable) {

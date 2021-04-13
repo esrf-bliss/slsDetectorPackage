@@ -57,3 +57,7 @@ template <typename T> void MmappedRegion<T>::release() {
 }
 
 template <typename T> void MmappedRegion<T>::clear() { memset(ptr, 0, len); }
+
+template <typename T> long long MmappedRegion<T>::getMemorySize() {
+    return len;
+}

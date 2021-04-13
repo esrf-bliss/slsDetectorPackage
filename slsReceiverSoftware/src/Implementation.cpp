@@ -67,15 +67,10 @@ void Implementation::SetupFifoStructure() {
     fifo.clear();
     frameAssembler.reset();
     for (unsigned int i = 0; int(i) < numThreads; ++i) {
-        uint32_t datasize = generalData->imageSize;
-        // veto data size
-        if (myDetectorType == GOTTHARD2 && i != 0) {
-            datasize = generalData->vetoImageSize;
-        }
-
         // create fifo structure
         try {
-            fifo.push_back(sls::make_unique<Fifo>(i, datasize, fifoDepth));
+            fifo.push_back(sls::make_unique<Fifo>(i, generalData, fifoDepth,
+                                                  fifoNodeMask, maxNode));
         } catch (...) {
             fifo.clear();
             fifoDepth = 0;
@@ -1764,8 +1759,10 @@ void Implementation::setThreadCPUAffinity(const CPUMaskList &cpu_masks) {
 
 void Implementation::setBufferNodeAffinity(unsigned long buffer_node_mask,
                                            int max_node) {
-    for (const auto &it : listener)
-        it->SetFifoNodeAffinity(buffer_node_mask, max_node);
+    fifoNodeMask = buffer_node_mask;
+    maxNode = max_node;
+    LOG(logINFO) << "Node mask: " << std::hex << std::showbase
+                 << buffer_node_mask << std::dec << ", max_node: " << max_node;
 }
 
 int Implementation::getImage(slsDetectorDefs::receiver_image_data &image_data) {
@@ -1798,12 +1795,16 @@ int Implementation::getImage(slsDetectorDefs::receiver_image_data &image_data) {
 
     AnyPacketBlockList blocks;
     size_t valid_ports = 0;
-    for (auto &l : listener) {
-        blocks.emplace_back(l->GetFramePackets(image_data.frame));
+    uint64_t frame = uint64_t(-1);
+    for (auto &f : fifo) {
+        blocks.emplace_back(f->GetFramePackets(frame));
         std::visit(
             [&](auto &b) {
-                if (b)
+                if (b) {
                     ++valid_ports;
+                    if (frame == uint64_t(-1))
+                        frame = (*b)[0].frame();
+                }
             },
             blocks.back());
     }
@@ -1822,8 +1823,8 @@ int Implementation::getImage(slsDetectorDefs::receiver_image_data &image_data) {
 }
 
 void Implementation::clearAllBuffers() {
-    for (const auto &it : listener)
-        it->ClearAllBuffers();
+    for (const auto &f : fifo)
+        f->ClearAllBuffers();
 }
 
 /* statistics */

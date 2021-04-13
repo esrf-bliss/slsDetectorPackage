@@ -13,12 +13,13 @@
 #include <iostream>
 #include <unistd.h>
 
-Fifo::Fifo(int ind, uint32_t imageSize, uint32_t depth)
+Fifo::Fifo(int ind, GeneralDataPtr gd, uint32_t depth, unsigned long node_mask,
+           int max_node)
     : index(ind), memory(nullptr), fifoBound(nullptr), fifoFree(nullptr),
       fifoStream(nullptr), fifoDepth(depth), status_fifoBound(0),
       status_fifoFree(depth) {
     LOG(logDEBUG3) << __SHORT_AT__ << " called";
-    CreateFifos(imageSize);
+    CreateFifos(gd, node_mask, max_node);
 }
 
 Fifo::~Fifo() {
@@ -26,12 +27,33 @@ Fifo::~Fifo() {
     DestroyFifos();
 }
 
-void Fifo::CreateFifos(uint32_t imageSize) {
+void Fifo::CreateFifos(GeneralDataPtr gd, unsigned long node_mask,
+                       int max_node) {
     LOG(logDEBUG3) << __SHORT_AT__ << " called";
 
     // destroy if not already
     DestroyFifos();
 
+    try {
+        packetContainer =
+            CreatePacketContainer(gd, fifoDepth, node_mask, max_node);
+        LOG(logINFO) << "Fifo " << index
+                     << " packet Depth (rx_fifodepth): " << fifoDepth;
+        long long mem_len;
+        std::visit([&](auto &pc) { mem_len = pc.getMemorySize(); },
+                   *packetContainer);
+        LOG(logDEBUG) << "Memory Allocated " << index << ": "
+                      << mem_len / (double)(1024 * 1024) << " MB";
+    } catch (...) {
+        throw sls::RuntimeError("Could not create PacketContainer");
+    }
+
+    fifoDepth = 10;
+    uint32_t imageSize = gd->imageSize;
+    // veto data size
+    if ((gd->myDetectorType == GOTTHARD2) && (index != 0)) {
+        imageSize = gd->vetoImageSize;
+    }
     // create fifos
     fifoBound = new sls::CircularFifo<FifoFrame *>(fifoDepth);
     fifoFree = new sls::CircularFifo<FifoFrame *>(fifoDepth);
@@ -50,7 +72,7 @@ void Fifo::CreateFifos(uint32_t imageSize) {
     const char *t = "memory";
     for (size_t i = 0; (i + strlen(t)) < mem_len; i += pagesize)
         strcpy(memory + i, t);
-    LOG(logDEBUG) << "Memory Allocated " << index << ": "
+    LOG(logDEBUG) << "Memory Allocated for Streamer " << index << ": "
                   << (double)mem_len / (double)(1024 * 1024) << " MB";
 
     { // push free addresses into fifoFree fifo
@@ -62,8 +84,8 @@ void Fifo::CreateFifos(uint32_t imageSize) {
             buffer += fifoFrameSize;
         }
     }
-    LOG(logINFO) << "Fifo " << index << " reconstructed Depth (rx_fifodepth): "
-                 << fifoFree->getDataValue();
+    LOG(logINFO) << "Fifo " << index
+                 << " frame-4-streamer Depth: " << fifoFree->getDataValue();
 }
 
 void Fifo::DestroyFifos() {
@@ -79,6 +101,18 @@ void Fifo::DestroyFifos() {
     fifoFree = nullptr;
     delete fifoStream;
     fifoStream = nullptr;
+
+    packetContainer.reset();
+}
+
+AnyPacketContainerPtr Fifo::GetPacketContainer() { return packetContainer; }
+
+AnyPacketBlockPtr Fifo::GetFramePackets(uint64_t frame) {
+    return std::visit(
+        [&](auto &pc) -> AnyPacketBlockPtr {
+            return pc.getReadyPacketBlock(frame);
+        },
+        *packetContainer);
 }
 
 void Fifo::FreeFrame(FifoFrame *frame) { fifoFree->push(frame); }
@@ -117,3 +151,8 @@ int Fifo::GetMinLevelForFifoFree() {
 }
 
 size_t Fifo::GetFifoFrameSize() { return fifoFrameSize; }
+
+void Fifo::ClearAllBuffers() {
+    if (packetContainer)
+        std::visit([&](auto &pc) { pc.clearBuffers(); }, *packetContainer);
+}
