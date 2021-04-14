@@ -743,13 +743,6 @@ void Implementation::startReadout() {
 
 void Implementation::shutDownUDPSockets() {
     for (const auto &it : listener)
-        it->Stop();
-    if (frameAssembler) {
-        std::unique_lock<std::mutex> l(frameAssemblerBusyMutex);
-        while (frameAssemblerBusyCount > 0)
-            frameAssemblerBusyCond.wait(l);
-    }
-    for (const auto &it : listener)
         it->ShutDownUDPSocket();
     frameAssembler.reset();
 }
@@ -1765,27 +1758,6 @@ void Implementation::setBufferNodeAffinity(unsigned long buffer_node_mask,
 int Implementation::getImage(slsDetectorDefs::receiver_image_data &image_data) {
     if (!passiveMode)
         throw sls::RuntimeError("getImage: not in passiveMode");
-
-    class Busy {
-      public:
-        Busy(int &i, std::mutex &m, std::condition_variable &c)
-            : count(i), mutex(m), cond(c) {
-            std::lock_guard<std::mutex> l(mutex);
-            ++count;
-        }
-
-        ~Busy() {
-            std::lock_guard<std::mutex> l(mutex);
-            --count;
-            cond.notify_all();
-        }
-
-      private:
-        int &count;
-        std::mutex &mutex;
-        std::condition_variable &cond;
-    } b(frameAssemblerBusyCount, frameAssemblerBusyMutex,
-        frameAssemblerBusyCond);
 
     if (status != RUNNING)
         return -1;

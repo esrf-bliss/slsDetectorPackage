@@ -13,11 +13,9 @@ class slsDetectorDefs;
 
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <exception>
 #include <map>
 #include <memory>
-#include <mutex>
 #include <vector>
 using ns = std::chrono::nanoseconds;
 
@@ -419,7 +417,4 @@ class Implementation : private virtual slsDetectorDefs {
     /** Frame memory assembler in passive mode */
     bool passiveMode;
     MPFrameAssemblerPtr frameAssembler;
-    std::mutex frameAssemblerBusyMutex;
-    std::condition_variable frameAssemblerBusyCond;
-    int frameAssemblerBusyCount{0};
 };

@@ -122,7 +122,7 @@ template <class P> void PacketContainer<P>::releaseReadyPacketBlocks() {
 
 template <class P> void PacketContainer<P>::waitUsedPacketBlocks() {
     using namespace std::chrono_literals;
-    Clock::duration wait_reader_timeout = 1s;
+    Clock::duration wait_reader_timeout = 10s;
     Clock::time_point t0 = Clock::now();
     while (hasPendingPacket()) {
         Clock::time_point t = Clock::now();

@@ -128,22 +128,22 @@ void Listener::CreateUDPSockets() {
     *actualUDPSocketBufferSize = udpSocket->getBufferSize();
 }
 
-void Listener::Stop() {
-    if (packetStream)
-        std::visit([&](auto &ps) { ps.stop(); }, *packetStream);
-}
-
 void Listener::ShutDownUDPSocket() {
-    if (udpSocket) {
-        bool was_alive = udpSocketAlive;
-        udpSocketAlive = false;
-        Stop();
-        if (packetStream && was_alive)
-            std::visit([&](auto &ps) { ps.printStats(); }, *packetStream);
-        udpSocket->Shutdown();
-        packetStream.reset();
-        LOG(logINFO) << "Shut down of UDP port " << *udpPortNumber;
-    }
+    if (!udpSocket)
+        return;
+
+    udpSocketAlive = false;
+    if (packetStream)
+        std::visit(
+            [&](auto &ps) {
+                ps.stop();
+                ps.printStats();
+            },
+            *packetStream);
+    udpSocket->Shutdown();
+    packetStream.reset();
+    udpSocket.reset();
+    LOG(logINFO) << "Shut down of UDP port " << *udpPortNumber;
 }
 
 void Listener::CreateDummySocketForUDPSocketBufferSize(int s) {

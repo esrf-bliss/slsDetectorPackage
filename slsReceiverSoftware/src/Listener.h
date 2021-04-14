@@ -100,11 +100,6 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
     void CreateUDPSockets();
 
     /**
-     * Stops UDP socket listening
-     */
-    void Stop();
-
-    /**
      * Shuts down and deletes UDP Sockets
      */
     void ShutDownUDPSocket();
