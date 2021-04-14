@@ -81,6 +81,7 @@ template <class P, class SD, class FP> class PacketStream {
     void stop();
 
     int getNumPacketsCaught();
+    uint64_t getFirstFrameCaught();
     uint64_t getNumFramesCaught();
     uint64_t getLastFrameIndex();
 
@@ -97,6 +98,7 @@ template <class P, class SD, class FP> class PacketStream {
     UdpRxSocketPtr socket;
     std::mutex mutex;
     int packets_caught{0};
+    uint64_t first_frame{uint64_t(-1)};
     uint64_t frames_caught{0};
     uint64_t last_frame{0};
     StreamData stream_data;

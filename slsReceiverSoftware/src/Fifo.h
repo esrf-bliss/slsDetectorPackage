@@ -55,16 +55,6 @@ class Fifo : private virtual slsDetectorDefs {
     void GetNewFrame(FifoFrame *&frame);
 
     /**
-     * Pushes bound frame into fifoBound
-     */
-    void PushFrame(FifoFrame *frame);
-
-    /**
-     * Pops bound frame from fifoBound to process data
-     */
-    void PopFrame(FifoFrame *&frame);
-
-    /**
      * Pushes bound frame into fifoStream
      */
     void PushFrameToStream(FifoFrame *frame);
@@ -75,10 +65,10 @@ class Fifo : private virtual slsDetectorDefs {
     void PopFrameToStream(FifoFrame *&frame);
 
     /**
-     * Get Maximum Level filled in Fifo Bound
+     * Get Maximum Level filled in Fifo Stream
      * and reset this value for next intake
      */
-    int GetMaxLevelForFifoBound();
+    int GetMaxLevelForFifoStream();
 
     /**
      * Get Minimum Level filled in Fifo Free
@@ -122,9 +112,6 @@ class Fifo : private virtual slsDetectorDefs {
     /** packet container **/
     AnyPacketContainerPtr packetContainer;
 
-    /** Circular Fifo pointing to addresses of bound data in memory */
-    sls::CircularFifo<FifoFrame *> *fifoBound;
-
     /** Circular Fifo pointing to addresses of freed data in memory */
     sls::CircularFifo<FifoFrame *> *fifoFree;
 
@@ -137,6 +124,6 @@ class Fifo : private virtual slsDetectorDefs {
     /** Fifo frame size */
     size_t fifoFrameSize{0};
 
-    volatile int status_fifoBound;
+    volatile int status_fifoStream;
     volatile int status_fifoFree;
 };

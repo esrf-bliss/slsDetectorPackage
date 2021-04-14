@@ -151,7 +151,6 @@ class slsDetectorDefs {
 #define MAX_NUM_PORTS 2
 
     struct receiver_image_data {
-        uint64_t frame;
         sls_receiver_header header;
         char *buffer;
         int numberOfPorts;

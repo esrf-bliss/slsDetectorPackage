@@ -15,9 +15,8 @@
 
 Fifo::Fifo(int ind, GeneralDataPtr gd, uint32_t depth, unsigned long node_mask,
            int max_node)
-    : index(ind), memory(nullptr), fifoBound(nullptr), fifoFree(nullptr),
-      fifoStream(nullptr), fifoDepth(depth), status_fifoBound(0),
-      status_fifoFree(depth) {
+    : index(ind), memory(nullptr), fifoFree(nullptr), fifoStream(nullptr),
+      fifoDepth(depth), status_fifoFree(depth) {
     LOG(logDEBUG3) << __SHORT_AT__ << " called";
     CreateFifos(gd, node_mask, max_node);
 }
@@ -55,7 +54,6 @@ void Fifo::CreateFifos(GeneralDataPtr gd, unsigned long node_mask,
         imageSize = gd->vetoImageSize;
     }
     // create fifos
-    fifoBound = new sls::CircularFifo<FifoFrame *>(fifoDepth);
     fifoFree = new sls::CircularFifo<FifoFrame *>(fifoDepth);
     fifoStream = new sls::CircularFifo<FifoFrame *>(fifoDepth);
 
@@ -95,8 +93,6 @@ void Fifo::DestroyFifos() {
         free(memory);
         memory = nullptr;
     }
-    delete fifoBound;
-    fifoBound = nullptr;
     delete fifoFree;
     fifoFree = nullptr;
     delete fifoStream;
@@ -124,23 +120,13 @@ void Fifo::GetNewFrame(FifoFrame *&frame) {
     fifoFree->pop(frame);
 }
 
-void Fifo::PushFrame(FifoFrame *frame) {
-    int temp = fifoBound->getDataValue();
-    if (temp > status_fifoBound)
-        status_fifoBound = temp;
-    while (!fifoBound->push(frame))
-        ;
-}
-
-void Fifo::PopFrame(FifoFrame *&frame) { fifoBound->pop(frame); }
-
 void Fifo::PushFrameToStream(FifoFrame *frame) { fifoStream->push(frame); }
 
 void Fifo::PopFrameToStream(FifoFrame *&frame) { fifoStream->pop(frame); }
 
-int Fifo::GetMaxLevelForFifoBound() {
-    int temp = status_fifoBound;
-    status_fifoBound = 0;
+int Fifo::GetMaxLevelForFifoStream() {
+    int temp = status_fifoStream;
+    status_fifoStream = 0;
     return temp;
 }
 
