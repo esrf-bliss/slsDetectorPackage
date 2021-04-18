@@ -4,6 +4,7 @@
  * @short low-level udp packet container classes
  ***********************************************/
 
+#include "sls/Packet.h"
 #include "sls/logger.h"
 
 #include <condition_variable>
@@ -14,7 +15,6 @@
 
 #include "GeneralData.h"
 #include "MmappedRegion.h"
-#include "Packet.h"
 
 /**
  *@short container managing packet blocks to/from stream
@@ -93,10 +93,10 @@ template <class P> class PacketContainer {
 
 // TODO: Automatic definition from AnyPacketBlockPtr
 using AnyPacketContainer =
-    std::variant<PacketContainer<::Eiger::Packet<Pixel4>>,
-                 PacketContainer<::Eiger::Packet<Pixel8>>,
-                 PacketContainer<::Eiger::Packet<Pixel16>>,
-                 PacketContainer<::Eiger::Packet<Pixel32>>,
+    std::variant<PacketContainer<::Eiger::Packet<sls::Geom::Pixel4>>,
+                 PacketContainer<::Eiger::Packet<sls::Geom::Pixel8>>,
+                 PacketContainer<::Eiger::Packet<sls::Geom::Pixel16>>,
+                 PacketContainer<::Eiger::Packet<sls::Geom::Pixel32>>,
                  PacketContainer<::Jungfrau::Packet<1>>,
                  PacketContainer<::Jungfrau::Packet<2>>>;
 

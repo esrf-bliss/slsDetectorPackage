@@ -9,9 +9,9 @@
  *@short creates & manages a data processor thread each
  */
 
-#include "FrameAssembler.h"
 #include "ThreadObject.h"
 #include "receiver_defs.h"
+#include "sls/FrameAssembler.h"
 
 class GeneralData;
 class Fifo;

@@ -5,10 +5,11 @@
  * from udp packets
  ***********************************************/
 
-#include "GeneralData.h"
 #include "Packet.h"
 
 namespace FrameAssembler {
+
+using namespace sls::Geom;
 
 /**
  *@short Default frame assembler in Listener
@@ -52,8 +53,10 @@ class DefaultFrameAssembler : public DefaultFrameAssemblerBase {
     void expand4Bits(char *dst, char *src, int src_size);
 };
 
-DefaultFrameAssemblerPtr CreateDefaultFrameAssembler(GeneralDataPtr gd,
-                                                     bool e4b);
+DefaultFrameAssemblerPtr
+CreateDefaultFrameAssembler(slsDetectorDefs::detectorType det_type,
+                            int num_udp_ifaces, uint32_t src_dr,
+                            uint32_t dst_dr = 0);
 
 /**
  *@short Multi-port frame assembler result
@@ -77,7 +80,7 @@ class MPFrameAssembler {
                                  RecvHeader *header, char *buf) = 0;
 };
 
-using MPFrameAssemblerPtr = std::shared_ptr<MPFrameAssembler>;
+using MPFrameAssemblerPtr = std::unique_ptr<MPFrameAssembler>;
 
 /**
  *@short Raw frame assembler: vertical concatenation of default assemblers
@@ -86,9 +89,12 @@ using MPFrameAssemblerPtr = std::shared_ptr<MPFrameAssembler>;
 class RawFrameAssembler : public MPFrameAssembler {
 
   public:
-    RawFrameAssembler(GeneralDataPtr gd, int recv_idx, bool e4b) {
-        for (std::size_t i = 0; i < gd->numUDPInterfaces; ++i)
-            assembler.emplace_back(CreateDefaultFrameAssembler(gd, e4b));
+    RawFrameAssembler(slsDetectorDefs::detectorType det_type, int recv_idx,
+                      int num_udp_ifaces, uint32_t src_dr,
+                      uint32_t dst_dr = 0) {
+        for (int i = 0; i < num_udp_ifaces; ++i)
+            assembler.emplace_back(CreateDefaultFrameAssembler(
+                det_type, num_udp_ifaces, src_dr, dst_dr));
         int iface_size = assembler[0]->getImageSize();
         data_offset = assembler.size() * iface_size * recv_idx;
     }
@@ -101,6 +107,11 @@ class RawFrameAssembler : public MPFrameAssembler {
 
     DefaultFrameAssemblerList assembler;
     int data_offset;
+};
+
+enum AssemblerType {
+    AsmRaw,
+    AsmWithGap,
 };
 
 } // namespace FrameAssembler

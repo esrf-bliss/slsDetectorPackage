@@ -1681,8 +1681,6 @@ int ClientInterface::set_streaming_hwm(Interface &socket) {
 /** Passive mode functions */
 void ClientInterface::setPassiveMode(bool passive) { passiveMode = passive; }
 
-void ClientInterface::enableGap(bool enable) { impl()->enableGap(enable); }
-
 void ClientInterface::setThreadCPUAffinity(const CPUMaskList &cpu_masks) {
     impl()->setThreadCPUAffinity(cpu_masks);
 }
@@ -1692,9 +1690,13 @@ void ClientInterface::setBufferNodeAffinity(unsigned long buffer_node_mask,
     impl()->setBufferNodeAffinity(buffer_node_mask, max_node);
 }
 
-int ClientInterface::getImage(
-    slsDetectorDefs::receiver_image_data &image_data) {
-    return impl()->getImage(image_data);
+MPFrameAssemblerPtr
+ClientInterface::CreateFrameAssembler(AssemblerType asm_type) {
+    return impl()->CreateFrameAssembler(asm_type);
+}
+
+AnyPacketBlockList ClientInterface::GetFramePacketBlocks() {
+    return impl()->GetFramePacketBlocks();
 }
 
 void ClientInterface::clearAllBuffers() { impl()->clearAllBuffers(); }

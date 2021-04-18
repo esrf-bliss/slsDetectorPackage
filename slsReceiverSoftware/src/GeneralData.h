@@ -53,8 +53,6 @@ class GeneralData {
     uint32_t dynamicRange{16};
     /** 10 Gigabit enable */
     bool tgEnable{false};
-    /** gap pixels enable */
-    bool gapEnable{false};
 
     GeneralData(){};
     virtual ~GeneralData(){};
@@ -117,15 +115,6 @@ class GeneralData {
      */
     virtual void SetTenGigaEnable(bool tg) {
         LOG(logERROR) << "SetTenGigaEnable is a generic function that should "
-                         "be overloaded by a derived class";
-    };
-
-    /**
-     * Enable Gap Pixels changes member variables
-     * @param enable true if gap pixels enable, else false
-     */
-    virtual void SetGapPixelsEnable(bool b) {
-        LOG(logERROR) << "SetGapPixelsEnable is a generic function that should "
                          "be overloaded by a derived class";
     };
 
@@ -359,15 +348,6 @@ class EigerData : public GeneralData {
         UpdateImageSize();
     };
 
-    /**
-     * Enable Gap Pixels changes member variables
-     * @param g enable true if gap pixels enable, else false
-     */
-    void SetGapPixelsEnable(bool g) {
-        gapEnable = g;
-        UpdateImageSize();
-    };
-
   private:
     /**
      * Update member variables affecting image size
@@ -379,10 +359,6 @@ class EigerData : public GeneralData {
         packetSize = headerSizeinPacket + dataSize;
         int raw_image_size = int(nPixelsX * nPixelsY * GetPixelDepth());
         packetsPerFrame = raw_image_size / dataSize;
-        if (gapEnable) {
-            nPixelsX += 3;
-            nPixelsY += 1;
-        }
         imageSize = int(nPixelsX * nPixelsY * GetPixelDepth());
         defaultFifoDepth = (dynamicRange == 32 ? 100 : 1000);
     };
@@ -412,15 +388,6 @@ class JungfrauData : public GeneralData {
         UpdateImageSize();
     };
 
-    /**
-     * Enable Gap Pixels changes member variables
-     * @param g enable true if gap pixels enable, else false
-     */
-    void SetGapPixelsEnable(bool g) {
-        gapEnable = g;
-        UpdateImageSize();
-    };
-
   private:
     /**
      * Update member variables affecting image size
@@ -430,10 +397,6 @@ class JungfrauData : public GeneralData {
         nPixelsY = (256 * 2) / numUDPInterfaces;
         int raw_image_size = int(nPixelsX * nPixelsY * GetPixelDepth());
         packetsPerFrame = raw_image_size / dataSize;
-        if (gapEnable) {
-            nPixelsX += 2 * 3;
-            nPixelsY += 2 / numUDPInterfaces;
-        }
         imageSize = int(nPixelsX * nPixelsY * GetPixelDepth());
     };
 };

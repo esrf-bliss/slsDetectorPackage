@@ -1,10 +1,13 @@
 #pragma once
+#include "sls/FrameAssembler.h"
 #include "sls/sls_detector_defs.h"
 #include <memory>
 
 class ClientInterface;
 
 namespace sls {
+
+using namespace FrameAssembler;
 
 class Receiver : private virtual slsDetectorDefs {
 
@@ -91,11 +94,6 @@ class Receiver : private virtual slsDetectorDefs {
     void setPassiveMode(bool passive);
 
     /**
-     * Enable / disable gap (image reconstruction)
-     */
-    void enableGap(bool enable);
-
-    /**
      * Set thread CPU Affinity: a list of CPU masks affecting the
      * Listener PacketStream writing threads, one per port
      */
@@ -108,11 +106,14 @@ class Receiver : private virtual slsDetectorDefs {
     void setBufferNodeAffinity(unsigned long buffer_node_mask, int max_node);
 
     /**
-     * Get the image corresponding to the specified frame in image_data
-     * Copy the first header of the frame and return the validity of each
-     * port data in portsMask
+     * Create the FrameAssembler for the current detector configuration
      */
-    int getImage(slsDetectorDefs::receiver_image_data &image_data);
+    MPFrameAssemblerPtr CreateFrameAssembler(AssemblerType asm_type);
+
+    /**
+     * Get the next available packet blocks from the active UDP ports
+     */
+    AnyPacketBlockList GetFramePacketBlocks();
 
     /**
      * Clear the PacketStream buffers

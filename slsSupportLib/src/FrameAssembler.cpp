@@ -4,9 +4,11 @@
  * from udp packets
  ***********************************************/
 
-#include "FrameAssembler.h"
+#include "sls/FrameAssembler.h"
+#include "sls/logger.h"
 
 #include <emmintrin.h>
+#include <string.h>
 
 using namespace FrameAssembler;
 
@@ -115,31 +117,26 @@ bool DefaultFrameAssembler<Packet, DP>::assembleFrame(AnyPacketBlockPtr &&block,
     return true;
 }
 
-DefaultFrameAssemblerPtr
-FrameAssembler::CreateDefaultFrameAssembler(GeneralDataPtr gd, bool e4b) {
+DefaultFrameAssemblerPtr FrameAssembler::CreateDefaultFrameAssembler(
+    slsDetectorDefs::detectorType det_type, int num_udp_ifaces, uint32_t src_dr,
+    uint32_t dst_dr) {
+    if (dst_dr == 0)
+        dst_dr = src_dr;
 
-    auto any_pixel = AnyPixelFromBpp(gd->dynamicRange);
+    auto any_src_pixel = AnyPixelFromBpp(src_dr);
+    auto any_dst_pixel = AnyPixelFromBpp(dst_dr);
 
     return std::visit(
-        [&](auto pixel) -> DefaultFrameAssemblerPtr {
-            using SP = decltype(pixel);
+        [&](auto src_pixel, auto dst_pixel) -> DefaultFrameAssemblerPtr {
+            using SP = decltype(src_pixel);
+            using DP = decltype(dst_pixel);
 
-            if (gd->myDetectorType == slsDetectorDefs::EIGER) {
-                if (!gd->tgEnable) {
-                    const char *error = "10 Giga not enabled!";
-                    std::cerr << error << std::endl;
-                    throw std::runtime_error(error);
-                }
+            if (det_type == slsDetectorDefs::EIGER) {
                 using Packet = ::Eiger::Packet<SP>;
-                if (std::is_same_v<SP, Pixel4> && e4b) {
-                    using Assembler = DefaultFrameAssembler<Packet, Pixel8>;
-                    return std::make_shared<Assembler>();
-                } else {
-                    using Assembler = DefaultFrameAssembler<Packet, SP>;
-                    return std::make_shared<Assembler>();
-                }
-            } else if (gd->myDetectorType == slsDetectorDefs::JUNGFRAU) {
-                if (gd->numUDPInterfaces == 1) {
+                using Assembler = DefaultFrameAssembler<Packet, DP>;
+                return std::make_shared<Assembler>();
+            } else if (det_type == slsDetectorDefs::JUNGFRAU) {
+                if (num_udp_ifaces == 1) {
                     using Packet = ::Jungfrau::Packet<1>;
                     using Assembler = DefaultFrameAssembler<Packet>;
                     return std::make_shared<Assembler>();
@@ -150,9 +147,9 @@ FrameAssembler::CreateDefaultFrameAssembler(GeneralDataPtr gd, bool e4b) {
                 }
             } else
                 throw sls::RuntimeError("Detector not supported: " +
-                                        std::to_string(gd->myDetectorType));
+                                        std::to_string(det_type));
         },
-        any_pixel);
+        any_src_pixel, any_dst_pixel);
 }
 
 /**

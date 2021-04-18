@@ -51,10 +51,10 @@ class ClientInterface : private virtual slsDetectorDefs {
 
     /** Passive mode functions */
     void setPassiveMode(bool passive);
-    void enableGap(bool enable);
     void setThreadCPUAffinity(const CPUMaskList &cpu_masks);
     void setBufferNodeAffinity(unsigned long buffer_node_mask, int max_node);
-    int getImage(slsDetectorDefs::receiver_image_data &image_data);
+    MPFrameAssemblerPtr CreateFrameAssembler(AssemblerType asm_type);
+    AnyPacketBlockList GetFramePacketBlocks();
     void clearAllBuffers();
 
   private:

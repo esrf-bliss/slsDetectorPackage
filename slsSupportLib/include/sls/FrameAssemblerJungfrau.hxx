@@ -52,7 +52,7 @@ class FrameAssembler : public MPFrameAssembler {
 };
 
 using XY = sls::Geom::XY;
-MPFrameAssemblerPtr CreateFrameAssembler(GeneralDataPtr gd, XY det_ifaces,
+MPFrameAssemblerPtr CreateFrameAssembler(int mod_ifaces, XY det_ifaces,
                                          XY mod_pos);
 
 } // namespace Jungfrau

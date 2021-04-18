@@ -46,7 +46,7 @@ class FrameAssembler : public MPFrameAssembler {
 };
 
 using XY = sls::Geom::XY;
-MPFrameAssemblerPtr CreateFrameAssembler(GeneralDataPtr gd, XY det_ifaces,
+MPFrameAssemblerPtr CreateFrameAssembler(uint32_t src_dr, XY det_ifaces,
                                          XY mod_pos, int recv_idx);
 
 } // namespace Eiger

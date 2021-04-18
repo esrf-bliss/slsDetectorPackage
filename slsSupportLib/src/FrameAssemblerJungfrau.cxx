@@ -202,11 +202,11 @@ Result FrameAssembler<GD, MGX, MGY>::assembleFrame(AnyPacketBlockList &&blocks,
 } // namespace FrameAssembler
 
 MPFrameAssemblerPtr
-FrameAssembler::Jungfrau::CreateFrameAssembler(GeneralDataPtr gd, XY det_ifaces,
+FrameAssembler::Jungfrau::CreateFrameAssembler(int mod_ifaces, XY det_ifaces,
                                                XY mod_pos) {
 
     auto any_nb_ifaces =
-        GeomJungfrau::AnyNbUDPIfacesFromNbUDPIfaces(gd->numUDPInterfaces);
+        GeomJungfrau::AnyNbUDPIfacesFromNbUDPIfaces(mod_ifaces);
 
     return std::visit(
         [&](auto nb_ifaces) {
@@ -231,7 +231,7 @@ FrameAssembler::Jungfrau::CreateFrameAssembler(GeneralDataPtr gd, XY det_ifaces,
                                          auto gy) -> MPFrameAssemblerPtr {
                             constexpr bool MGX = gx, MGY = gy;
                             using Assembler = FrameAssembler<GD, MGX, MGY>;
-                            return std::make_shared<Assembler>(data_offset);
+                            return std::make_unique<Assembler>(data_offset);
                         },
                         any_fill.x, any_fill.y);
                 },

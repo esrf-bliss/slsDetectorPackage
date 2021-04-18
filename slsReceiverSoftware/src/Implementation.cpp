@@ -95,27 +95,15 @@ void Implementation::SetupFifoStructure() {
     LOG(logINFO) << numThreads << " Fifo structure(s) reconstructed";
 }
 
-void Implementation::SetupFrameAssembler() {
-    if (passiveMode && listener.size()) {
-        try {
-            frameAssembler = CreateFrameAssembler();
-        } catch (...) {
-            shutDownUDPSockets();
-            throw;
-        }
-        LOG(logDEBUG) << "FrameAssembler created successfully.";
-    }
-}
-
-Implementation::MPFrameAssemblerPtr Implementation::CreateFrameAssembler() {
-
+MPFrameAssemblerPtr
+Implementation::CreateFrameAssembler(AssemblerType asm_type) {
     MPFrameAssemblerPtr fa;
     GeneralDataPtr gd = generalData;
     detectorType d = myDetectorType;
     int nb_ports = listener.size();
-    bool raw = !gd->gapEnable;
     int recv_idx = modulePos;
-    using namespace FrameAssembler;
+    uint32_t src_dr = gd->dynamicRange;
+    uint32_t dst_dr = src_dr;
     using XY = sls::Geom::XY;
     XY det_ifaces{numDet[0], numDet[1]};
     auto getModPos = [&](auto recv_ifaces, auto mod_recvs) {
@@ -123,15 +111,16 @@ Implementation::MPFrameAssemblerPtr Implementation::CreateFrameAssembler() {
         int mod_idx = recv_idx / mod_recvs.area();
         return XY{mod_idx / det_mods.y, mod_idx % det_mods.y};
     };
-    if (raw) {
-        bool e4b = true;
-        using Assembler = FrameAssembler::RawFrameAssembler;
-        fa = std::make_shared<Assembler>(gd, recv_idx, e4b);
+    if (asm_type == AsmRaw) {
+        if (dst_dr == 4)
+            dst_dr = 8;
+        fa = std::make_unique<RawFrameAssembler>(d, recv_idx, nb_ports, src_dr,
+                                                 dst_dr);
     } else if (d == slsDetectorDefs::EIGER) {
         using namespace sls::Geom::Eiger;
         auto mod_pos = getModPos(RecvIfaces, ModRecvs);
         recv_idx %= ModRecvs.y;
-        fa = FrameAssembler::Eiger::CreateFrameAssembler(gd, det_ifaces,
+        fa = FrameAssembler::Eiger::CreateFrameAssembler(src_dr, det_ifaces,
                                                          mod_pos, recv_idx);
     } else if (d == slsDetectorDefs::JUNGFRAU) {
         using namespace sls::Geom::Jungfrau;
@@ -142,8 +131,8 @@ Implementation::MPFrameAssemblerPtr Implementation::CreateFrameAssembler() {
                 mod_pos = getModPos(RecvIfaces<num_udp_ifaces>, ModRecvs);
             },
             AnyNbUDPIfacesFromNbUDPIfaces(nb_ports));
-        fa = FrameAssembler::Jungfrau::CreateFrameAssembler(gd, det_ifaces,
-                                                            mod_pos);
+        fa = FrameAssembler::Jungfrau::CreateFrameAssembler(
+            nb_ports, det_ifaces, mod_pos);
     } else
         throw sls::RuntimeError("FrameAssembler not available for " +
                                 sls::ToString(d));
@@ -794,8 +783,6 @@ void Implementation::CreateUDPSockets() {
         throw sls::RuntimeError("Could not create UDP Socket(s).");
     }
     LOG(logDEBUG) << "UDP socket(s) created successfully.";
-
-    SetupFrameAssembler();
 }
 
 void Implementation::SetupWriter() {
@@ -1728,15 +1715,6 @@ void Implementation::registerCallBackRawDataModifyReady(
                                                pRawDataReady);
 }
 
-void Implementation::enableGap(bool enable) {
-    if (enable == gapEnable)
-        return;
-    generalData->SetGapPixelsEnable(enable);
-    gapEnable = enable;
-    SetupFifoStructure();
-    LOG(logINFO) << "Gap: " << (gapEnable ? "enabled" : "disabled");
-}
-
 void Implementation::setThreadCPUAffinity(const CPUMaskList &cpu_masks) {
     if (int(cpu_masks.size()) != numThreads)
         throw sls::RuntimeError("Invalid cpu_masks size: " +
@@ -1755,12 +1733,12 @@ void Implementation::setBufferNodeAffinity(unsigned long buffer_node_mask,
                  << buffer_node_mask << std::dec << ", max_node: " << max_node;
 }
 
-int Implementation::getImage(slsDetectorDefs::receiver_image_data &image_data) {
+AnyPacketBlockList Implementation::GetFramePacketBlocks() {
     if (!passiveMode)
-        throw sls::RuntimeError("getImage: not in passiveMode");
+        throw sls::RuntimeError("GetFramePacketBlocks: not in passiveMode");
 
     if (status != RUNNING)
-        return -1;
+        return {};
 
     AnyPacketBlockList blocks;
     size_t valid_ports = 0;
@@ -1780,15 +1758,9 @@ int Implementation::getImage(slsDetectorDefs::receiver_image_data &image_data) {
 
     bool fp_partial = frameDiscardMode == DISCARD_PARTIAL_FRAMES;
     if (fp_partial && (valid_ports != listener.size()))
-        return -1;
+        return {};
 
-    FrameAssembler::Result res;
-    res = frameAssembler->assembleFrame(std::move(blocks), &image_data.header,
-                                        image_data.buffer);
-    image_data.numberOfPorts = res.nb_ports;
-    image_data.validPortData = res.valid_data;
-    bool got_data = image_data.validPortData.any();
-    return got_data ? 0 : -1;
+    return blocks;
 }
 
 void Implementation::clearAllBuffers() {

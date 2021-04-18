@@ -150,13 +150,6 @@ class slsDetectorDefs {
 
 #define MAX_NUM_PORTS 2
 
-    struct receiver_image_data {
-        sls_receiver_header header;
-        char *buffer;
-        int numberOfPorts;
-        std::bitset<MAX_NUM_PORTS> validPortData;
-    };
-
     typedef std::vector<cpu_set_t> CPUMaskList;
 #endif
     enum frameDiscardPolicy {

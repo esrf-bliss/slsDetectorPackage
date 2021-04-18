@@ -382,15 +382,16 @@ Result FrameAssembler<P, GD, MGX, MGY, Idx>::assembleFrame(
 } // namespace Eiger
 } // namespace FrameAssembler
 
-MPFrameAssemblerPtr
-FrameAssembler::Eiger::CreateFrameAssembler(GeneralDataPtr gd, XY det_ifaces,
-                                            XY mod_pos, int recv_idx) {
+MPFrameAssemblerPtr FrameAssembler::Eiger::CreateFrameAssembler(uint32_t src_dr,
+                                                                XY det_ifaces,
+                                                                XY mod_pos,
+                                                                int recv_idx) {
 
     XY det_size = RawIfaceGeom.size * det_ifaces;
     auto any_det_geom = GeomEiger::AnyDetGeomFromDetSize(det_size);
     auto any_recv_idx = GeomEiger::AnyRecvIdxFromRecvIdx(recv_idx);
 
-    AnyPixel any_pixel = AnyPixelFromBpp(gd->dynamicRange);
+    AnyPixel any_pixel = AnyPixelFromBpp(src_dr);
     ;
 
     return std::visit(
@@ -412,7 +413,7 @@ FrameAssembler::Eiger::CreateFrameAssembler(GeneralDataPtr gd, XY det_ifaces,
                     auto origin = recv_view.calcViewOrigin();
                     int pixel_offset = recv_view.calcMapPixelIndex(origin);
                     int data_offset = pixel_offset * Assembler::DP::depth();
-                    return std::make_shared<Assembler>(data_offset);
+                    return std::make_unique<Assembler>(data_offset);
                 },
                 any_pixel, any_fill.x, any_fill.y, any_recv_idx);
         },

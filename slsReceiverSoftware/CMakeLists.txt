@@ -11,7 +11,6 @@ set(SOURCES
     src/DataProcessor.cpp
     src/DataStreamer.cpp
     src/Fifo.cpp
-    src/FrameAssembler.cpp
 )
 
 set(PUBLICHEADERS

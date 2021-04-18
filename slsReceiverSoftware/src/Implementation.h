@@ -1,6 +1,6 @@
 #pragma once
-#include "FrameAssembler.h"
 #include "receiver_defs.h"
+#include "sls/FrameAssembler.h"
 #include "sls/container_utils.h"
 #include "sls/logger.h"
 #include "sls/network_utils.h"
@@ -18,6 +18,8 @@ class slsDetectorDefs;
 #include <memory>
 #include <vector>
 using ns = std::chrono::nanoseconds;
+
+using namespace FrameAssembler;
 
 class Implementation : private virtual slsDetectorDefs {
   public:
@@ -261,10 +263,10 @@ class Implementation : private virtual slsDetectorDefs {
      *    Passive mode
      *                                                *
      * ************************************************/
-    void enableGap(bool enable);
     void setThreadCPUAffinity(const CPUMaskList &cpu_masks);
     void setBufferNodeAffinity(unsigned long buffer_node_mask, int max_node);
-    int getImage(slsDetectorDefs::receiver_image_data &image_data);
+    MPFrameAssemblerPtr CreateFrameAssembler(AssemblerType asm_type);
+    AnyPacketBlockList GetFramePacketBlocks();
     void clearAllBuffers();
 
   private:
@@ -281,12 +283,9 @@ class Implementation : private virtual slsDetectorDefs {
         void reset();
     };
 
-    using MPFrameAssemblerPtr = FrameAssembler::MPFrameAssemblerPtr;
-
     void SetLocalNetworkParameters();
     void SetThreadPriorities();
     void SetupFifoStructure();
-    void SetupFrameAssembler();
 
     void ResetParametersforNewAcquisition();
     void CreateUDPSockets();
@@ -294,8 +293,6 @@ class Implementation : private virtual slsDetectorDefs {
     void StartRunning();
 
     PortGeometry GetPortGeometry();
-
-    MPFrameAssemblerPtr CreateFrameAssembler();
 
     /**************************************************
      *                                                *

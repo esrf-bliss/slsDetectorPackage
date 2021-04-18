@@ -9,6 +9,7 @@ set(SOURCES
     src/network_utils.cpp
     src/ZmqSocket.cpp
     src/UdpRxSocket.cpp
+    src/FrameAssembler.cpp
     src/sls_detector_exceptions.cpp
 )
 
@@ -68,6 +69,8 @@ target_link_libraries(slsSupportObject
   PRIVATE
     slsProjectWarnings     
 )
+
+target_compile_options(slsSupportObject PRIVATE "-Wno-address-of-packed-member")
 
 if (SLS_USE_TESTS)
     add_subdirectory(tests)

@@ -8,6 +8,8 @@
 #include <chrono>
 #include <thread>
 
+using namespace sls::Geom;
+
 using Clock = std::chrono::high_resolution_clock;
 using Seconds = std::chrono::duration<double>;
 

@@ -9,8 +9,6 @@
 
 #include <memory>
 
-using namespace sls::Geom;
-
 using DetHeader = slsDetectorDefs::sls_detector_header;
 using RecvHeader = slsDetectorDefs::sls_receiver_header;
 
@@ -57,7 +55,8 @@ struct PacketData {
 
     static constexpr int DataOffset =
         offsetof(SoftwarePacket, net_packet) + offsetof(NetworkPacket, data);
-    static constexpr int Pad = AlignCeil(DataOffset, Align) - DataOffset;
+    static constexpr int Pad =
+        sls::Geom::AlignCeil(DataOffset, Align) - DataOffset;
 
     struct Layout {
         char pad[Pad];
@@ -183,8 +182,10 @@ using Packet = ::StdPacket<PacketData<Pixel, TenGiga>>;
 #define EigerPacketBlockPtrsFor(P) PacketBlockPtr<EigerPacketFor(P)>
 
 #define EigerPacketBlockPtrs                                                   \
-    EigerPacketBlockPtrsFor(Pixel4), EigerPacketBlockPtrsFor(Pixel8),          \
-        EigerPacketBlockPtrsFor(Pixel16), EigerPacketBlockPtrsFor(Pixel32)
+    EigerPacketBlockPtrsFor(sls::Geom::Pixel4),                                \
+        EigerPacketBlockPtrsFor(sls::Geom::Pixel8),                            \
+        EigerPacketBlockPtrsFor(sls::Geom::Pixel16),                           \
+        EigerPacketBlockPtrsFor(sls::Geom::Pixel32)
 
 } // namespace Eiger
 
@@ -196,7 +197,7 @@ namespace Jungfrau {
 
 constexpr int PacketDataLen = 8192;
 
-using Pixel = Pixel16;
+using Pixel = sls::Geom::Pixel16;
 
 template <int NbUDPIfaces>
 using Jungfrau500kGeom = sls::Geom::Jungfrau::Jungfrau500kGeom<NbUDPIfaces>;
@@ -239,7 +240,7 @@ namespace Gotthard {
  *   1st packet: CACA + CACA, (256 - 1) * 2 bytes data
  */
 
-using Pixel = Pixel16;
+using Pixel = sls::Geom::Pixel16;
 
 struct NetworkHeader {
     uint32_t packet_number;
