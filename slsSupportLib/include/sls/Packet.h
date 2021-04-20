@@ -165,21 +165,30 @@ struct TenGigaEnable {
 
 using AnyTenGiga = std::variant<TenGigaDisable, TenGigaEnable>;
 
+inline AnyTenGiga AnyTenGigaFromTgEnable(bool tg_enable) {
+    if (tg_enable)
+        return TenGigaEnable();
+    else
+        return TenGigaDisable();
+}
+
 using Eiger500kGeom = sls::Geom::Eiger::Eiger500kGeom;
 constexpr auto RawIfaceGeom = Eiger500kGeom::RawIfaceGeom::geom;
 
 constexpr auto FramePixels = RawIfaceGeom.pixels();
 
-template <class Pixel, class TenGiga = TenGigaEnable>
+template <class Pixel, class TenGiga>
 using PacketData = ::StdPacketData<Pixel, TenGiga::PacketDataLen, FramePixels>;
 
-template <class Pixel, class TenGiga = TenGigaEnable>
+template <class Pixel, class TenGiga>
 using Packet = ::StdPacket<PacketData<Pixel, TenGiga>>;
 
 // Only 10G supported so far
-#define EigerPacketFor(P) ::Eiger::Packet<P, ::Eiger::TenGigaEnable>
+#define EigerPacketFor(P, T) ::Eiger::Packet<P, T>
 
-#define EigerPacketBlockPtrsFor(P) PacketBlockPtr<EigerPacketFor(P)>
+#define EigerPacketBlockPtrsFor(P)                                             \
+    PacketBlockPtr<EigerPacketFor(P, ::Eiger::TenGigaDisable)>,                \
+        PacketBlockPtr<EigerPacketFor(P, ::Eiger::TenGigaEnable)>
 
 #define EigerPacketBlockPtrs                                                   \
     EigerPacketBlockPtrsFor(sls::Geom::Pixel4),                                \
@@ -289,7 +298,7 @@ struct RoiMode {
         int getFrameNumber(NetworkHeader *network_header) {
             return network_header->packet_number;
         }
-        int getPacketNumber(NetworkHeader *network_header) { return 0; }
+        int getPacketNumber(NetworkHeader * /*network_header*/) { return 0; }
     };
 };
 

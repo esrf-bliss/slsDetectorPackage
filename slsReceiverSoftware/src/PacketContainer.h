@@ -92,13 +92,19 @@ template <class P> class PacketContainer {
 };
 
 // TODO: Automatic definition from AnyPacketBlockPtr
+#define EigerPacketContainersFor(P)                                            \
+    PacketContainer<::Eiger::Packet<P, ::Eiger::TenGigaDisable>>,              \
+        PacketContainer<::Eiger::Packet<P, ::Eiger::TenGigaEnable>>
+
 using AnyPacketContainer =
-    std::variant<PacketContainer<::Eiger::Packet<sls::Geom::Pixel4>>,
-                 PacketContainer<::Eiger::Packet<sls::Geom::Pixel8>>,
-                 PacketContainer<::Eiger::Packet<sls::Geom::Pixel16>>,
-                 PacketContainer<::Eiger::Packet<sls::Geom::Pixel32>>,
+    std::variant<EigerPacketContainersFor(sls::Geom::Pixel4),
+                 EigerPacketContainersFor(sls::Geom::Pixel8),
+                 EigerPacketContainersFor(sls::Geom::Pixel16),
+                 EigerPacketContainersFor(sls::Geom::Pixel32),
                  PacketContainer<::Jungfrau::Packet<1>>,
                  PacketContainer<::Jungfrau::Packet<2>>>;
+
+#undef EigerPacketContainersFor
 
 using AnyPacketContainerPtr = std::shared_ptr<AnyPacketContainer>;
 

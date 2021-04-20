@@ -87,8 +87,8 @@ void DataProcessor::SetGeneralData(GeneralData *g) {
 
     try {
         frameAssembler = FrameAssembler::CreateDefaultFrameAssembler(
-            generalData->myDetectorType, generalData->numUDPInterfaces,
-            generalData->dynamicRange);
+            generalData->myDetectorType, generalData->tgEnable,
+            generalData->numUDPInterfaces, generalData->dynamicRange);
         LOG(logINFO) << index << ": Default FrameAssembler created";
     } catch (...) {
         throw sls::RuntimeError("Could not create FrameAssembler #" +

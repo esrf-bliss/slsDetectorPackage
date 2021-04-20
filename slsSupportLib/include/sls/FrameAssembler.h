@@ -55,7 +55,7 @@ class DefaultFrameAssembler : public DefaultFrameAssemblerBase {
 
 DefaultFrameAssemblerPtr
 CreateDefaultFrameAssembler(slsDetectorDefs::detectorType det_type,
-                            int num_udp_ifaces, uint32_t src_dr,
+                            bool tg_enable, int num_udp_ifaces, uint32_t src_dr,
                             uint32_t dst_dr = 0);
 
 /**

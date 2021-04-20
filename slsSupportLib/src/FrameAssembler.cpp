@@ -118,8 +118,8 @@ bool DefaultFrameAssembler<Packet, DP>::assembleFrame(AnyPacketBlockPtr &&block,
 }
 
 DefaultFrameAssemblerPtr FrameAssembler::CreateDefaultFrameAssembler(
-    slsDetectorDefs::detectorType det_type, int num_udp_ifaces, uint32_t src_dr,
-    uint32_t dst_dr) {
+    slsDetectorDefs::detectorType det_type, bool tg_enable, int num_udp_ifaces,
+    uint32_t src_dr, uint32_t dst_dr) {
     if (dst_dr == 0)
         dst_dr = src_dr;
 
@@ -132,9 +132,15 @@ DefaultFrameAssemblerPtr FrameAssembler::CreateDefaultFrameAssembler(
             using DP = decltype(dst_pixel);
 
             if (det_type == slsDetectorDefs::EIGER) {
-                using Packet = ::Eiger::Packet<SP>;
-                using Assembler = DefaultFrameAssembler<Packet, DP>;
-                return std::make_shared<Assembler>();
+                auto any_tg = ::Eiger::AnyTenGigaFromTgEnable(tg_enable);
+                return std::visit(
+                    [&](auto tg) -> DefaultFrameAssemblerPtr {
+                        using TG = decltype(tg);
+                        using Packet = ::Eiger::Packet<SP, TG>;
+                        using Assembler = DefaultFrameAssembler<Packet, DP>;
+                        return std::make_shared<Assembler>();
+                    },
+                    any_tg);
             } else if (det_type == slsDetectorDefs::JUNGFRAU) {
                 if (num_udp_ifaces == 1) {
                     using Packet = ::Jungfrau::Packet<1>;

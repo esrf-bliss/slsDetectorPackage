@@ -122,13 +122,18 @@ template <class P, class SD, class FP> class PacketStream {
 
 namespace Eiger {
 
-template <class Pixel, class FP, class TenGiga = TenGigaEnable>
+template <class Pixel, class TenGiga, class FP>
 using PacketStream = ::PacketStream<Packet<Pixel, TenGiga>,
                                     StreamData<Packet<Pixel, TenGiga>>, FP>;
 
 // Only 10G supported so far
 #define EigerPacketStreamsFor(P)                                               \
-    AllPacketStreamsFor(EigerPacketFor(P), StreamData<EigerPacketFor(P)>)
+    AllPacketStreamsFor(                                                       \
+        EigerPacketFor(P, ::Eiger::TenGigaDisable),                            \
+        StreamData<EigerPacketFor(P, ::Eiger::TenGigaDisable)>),               \
+        AllPacketStreamsFor(                                                   \
+            EigerPacketFor(P, ::Eiger::TenGigaEnable),                         \
+            StreamData<EigerPacketFor(P, ::Eiger::TenGigaEnable)>)
 
 #define EigerPacketStreams                                                     \
     EigerPacketStreamsFor(Pixel4), EigerPacketStreamsFor(Pixel8),              \

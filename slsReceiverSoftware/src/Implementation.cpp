@@ -120,8 +120,8 @@ Implementation::CreateFrameAssembler(AssemblerType asm_type) {
         using namespace sls::Geom::Eiger;
         auto mod_pos = getModPos(RecvIfaces, ModRecvs);
         recv_idx %= ModRecvs.y;
-        fa = FrameAssembler::Eiger::CreateFrameAssembler(src_dr, det_ifaces,
-                                                         mod_pos, recv_idx);
+        fa = FrameAssembler::Eiger::CreateFrameAssembler(
+            src_dr, gd->tgEnable, det_ifaces, mod_pos, recv_idx);
     } else if (d == slsDetectorDefs::JUNGFRAU) {
         using namespace sls::Geom::Jungfrau;
         XY mod_pos;

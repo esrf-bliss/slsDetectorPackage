@@ -193,12 +193,13 @@ inline AnyPacketContainerPtr CreatePacketContainer(GeneralDataPtr d, int frames,
 #define args frames, node_mask, max_node
 
             if (d->myDetectorType == slsDetectorDefs::EIGER) {
-                if (!d->tgEnable) {
-                    const char *error = "10 Giga not enabled!";
-                    std::cerr << error << std::endl;
-                    throw std::runtime_error(error);
-                }
-                return PCFactory<::Eiger::Packet<P>>(args);
+                auto any_tg = ::Eiger::AnyTenGigaFromTgEnable(d->tgEnable);
+                return std::visit(
+                    [&](auto tg) {
+                        using TG = decltype(tg);
+                        return PCFactory<::Eiger::Packet<P, TG>>(args);
+                    },
+                    any_tg);
             } else if (d->myDetectorType == slsDetectorDefs::JUNGFRAU) {
                 if (d->numUDPInterfaces == 1)
                     return PCFactory<::Jungfrau::Packet<1>>(args);

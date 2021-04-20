@@ -311,12 +311,14 @@ inline AnyPacketStreamPtr CreatePacketStream(UdpRxSocketPtr s, GeneralDataPtr d,
 #define args s, cpu_mask, thread_id, any_pc
 
             if (d->myDetectorType == slsDetectorDefs::EIGER) {
-                if (!d->tgEnable) {
-                    const char *error = "10 Giga not enabled!";
-                    std::cerr << error << std::endl;
-                    throw std::runtime_error(error);
-                }
-                return PSFactory<::Eiger::PacketStream<P, FP>>(args);
+                auto any_tg = ::Eiger::AnyTenGigaFromTgEnable(d->tgEnable);
+                return std::visit(
+                    [&](auto tg) {
+                        using TG = decltype(tg);
+                        return PSFactory<::Eiger::PacketStream<P, TG, FP>>(
+                            args);
+                    },
+                    any_tg);
             } else if (d->myDetectorType == slsDetectorDefs::JUNGFRAU) {
                 if (d->numUDPInterfaces == 1)
                     return PSFactory<::Jungfrau::PacketStream<1, 0, FP>>(args);

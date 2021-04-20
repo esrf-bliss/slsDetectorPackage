@@ -19,7 +19,8 @@ constexpr auto RawIfaceGeom = ::Eiger::RawIfaceGeom;
  */
 
 // P: Pixel Type, FP: Frame discard policy, GD: Geom data, MGX/Y: Module gap X/Y
-template <class P, class GD, bool MGX, bool MGY, int Idx> struct GeomHelper {
+template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
+struct GeomHelper {
 
 #define SCA static constexpr auto
 #define SCI static constexpr int
@@ -28,9 +29,9 @@ template <class P, class GD, bool MGX, bool MGY, int Idx> struct GeomHelper {
     using SrcPixel = P;
     using DstPixel = std::conditional_t<std::is_same_v<P, Pixel4>, Pixel8, P>;
 
-    using BlockPtr = PacketBlockPtr<Packet<SrcPixel>>;
+    using BlockPtr = PacketBlockPtr<Packet<SrcPixel, TG>>;
 
-    using PacketData = typename Packet<SrcPixel>::Data;
+    using PacketData = typename Packet<SrcPixel, TG>::Data;
 
     // raw (packet) geometry
     SCA RawIfaceSize = RawIfaceGeom.size;
@@ -49,7 +50,8 @@ template <class P, class GD, bool MGX, bool MGY, int Idx> struct GeomHelper {
     SCA chip_gap_pixels = GeomEiger::ChipGap;
     SCA mod_gap_pixels = GeomEiger::ModGap;
     SCI frame_packets = PacketData::PacketsPerFrame;
-    SCI packet_lines = RawIfaceSize.y / frame_packets;
+    // 32-bit + TenGigaDisabled: 1 packet -> 0.5 lines. Not supported yet.
+    SCI packet_lines = std::max(RawIfaceSize.y / frame_packets, 1);
     SCI flipped = (RecvView.pixelDir().y < 0);
     SCF src_pixel_size = SrcPixel::depth();
     SCI src_chip_size = chip_cols * src_pixel_size;
@@ -95,10 +97,10 @@ template <class P, class GD, bool MGX, bool MGY, int Idx> struct GeomHelper {
  * Expand4BitsHelper
  */
 
-template <class P, class GD, bool MGX, bool MGY, int Idx>
-struct Expand4BitsHelper : GeomHelper<P, GD, MGX, MGY, Idx> {
+template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
+struct Expand4BitsHelper : GeomHelper<P, TG, GD, MGX, MGY, Idx> {
 
-    using H = GeomHelper<P, GD, MGX, MGY, Idx>;
+    using H = GeomHelper<P, TG, GD, MGX, MGY, Idx>;
     using BlockPtr = typename H::BlockPtr;
 
 #define SCI static constexpr int
@@ -147,11 +149,11 @@ struct Expand4BitsHelper : GeomHelper<P, GD, MGX, MGY, Idx> {
     }
 };
 
-template <class P, class GD, bool MGX, bool MGY, int Idx>
-int Expand4BitsHelper<P, GD, MGX, MGY, Idx>::Worker::load_packet(
+template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
+int Expand4BitsHelper<P, TG, GD, MGX, MGY, Idx>::Worker::load_packet(
     BlockPtr block[NbIfaces], int packet) {
-    Packet<P> p0 = (*block[0])[packet];
-    Packet<P> p1 = (*block[1])[packet];
+    Packet<P, TG> p0 = (*block[0])[packet];
+    Packet<P, TG> p1 = (*block[1])[packet];
     s[0] = (const __m128i *)(p0.data() + h.src_offset);
     s[1] = (const __m128i *)(p1.data() + h.src_offset);
     if ((((unsigned long)s[0] | (unsigned long)s[1]) & 15) != 0) {
@@ -163,8 +165,9 @@ int Expand4BitsHelper<P, GD, MGX, MGY, Idx>::Worker::load_packet(
     return 0;
 }
 
-template <class P, class GD, bool MGX, bool MGY, int Idx>
-void Expand4BitsHelper<P, GD, MGX, MGY, Idx>::Worker::load_dst128(char *buf) {
+template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
+void Expand4BitsHelper<P, TG, GD, MGX, MGY, Idx>::Worker::load_dst128(
+    char *buf) {
     char *d = buf;
     dest_misalign = ((unsigned long)d & 15);
     dst128 = (__m128i *)(d - dest_misalign);
@@ -182,8 +185,9 @@ void Expand4BitsHelper<P, GD, MGX, MGY, Idx>::Worker::load_dst128(char *buf) {
     }
 }
 
-template <class P, class GD, bool MGX, bool MGY, int Idx>
-void Expand4BitsHelper<P, GD, MGX, MGY, Idx>::Worker::load_shift_store128() {
+template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
+void Expand4BitsHelper<P, TG, GD, MGX, MGY,
+                       Idx>::Worker::load_shift_store128() {
     __m128i p4_raw;
     if (valid_data)
         p4_raw = _mm_load_si128(src128);
@@ -224,8 +228,8 @@ void Expand4BitsHelper<P, GD, MGX, MGY, Idx>::Worker::load_shift_store128() {
     prev = _mm_or_si128(d31, d4);
 }
 
-template <class P, class GD, bool MGX, bool MGY, int Idx>
-void Expand4BitsHelper<P, GD, MGX, MGY, Idx>::Worker::pad_dst128() {
+template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
+void Expand4BitsHelper<P, TG, GD, MGX, MGY, Idx>::Worker::pad_dst128() {
     shift_l += h.gap_bits;
     if (shift_l % 64 == 0)
         shift_l128 = _mm_setzero_si128();
@@ -239,8 +243,8 @@ void Expand4BitsHelper<P, GD, MGX, MGY, Idx>::Worker::pad_dst128() {
     }
 }
 
-template <class P, class GD, bool MGX, bool MGY, int Idx>
-void Expand4BitsHelper<P, GD, MGX, MGY, Idx>::Worker::sync_dst128() {
+template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
+void Expand4BitsHelper<P, TG, GD, MGX, MGY, Idx>::Worker::sync_dst128() {
     if (shift_l != 0) {
         __m128i m0;
         m0 = _mm_sll_epi64(_mm_set1_epi8(0xff), shift_l128);
@@ -251,8 +255,8 @@ void Expand4BitsHelper<P, GD, MGX, MGY, Idx>::Worker::sync_dst128() {
     }
 }
 
-template <class P, class GD, bool MGX, bool MGY, int Idx>
-void Expand4BitsHelper<P, GD, MGX, MGY, Idx>::Worker::assemblePackets(
+template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
+void Expand4BitsHelper<P, TG, GD, MGX, MGY, Idx>::Worker::assemblePackets(
     BlockPtr block[NbIfaces], char *buf) {
     if constexpr (MGX) {
         LOG(logERROR) << "Expand4BitsHelper not supported in horiz. tile";
@@ -288,24 +292,24 @@ void Expand4BitsHelper<P, GD, MGX, MGY, Idx>::Worker::assemblePackets(
  * CopyHelper
  */
 
-template <class P, class GD, bool MGX, bool MGY, int Idx>
-struct CopyHelper : GeomHelper<P, GD, MGX, MGY, Idx> {
+template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
+struct CopyHelper : GeomHelper<P, TG, GD, MGX, MGY, Idx> {
 
-    using H = GeomHelper<P, GD, MGX, MGY, Idx>;
+    using H = GeomHelper<P, TG, GD, MGX, MGY, Idx>;
     using BlockPtr = typename H::BlockPtr;
 
     void assemblePackets(BlockPtr block[NbIfaces], char *buf);
 };
 
-template <class P, class GD, bool MGX, bool MGY, int Idx>
-void CopyHelper<P, GD, MGX, MGY, Idx>::assemblePackets(BlockPtr block[NbIfaces],
-                                                       char *buf) {
+template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
+void CopyHelper<P, TG, GD, MGX, MGY, Idx>::assemblePackets(
+    BlockPtr block[NbIfaces], char *buf) {
     H h;
     int packet = h.src_first_packet;
     char *d = buf;
     for (int p = 0; p < h.frame_packets; ++p, packet += h.src_dir) {
-        Packet<P> line_packet[NbIfaces] = {(*block[0])[packet],
-                                           (*block[1])[packet]};
+        Packet<P, TG> line_packet[NbIfaces] = {(*block[0])[packet],
+                                               (*block[1])[packet]};
         char *s[NbIfaces] = {line_packet[0].data() + h.src_offset,
                              line_packet[1].data() + h.src_offset};
         for (int l = 0; l < h.packet_lines; ++l) {
@@ -341,8 +345,8 @@ void CopyHelper<P, GD, MGX, MGY, Idx>::assemblePackets(BlockPtr block[NbIfaces],
  * FrameAssembler
  */
 
-template <class P, class GD, bool MGX, bool MGY, int Idx>
-Result FrameAssembler<P, GD, MGX, MGY, Idx>::assembleFrame(
+template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
+Result FrameAssembler<P, TG, GD, MGX, MGY, Idx>::assembleFrame(
     AnyPacketBlockList &&blocks, RecvHeader *recv_header, char *buf) {
 
     if (blocks.size() != std::size_t(NbIfaces) ||
@@ -367,7 +371,7 @@ Result FrameAssembler<P, GD, MGX, MGY, Idx>::assembleFrame(
 
         // write header
         if (header_empty) {
-            Packet<P> p = (*b[i])[0];
+            Packet<P, TG> p = (*b[i])[0];
             p.fillDetHeader(det_header);
             header_empty = false;
         }
@@ -382,17 +386,17 @@ Result FrameAssembler<P, GD, MGX, MGY, Idx>::assembleFrame(
 } // namespace Eiger
 } // namespace FrameAssembler
 
-MPFrameAssemblerPtr FrameAssembler::Eiger::CreateFrameAssembler(uint32_t src_dr,
-                                                                XY det_ifaces,
-                                                                XY mod_pos,
-                                                                int recv_idx) {
+MPFrameAssemblerPtr FrameAssembler::Eiger::CreateFrameAssembler(
+    uint32_t src_dr, bool tg_enable, XY det_ifaces, XY mod_pos, int recv_idx) {
+    if ((src_dr == 32) && !tg_enable)
+        throw std::runtime_error("32-bit & TenGiga=disabled not supported");
 
     XY det_size = RawIfaceGeom.size * det_ifaces;
     auto any_det_geom = GeomEiger::AnyDetGeomFromDetSize(det_size);
     auto any_recv_idx = GeomEiger::AnyRecvIdxFromRecvIdx(recv_idx);
 
     AnyPixel any_pixel = AnyPixelFromBpp(src_dr);
-    ;
+    ::Eiger::AnyTenGiga any_tg = ::Eiger::AnyTenGigaFromTgEnable(tg_enable);
 
     return std::visit(
         [&](auto gd) {
@@ -401,12 +405,13 @@ MPFrameAssemblerPtr FrameAssembler::Eiger::CreateFrameAssembler(uint32_t src_dr,
                 AnyModGapFillingFromModPos(GD::asm_wg_geom, mod_pos);
 
             return std::visit(
-                [&](auto pixel, auto gx, auto gy,
+                [&](auto pixel, auto tg, auto gx, auto gy,
                     auto i) -> MPFrameAssemblerPtr {
                     using P = decltype(pixel);
+                    using TG = decltype(tg);
                     constexpr bool MGX = gx, MGY = gy;
                     constexpr int Idx = i;
-                    using Assembler = FrameAssembler<P, GD, MGX, MGY, Idx>;
+                    using Assembler = FrameAssembler<P, TG, GD, MGX, MGY, Idx>;
                     constexpr auto det_geom = GD::asm_wg_geom;
                     auto mod_geom = det_geom.getModGeom(mod_pos);
                     auto recv_view = mod_geom.getRecvView({0, Idx});
@@ -415,7 +420,7 @@ MPFrameAssemblerPtr FrameAssembler::Eiger::CreateFrameAssembler(uint32_t src_dr,
                     int data_offset = pixel_offset * Assembler::DP::depth();
                     return std::make_unique<Assembler>(data_offset);
                 },
-                any_pixel, any_fill.x, any_fill.y, any_recv_idx);
+                any_pixel, any_tg, any_fill.x, any_fill.y, any_recv_idx);
         },
         any_det_geom);
 }
