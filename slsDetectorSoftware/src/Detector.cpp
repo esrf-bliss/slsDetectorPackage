@@ -675,11 +675,11 @@ void Detector::stopReceiver() { pimpl->Parallel(&Module::stopReceiver, {}); }
 
 void Detector::startDetector() {
     auto detector_type = getDetectorType().squash();
-    if (detector_type == defs::MYTHEN3 && size() > 1){
+    if (detector_type == defs::MYTHEN3 && size() > 1) {
         auto is_master = getMaster();
         std::vector<int> master;
         std::vector<int> slaves;
-        for(int i=0; i<size(); ++i){
+        for (int i = 0; i < size(); ++i) {
             if (is_master[i])
                 master.push_back(i);
             else
@@ -687,10 +687,9 @@ void Detector::startDetector() {
         }
         pimpl->Parallel(&Module::startAcquisition, slaves);
         pimpl->Parallel(&Module::startAcquisition, master);
-    }else{
+    } else {
         pimpl->Parallel(&Module::startAcquisition, {});
     }
-    
 }
 
 void Detector::startDetectorReadout() {
@@ -733,8 +732,10 @@ Result<defs::scanParameters> Detector::getScan(Positions pos) const {
 }
 
 void Detector::setScan(const defs::scanParameters t) {
-    if(getDetectorType().squash() == defs::MYTHEN3 && size()>1 && t.enable != 0){
-        throw DetectorError("Scan is only allowed for single module Mythen 3 because of synchronization");
+    if (getDetectorType().squash() == defs::MYTHEN3 && size() > 1 &&
+        t.enable != 0) {
+        throw DetectorError("Scan is only allowed for single module Mythen 3 "
+                            "because of synchronization");
     }
     pimpl->Parallel(&Module::setScan, {}, t);
 }
@@ -1611,10 +1612,9 @@ Detector::getGateDelayForAllGates(Positions pos) const {
     return pimpl->Parallel(&Module::getGateDelayForAllGates, pos);
 }
 
-Result<bool> Detector::getMaster(Positions pos) const{
+Result<bool> Detector::getMaster(Positions pos) const {
     return pimpl->Parallel(&Module::isMaster, pos);
 }
-
 
 // CTB/ Moench Specific
 

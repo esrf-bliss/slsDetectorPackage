@@ -352,36 +352,38 @@ void Module::setAllThresholdEnergy(std::array<int, 3> e_eV,
     std::copy(e_eV.begin(), e_eV.end(), myMod.eV);
     LOG(logDEBUG) << "ev:" << ToString(myMod.eV);
 
-    //check for trimbits that are out of range 
+    // check for trimbits that are out of range
     bool out_of_range = false;
-    for(int i = 0; i!=myMod.nchan; ++i){
-        if (myMod.chanregs[i]<0){
+    for (int i = 0; i != myMod.nchan; ++i) {
+        if (myMod.chanregs[i] < 0) {
             myMod.chanregs[i] = 0;
             out_of_range = true;
-        }else if(myMod.chanregs[i]>63){
-            myMod.chanregs[i]=63;
+        } else if (myMod.chanregs[i] > 63) {
+            myMod.chanregs[i] = 63;
             out_of_range = true;
         }
     }
-    if (out_of_range){
-            LOG(logWARNING) << "Some trimbits were out of range after interpolation, these have been replaced with 0 or 63.";
+    if (out_of_range) {
+        LOG(logWARNING)
+            << "Some trimbits were out of range after interpolation, these "
+               "have been replaced with 0 or 63.";
     }
 
-    //check dacs
+    // check dacs
     out_of_range = false;
-    for (auto dac : {M_VTRIM,M_VTH1,M_VTH2, M_VTH3}){
-        if (myMod.dacs[dac] < 600){
+    for (auto dac : {M_VTRIM, M_VTH1, M_VTH2, M_VTH3}) {
+        if (myMod.dacs[dac] < 600) {
             myMod.dacs[dac] = 600;
             out_of_range = true;
-        }else if(myMod.dacs[dac] > 2400){
+        } else if (myMod.dacs[dac] > 2400) {
             myMod.dacs[dac] = 2400;
             out_of_range = true;
         }
     }
-    if (out_of_range){
-            LOG(logWARNING) << "Some dacs were out of range after interpolation, these have been replaced with 600 or 2400.";
+    if (out_of_range) {
+        LOG(logWARNING) << "Some dacs were out of range after interpolation, "
+                           "these have been replaced with 600 or 2400.";
     }
-
 
     setModule(myMod, trimbits);
     if (getSettings() != isettings) {
@@ -1994,9 +1996,7 @@ std::array<time::ns, 3> Module::getGateDelayForAllGates() const {
     return sendToDetector<std::array<time::ns, 3>>(F_GET_GATE_DELAY_ALL_GATES);
 }
 
-bool Module::isMaster() const{
-    return sendToDetector<int>(F_GET_MASTER);
-}
+bool Module::isMaster() const { return sendToDetector<int>(F_GET_MASTER); }
 
 // CTB / Moench Specific
 int Module::getNumberOfAnalogSamples() const {
