@@ -22,7 +22,9 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <sched.h>
 #include <string>
+#include <vector>
 #else
 // C includes
 #include <stdint.h>
@@ -146,6 +148,10 @@ class slsDetectorDefs {
         sls_detector_header detHeader; /**< is the detector header */
         sls_bitset packetsMask;        /**< is the packets caught bit mask */
     };
+
+#define MAX_NUM_PORTS 2
+
+    typedef std::vector<cpu_set_t> CPUMaskList;
 #endif
     enum frameDiscardPolicy {
         NO_DISCARD,

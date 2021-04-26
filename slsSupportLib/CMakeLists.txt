@@ -9,6 +9,7 @@ set(SOURCES
     src/network_utils.cpp
     src/ZmqSocket.cpp
     src/UdpRxSocket.cpp
+    src/FrameAssembler.cpp
     src/sls_detector_exceptions.cpp
 )
 
@@ -56,16 +57,20 @@ target_include_directories(slsSupportObject
   PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
+  PRIVATE
+    ${ZeroMQ_INCLUDE_DIRS}
 )
 
 target_link_libraries(slsSupportObject 
   PUBLIC
     slsProjectOptions 
-    libzmq
+    ${ZeroMQ_LIBRARIES}
     rapidjson
   PRIVATE
     slsProjectWarnings     
 )
+
+target_compile_options(slsSupportObject PRIVATE "-Wno-address-of-packed-member")
 
 if (SLS_USE_TESTS)
     add_subdirectory(tests)
@@ -73,6 +78,7 @@ endif(SLS_USE_TESTS)
 
 # Add shared library version of the support lib
 add_library(slsSupportShared SHARED $<TARGET_OBJECTS:slsSupportObject>)
+
 target_link_libraries(slsSupportShared PUBLIC slsSupportObject)
 
 set_target_properties(slsSupportShared PROPERTIES
@@ -105,3 +111,15 @@ install(TARGETS slsSupportShared slsSupportStatic slsSupportObject
 )
 
 
+# Add sls_geometry_assembler executable
+add_executable(sls_geometry_assembler src/geometry_assembler.cpp)
+target_link_libraries(sls_geometry_assembler 
+    slsSupportStatic
+    pthread
+    rt
+)
+set_target_properties(sls_geometry_assembler PROPERTIES 
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
+install(TARGETS sls_geometry_assembler DESTINATION bin)
