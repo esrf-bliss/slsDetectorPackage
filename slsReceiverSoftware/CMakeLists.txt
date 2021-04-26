@@ -1,3 +1,5 @@
+find_package(Numa REQUIRED)
+
 set(SOURCES
     src/Implementation.cpp
     src/ClientInterface.cpp
@@ -35,12 +37,18 @@ add_library(slsReceiverObject OBJECT
 target_include_directories(slsReceiverObject PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
+    ${NUMA_INCLUDE_DIR}
+)
+
+target_compile_options(slsReceiverObject PRIVATE
+    "-Wno-address-of-packed-member"
 )
 
 target_link_libraries(slsReceiverObject 
   PUBLIC
     slsProjectOptions
     slsSupportStatic
+    ${NUMA_LIBRARY}
   PRIVATE
     slsProjectWarnings #don't propagate warnigns 
 )
