@@ -9,6 +9,7 @@
  *@short creates & manages a listener thread each
  */
 
+#include "PacketStream.h"
 #include "ThreadObject.h"
 #include "receiver_defs.h"
 #include "sls/UdpRxSocket.h"
@@ -21,6 +22,8 @@ class Fifo;
 class Listener : private virtual slsDetectorDefs, public ThreadObject {
 
   public:
+    using Ptr = std::shared_ptr<Listener>;
+
     /**
      * Constructor
      * Calls Base Class CreateThread(), sets ErrorMask if error and increments
@@ -31,20 +34,14 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
      * @param s pointer to receiver status
      * @param portno pointer to udp port number
      * @param e ethernet interface
-     * @param nf pointer to number of images to catch
-     * @param dr pointer to dynamic range
      * @param us pointer to udp socket buffer size
      * @param as pointer to actual udp socket buffer size
-     * @param fpf pointer to frames per file
      * @param fdp frame discard policy
-     * @param act pointer to activated
-     * @param depaden pointer to deactivated padding enable
      * @param sm pointer to silent mode
      */
     Listener(int ind, detectorType dtype, Fifo *f, std::atomic<runStatus> *s,
-             uint32_t *portno, std::string *e, uint64_t *nf, int *us, int *as,
-             uint32_t *fpf, frameDiscardPolicy *fdp, bool *act, bool *depaden,
-             bool *sm);
+             uint32_t *portno, std::string *e, int *us, int *as,
+             frameDiscardPolicy *fdp, bool *sm);
 
     /**
      * Destructor
@@ -59,13 +56,26 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
     uint64_t GetPacketsCaught() const;
 
     /**
+     * Get First Frame Caught
+     * @return first frame
+     */
+    uint64_t GetFirstFrameCaught();
+
+    /**
+     * Get Frames Complete Caught for each real time acquisition
+     * (eg. for each scan)
+     * @return number of frames caught for each scan
+     */
+    uint64_t GetNumFramesCaught();
+
+    /**
      * Get Last Frame index caught
      * @return last frame index caught
      */
     uint64_t GetLastFrameIndexCaught() const;
 
     /** Get  number of missing packets */
-    uint64_t GetNumMissingPacket(bool stoppedFlag, uint64_t numPackets) const;
+    uint64_t GetNumMissingPacket(bool stoppedFlag, uint64_t numPackets);
 
     /**
      * Set Fifo pointer to the one given
@@ -102,48 +112,17 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
     void CreateDummySocketForUDPSocketBufferSize(int s);
 
     /**
-     * Set hard coded (calculated but not from detector) row and column
-     * r is in row index if detector has not send them yet in firmware,
-     * c is in col index for jungfrau and eiger (for missing packets/deactivated
-     * eiger) c when used is in 2d
+     * Set receiver threads CPU affinity mask
      */
-    void SetHardCodedPosition(uint16_t r, uint16_t c);
+    void SetThreadCPUAffinity(const cpu_set_t &cpu_mask);
 
   private:
-    /**
-     * Record First Acquisition Index
-     * @param fnum frame index to record
-     */
-    void RecordFirstIndex(uint64_t fnum);
-
     /**
      * Thread Execution for Listener Class
      * Pop free addresses, listen to udp socket,
      * write to memory & push the address into fifo
      */
     void ThreadExecution() override;
-
-    /**
-     * Pushes non empty buffers into fifo/ frees empty buffer,
-     * pushes dummy buffer into fifo
-     * and reset running mask by calling StopRunning()
-     * @param frame pointer to frame
-     */
-    void StopListening(FifoFrame *frame);
-
-    /**
-     * Listen to the UDP Socket for an image,
-     * place them in the right order
-     * @param buf address of buffer
-     * @returns number of bytes of relevant data, can be image size or 0 (stop
-     * acquisition) or -1 to discard image
-     */
-    uint32_t ListenToAnImage(char *buf);
-
-    /**
-     * Print Fifo Statistics
-     */
-    void PrintFifoStatistics();
 
     /** type of thread */
     static const std::string TypeName;
@@ -162,7 +141,7 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
     std::atomic<runStatus> *status;
 
     /** UDP Socket - Detector to Receiver */
-    std::unique_ptr<sls::UdpRxSocket> udpSocket{nullptr};
+    std::shared_ptr<sls::UdpRxSocket> udpSocket{nullptr};
 
     /** UDP Port Number */
     uint32_t *udpPortNumber;
@@ -170,82 +149,24 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
     /** ethernet interface */
     std::string *eth;
 
-    /** Number of Images to catch */
-    uint64_t *numImages;
-
     /** UDP Socket Buffer Size */
     int *udpSocketBufferSize;
 
     /** actual UDP Socket Buffer Size (double due to kernel bookkeeping) */
     int *actualUDPSocketBufferSize;
 
-    /** frames per file */
-    uint32_t *framesPerFile;
-
     /** frame discard policy */
     frameDiscardPolicy *frameDiscardMode;
-
-    /** Activated/Deactivated */
-    bool *activated;
-
-    /** Deactivated padding enable */
-    bool *deactivatedPaddingEnable;
 
     /** Silent Mode */
     bool *silentMode;
 
-    /** row hardcoded as 1D or 2d,
-     * if detector does not send them yet or
-     * missing packets/deactivated (eiger/jungfrau sends 2d pos) **/
-    uint16_t row{0};
-
-    /** column hardcoded as 2D,
-     * deactivated eiger/missing packets (eiger/jungfrau sends 2d pos) **/
-    uint16_t column{0};
-
-    // acquisition start
-    /** Aquisition Started flag */
-    std::atomic<bool> startedFlag{false};
-
-    /** Frame Number of First Frame  */
-    uint64_t firstIndex{0};
-
-    // for acquisition summary
-    /** Number of complete Packets caught */
-    std::atomic<uint64_t> numPacketsCaught{0};
-
-    /** Last Frame Index caught  from udp network */
-    std::atomic<uint64_t> lastCaughtFrameIndex{0};
-
-    // parameters to acquire image
-    /** Current Frame Index, default value is 0
-     * ( always check startedFlag for validity first)
-     */
-    uint64_t currentFrameIndex{0};
-
-    /** True if there is a packet carry over from previous Image */
-    bool carryOverFlag{false};
-
-    /** Carry over packet buffer */
-    std::unique_ptr<char[]> carryOverPacket;
-
-    /** Listening buffer for one packet - might be removed when we can peek and
-     * eiger fnum is in header */
-    std::unique_ptr<char[]> listeningPacket;
+    /** packet stream **/
+    AnyPacketStreamPtr packetStream;
 
     /** if the udp socket is connected */
     std::atomic<bool> udpSocketAlive{false};
 
-    // for print progress during acquisition
-    /** number of packets for statistic */
-    uint32_t numPacketsStatistic{0};
-
-    /** number of images for statistic */
-    uint32_t numFramesStatistic{0};
-
-    /**
-     * starting packet number is odd or even, accordingly increment frame number
-     * to get first packet number as 0
-     * (pecific to gotthard, can vary between modules, hence defined here) */
-    bool oddStartingPacket{true};
+    /** frame assembler CPU affinity **/
+    cpu_set_t cpuMask;
 };

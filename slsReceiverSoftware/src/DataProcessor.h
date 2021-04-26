@@ -11,6 +11,7 @@
 
 #include "ThreadObject.h"
 #include "receiver_defs.h"
+#include "sls/FrameAssembler.h"
 
 class GeneralData;
 class Fifo;
@@ -24,6 +25,8 @@ struct MasterAttributes;
 class DataProcessor : private virtual slsDetectorDefs, public ThreadObject {
 
   public:
+    using DefaultFrameAssemblerPtr = FrameAssembler::DefaultFrameAssemblerPtr;
+
     /**
      * Constructor
      * Calls Base Class CreateThread(), sets ErrorMask if error and increments
@@ -31,7 +34,9 @@ class DataProcessor : private virtual slsDetectorDefs, public ThreadObject {
      * @param ind self index
      * @param dtype detector type
      * @param f address of Fifo pointer
+     * @param nf pointer to number of images to catch
      * @param ftype pointer to file format type
+     * @param fpf pointer to frames per file
      * @param fwenable file writer enable
      * @param mfwenable pointer to master file write enable
      * @param dsEnable pointer to data stream enable
@@ -48,11 +53,12 @@ class DataProcessor : private virtual slsDetectorDefs, public ThreadObject {
      * @param cdo pointer to digital bits offset
      * @param cad pointer to ctb analog databytes
      */
-    DataProcessor(int ind, detectorType dtype, Fifo *f, fileFormat *ftype,
-                  bool fwenable, bool *mfwenable, bool *dsEnable,
-                  uint32_t *freq, uint32_t *timer, uint32_t *sfnum, bool *fp,
-                  bool *act, bool *depaden, bool *sm, std::vector<int> *cdl,
-                  int *cdo, int *cad);
+    DataProcessor(int ind, detectorType dtype, Fifo *f, uint64_t *nf,
+                  fileFormat *ftype, uint32_t *fpf, bool fwenable,
+                  bool *mfwenable, bool *dsEnable, uint32_t *freq,
+                  uint32_t *timer, uint32_t *sfnum, bool *fp, bool *act,
+                  bool *depaden, bool *sm, std::vector<int> *cdl, int *cdo,
+                  int *cad);
 
     /**
      * Destructor
@@ -67,12 +73,6 @@ class DataProcessor : private virtual slsDetectorDefs, public ThreadObject {
      * @return acquisition started flag
      */
     bool GetStartedFlag();
-
-    /**
-     * Get Frames Complete Caught
-     * @return number of frames
-     */
-    uint64_t GetNumFramesCaught();
 
     /**
      * Gets Actual Current Frame Index (that has not been subtracted from
@@ -92,6 +92,14 @@ class DataProcessor : private virtual slsDetectorDefs, public ThreadObject {
      * @param f address of Fifo pointer
      */
     void SetFifo(Fifo *f);
+
+    /**
+     * Set hard coded (calculated but not from detector) row and column
+     * r is in row index if detector has not send them yet in firmware,
+     * c is in col index for jungfrau and eiger (for missing packets/deactivated
+     * eiger) c when used is in 2d
+     */
+    void SetHardCodedPosition(uint16_t r, uint16_t c);
 
     /**
      * Reset parameters for new acquisition
@@ -193,6 +201,14 @@ class DataProcessor : private virtual slsDetectorDefs, public ThreadObject {
     void ThreadExecution() override;
 
     /**
+     * Assemble an image from UDP packets
+     * @param frame pointer to frame
+     * @returns number of bytes of relevant data, can be image size or -1 (stop
+     * acquisition) or 0 to discard image
+     */
+    int AssembleAnImage(FifoFrame *frame);
+
+    /**
      * Frees dummy buffer,
      * reset running mask by calling StopRunning()
      * @param frame pointer to frame
@@ -240,11 +256,16 @@ class DataProcessor : private virtual slsDetectorDefs, public ThreadObject {
      */
     void RearrangeDbitData(FifoFrame *frame);
 
+    /**
+     * Print Fifo Statistics
+     */
+    void PrintFifoStatistics();
+
     /** type of thread */
     static const std::string TypeName;
 
     /** GeneralData (Detector Data) object */
-    const GeneralData *generalData{nullptr};
+    GeneralData *generalData{nullptr};
 
     /** Fifo structure */
     Fifo *fifo;
@@ -252,6 +273,21 @@ class DataProcessor : private virtual slsDetectorDefs, public ThreadObject {
     // individual members
     /** Detector Type */
     detectorType myDetectorType;
+
+    /** Number of Images to catch */
+    uint64_t *numImages;
+
+    /** row hardcoded as 1D or 2d,
+     * if detector does not send them yet or
+     * missing packets/deactivated (eiger/jungfrau sends 2d pos) **/
+    uint16_t row{0};
+
+    /** column hardcoded as 2D,
+     * deactivated eiger/missing packets (eiger/jungfrau sends 2d pos) **/
+    uint16_t column{0};
+
+    /** frame assembler **/
+    DefaultFrameAssemblerPtr frameAssembler;
 
     /** File writer implemented as binary or hdf5 File */
     File *file{nullptr};
@@ -261,6 +297,9 @@ class DataProcessor : private virtual slsDetectorDefs, public ThreadObject {
 
     /** File Format Type */
     fileFormat *fileFormatType;
+
+    /** frames per file */
+    uint32_t *framesPerFile;
 
     /** File Write Enable */
     bool fileWriteEnable;
@@ -312,15 +351,18 @@ class DataProcessor : private virtual slsDetectorDefs, public ThreadObject {
     /** Frame Number of First Frame */
     std::atomic<uint64_t> firstIndex{0};
 
-    // for statistics
-    /** Number of complete frames caught */
-    uint64_t numFramesCaught{0};
-
     /** Frame Number of latest processed frame number */
     std::atomic<uint64_t> currentFrameIndex{0};
 
     /** first streamer frame to add frame index in fifo header */
     bool firstStreamerFrame{false};
+
+    // for print progress during acquisition
+    /** number of packets for statistic */
+    uint32_t numPacketsStatistic{0};
+
+    /** number of images for statistic */
+    uint32_t numFramesStatistic{0};
 
     // call back
     /**

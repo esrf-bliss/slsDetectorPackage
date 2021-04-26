@@ -165,6 +165,8 @@ class GeneralData {
     }
 };
 
+typedef GeneralData *GeneralDataPtr;
+
 class GotthardData : public GeneralData {
 
   private:
@@ -355,8 +357,9 @@ class EigerData : public GeneralData {
         nPixelsY = 256;
         dataSize = (tgEnable ? 4096 : 1024);
         packetSize = headerSizeinPacket + dataSize;
+        int raw_image_size = int(nPixelsX * nPixelsY * GetPixelDepth());
+        packetsPerFrame = raw_image_size / dataSize;
         imageSize = int(nPixelsX * nPixelsY * GetPixelDepth());
-        packetsPerFrame = imageSize / dataSize;
         defaultFifoDepth = (dynamicRange == 32 ? 100 : 1000);
     };
 };
@@ -392,9 +395,9 @@ class JungfrauData : public GeneralData {
     void UpdateImageSize() {
         nPixelsX = (256 * 4);
         nPixelsY = (256 * 2) / numUDPInterfaces;
+        int raw_image_size = int(nPixelsX * nPixelsY * GetPixelDepth());
+        packetsPerFrame = raw_image_size / dataSize;
         imageSize = int(nPixelsX * nPixelsY * GetPixelDepth());
-        packetsPerFrame = image_size / dataSize;
-        defaultUdpSocketBufferSize = (1000 * 1024 * 1024) / numUDPInterfaces;
     };
 };
 
@@ -415,7 +418,6 @@ class Mythen3Data : public GeneralData {
         maxFramesPerFile = MYTHEN3_MAX_FRAMES_PER_FILE;
         defaultFifoDepth = 50000;
         standardheader = true;
-        defaultUdpSocketBufferSize = (1000 * 1024 * 1024);
         UpdateImageSize();
     };
 
@@ -495,7 +497,6 @@ class Gotthard2Data : public GeneralData {
         maxFramesPerFile = GOTTHARD2_MAX_FRAMES_PER_FILE;
         defaultFifoDepth = 50000;
         standardheader = true;
-        defaultUdpSocketBufferSize = (1000 * 1024 * 1024);
         vetoDataSize = 160;
         vetoImageSize = vetoDataSize * packetsPerFrame;
         vetoHsize = 16;

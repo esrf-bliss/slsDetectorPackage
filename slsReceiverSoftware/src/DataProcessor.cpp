@@ -22,17 +22,17 @@
 
 const std::string DataProcessor::TypeName = "DataProcessor";
 
-DataProcessor::DataProcessor(int ind, detectorType dtype, Fifo *f,
-                             fileFormat *ftype, bool fwenable, bool *mfwenable,
-                             bool *dsEnable, uint32_t *freq, uint32_t *timer,
-                             uint32_t *sfnum, bool *fp, bool *act,
-                             bool *depaden, bool *sm, std::vector<int> *cdl,
-                             int *cdo, int *cad)
+DataProcessor::DataProcessor(int ind, detectorType dtype, Fifo *f, uint64_t *nf,
+                             fileFormat *ftype, uint32_t *fpf, bool fwenable,
+                             bool *mfwenable, bool *dsEnable, uint32_t *freq,
+                             uint32_t *timer, uint32_t *sfnum, bool *fp,
+                             bool *act, bool *depaden, bool *sm,
+                             std::vector<int> *cdl, int *cdo, int *cad)
     : ThreadObject(ind, TypeName), fifo(f), myDetectorType(dtype),
-      dataStreamEnable(dsEnable), fileFormatType(ftype),
-      fileWriteEnable(fwenable), masterFileWriteEnable(mfwenable),
-      streamingFrequency(freq), streamingTimerInMs(timer),
-      streamingStartFnum(sfnum), activated(act),
+      numImages(nf), dataStreamEnable(dsEnable), fileFormatType(ftype),
+      framesPerFile(fpf), fileWriteEnable(fwenable),
+      masterFileWriteEnable(mfwenable), streamingFrequency(freq),
+      streamingTimerInMs(timer), streamingStartFnum(sfnum), activated(act),
       deactivatedPaddingEnable(depaden), silentMode(sm), framePadding(fp),
       ctbDbitList(cdl), ctbDbitOffset(cdo), ctbAnalogDataBytes(cad),
       firstStreamerFrame(false) {
@@ -46,8 +46,6 @@ DataProcessor::~DataProcessor() { delete file; }
 
 bool DataProcessor::GetStartedFlag() { return startedFlag; }
 
-uint64_t DataProcessor::GetNumFramesCaught() { return numFramesCaught; }
-
 uint64_t DataProcessor::GetCurrentFrameIndex() { return currentFrameIndex; }
 
 uint64_t DataProcessor::GetProcessedIndex() {
@@ -56,13 +54,22 @@ uint64_t DataProcessor::GetProcessedIndex() {
 
 void DataProcessor::SetFifo(Fifo *f) { fifo = f; }
 
+void DataProcessor::SetHardCodedPosition(uint16_t r, uint16_t c) {
+    row = r;
+    column = c;
+}
+
 void DataProcessor::ResetParametersforNewAcquisition() {
     StopRunning();
     startedFlag = false;
-    numFramesCaught = 0;
     firstIndex = 0;
     currentFrameIndex = 0;
     firstStreamerFrame = true;
+    numPacketsStatistic = 0;
+    numFramesStatistic = 0;
+    // reset fifo statistic
+    fifo->GetMaxLevelForFifoStream();
+    fifo->GetMinLevelForFifoFree();
 }
 
 void DataProcessor::RecordFirstIndex(uint64_t fnum) {
@@ -77,6 +84,17 @@ void DataProcessor::RecordFirstIndex(uint64_t fnum) {
 
 void DataProcessor::SetGeneralData(GeneralData *g) {
     generalData = g;
+
+    try {
+        frameAssembler = FrameAssembler::CreateDefaultFrameAssembler(
+            generalData->myDetectorType, generalData->tgEnable,
+            generalData->numUDPInterfaces, generalData->dynamicRange);
+        LOG(logINFO) << index << ": Default FrameAssembler created";
+    } catch (...) {
+        throw sls::RuntimeError("Could not create FrameAssembler #" +
+                                std::to_string(index));
+    }
+
     if (file != nullptr) {
         if (file->GetFileType() == HDF5) {
             file->SetNumberofPixels(generalData->nPixelsX,
@@ -171,19 +189,24 @@ void DataProcessor::EndofAcquisition(bool anyPacketsCaught, uint64_t numf) {
 
 void DataProcessor::ThreadExecution() {
     FifoFrame *frame;
-    fifo->PopFrame(frame);
+    fifo->GetNewFrame(frame);
     LOG(logDEBUG5) << "DataProcessor " << index << ", " << std::hex << "pop 0x"
                    << (void *)frame << " "
                    << "[data: 0x" << (void *)frame->recvFrame.data << "]"
                    << std::dec;
 
-    // check dummy
-    auto &numBytes = frame->recvFrame.numBytes;
-    LOG(logDEBUG1) << "DataProcessor " << index << ", Numbytes:" << numBytes;
-    if (frame->end) {
+    int rc = AssembleAnImage(frame);
+    if (rc < 0) {
         StopProcessing(frame);
         return;
+    } else if (rc == 0) {
+        fifo->FreeFrame(frame);
+        return;
     }
+
+    auto &numBytes = frame->recvFrame.numBytes;
+    numBytes = rc;
+    LOG(logDEBUG1) << "DataProcessor " << index << ", Numbytes:" << numBytes;
 
     uint64_t fnum = 0;
     try {
@@ -204,10 +227,64 @@ void DataProcessor::ThreadExecution() {
     } else {
         fifo->FreeFrame(frame);
     }
+
+    // Statistics
+    if (!(*silentMode)) {
+        numFramesStatistic++;
+        if (numFramesStatistic >=
+            // second condition also for infinite #number of frames
+            (((*framesPerFile) == 0) ? STATISTIC_FRAMENUMBER_INFINITE
+                                     : (*framesPerFile)))
+            PrintFifoStatistics();
+    }
+}
+
+int DataProcessor::AssembleAnImage(FifoFrame *frame) {
+
+    sls_receiver_header *recv_header = &frame->recvFrame.header;
+    char *buf = frame->recvFrame.data;
+    uint32_t imageSize = generalData->imageSize;
+
+    // deactivated (eiger)
+    if (!(*activated)) {
+        // no padding
+        if (!(*deactivatedPaddingEnable))
+            return 0;
+        // padding without setting bitmask (all missing packets padded in
+        // dataProcessor)
+        if (currentFrameIndex >= *numImages)
+            return 0;
+
+        //(eiger) first fnum starts at 1
+        if (!currentFrameIndex) {
+            ++currentFrameIndex;
+        }
+        memset(recv_header, 0, sizeof(sls_receiver_header));
+        recv_header->detHeader.frameNumber = currentFrameIndex;
+        recv_header->detHeader.row = row;
+        recv_header->detHeader.column = column;
+        recv_header->detHeader.detType = (uint8_t)generalData->myDetectorType;
+        recv_header->detHeader.version = (uint8_t)SLS_DETECTOR_HEADER_VERSION;
+        return imageSize;
+    }
+
+    recv_header->detHeader.row = row;
+    recv_header->detHeader.column = column;
+
+    auto block = fifo->GetFramePackets();
+    bool ok = frameAssembler->assembleFrame(std::move(block), recv_header, buf);
+    if (!ok)
+        return -1;
+
+    // update parameters
+    numPacketsStatistic += recv_header->detHeader.packetNumber;
+
+    return imageSize;
 }
 
 void DataProcessor::StopProcessing(FifoFrame *frame) {
     LOG(logDEBUG1) << "DataProcessing " << index << ": Dummy";
+    frame->end = true;
 
     // stream or free
     if (*dataStreamEnable)
@@ -228,9 +305,6 @@ uint64_t DataProcessor::ProcessAnImage(FifoFrame *frame) {
     uint64_t fnum = header.frameNumber;
     currentFrameIndex = fnum;
     uint32_t nump = header.packetNumber;
-    if (nump == generalData->packetsPerFrame) {
-        numFramesCaught++;
-    }
 
     LOG(logDEBUG1) << "DataProcessing " << index << ": fnum:" << fnum;
 
@@ -461,4 +535,25 @@ void DataProcessor::RearrangeDbitData(FifoFrame *frame) {
     // copy back to buf and update size
     memcpy(buf + digOffset, result.data(), numResult8Bits * sizeof(uint8_t));
     totalSize = numResult8Bits * sizeof(uint8_t);
+}
+
+// TODO: Include packet fifo statistics
+void DataProcessor::PrintFifoStatistics() {
+    LOG(logDEBUG1) << "numFramesStatistic:" << numFramesStatistic
+                   << " numPacketsStatistic:" << numPacketsStatistic
+                   << " packetsperframe:" << generalData->packetsPerFrame;
+
+    // calculate packet loss
+    int64_t totalP = numFramesStatistic * (generalData->packetsPerFrame);
+    int64_t loss = totalP - numPacketsStatistic;
+    int lossPercent = ((double)loss / (double)totalP) * 100.00;
+    numPacketsStatistic = 0;
+    numFramesStatistic = 0;
+
+    const auto color = loss ? logINFORED : logINFOGREEN;
+    LOG(color) << "DataProcessor " << index << ":  Packet_Loss:" << loss << " ("
+               << lossPercent << "%)"
+               << "  Used_Fifo_Max_Level:" << fifo->GetMaxLevelForFifoStream()
+               << " \tFree_Slots_Min_Level:" << fifo->GetMinLevelForFifoFree()
+               << " \tCurrent_Frame#:" << currentFrameIndex;
 }

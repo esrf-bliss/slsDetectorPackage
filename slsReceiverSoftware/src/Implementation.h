@@ -1,5 +1,6 @@
 #pragma once
 #include "receiver_defs.h"
+#include "sls/FrameAssembler.h"
 #include "sls/container_utils.h"
 #include "sls/logger.h"
 #include "sls/network_utils.h"
@@ -18,9 +19,11 @@ class slsDetectorDefs;
 #include <vector>
 using ns = std::chrono::nanoseconds;
 
+using namespace FrameAssembler;
+
 class Implementation : private virtual slsDetectorDefs {
   public:
-    explicit Implementation(const detectorType d);
+    explicit Implementation(const detectorType d, bool passive);
     virtual ~Implementation();
 
     /**************************************************
@@ -256,10 +259,29 @@ class Implementation : private virtual slsDetectorDefs {
                                                          uint32_t &, void *),
                                             void *arg);
 
+    /**************************************************
+     *                                                *
+     *    Passive mode
+     *                                                *
+     * ************************************************/
+    void setThreadCPUAffinity(const CPUMaskList &cpu_masks);
+    void setBufferNodeAffinity(unsigned long buffer_node_mask, int max_node);
+    MPFrameAssemblerPtr CreateFrameAssembler(AssemblerType asm_type);
+    AnyPacketBlockList GetFramePacketBlocks();
+    void clearAllBuffers();
+
   private:
     struct PortGeometry {
         int g[MAX_DIMENSIONS];
         int &operator[](int i) { return g[i]; }
+    };
+
+    struct ListenerStatistics {
+        uint64_t packets_missing;
+        uint64_t packets_caught;
+        uint64_t frames_caught;
+        uint64_t last_frame;
+        void reset();
     };
 
     void SetLocalNetworkParameters();
@@ -291,6 +313,7 @@ class Implementation : private virtual slsDetectorDefs {
     bool framePadding{true};
     pid_t parentThreadId;
     pid_t tcpThreadId;
+    bool gapEnable{false};
 
     // file parameters
     fileFormat fileFormatType{BINARY};
@@ -378,8 +401,19 @@ class Implementation : private virtual slsDetectorDefs {
 
     // class objects
     GeneralData *generalData{nullptr};
-    std::vector<std::unique_ptr<Listener>> listener;
+    std::vector<std::shared_ptr<Listener>> listener;
     std::vector<std::unique_ptr<DataProcessor>> dataProcessor;
     std::vector<std::unique_ptr<DataStreamer>> dataStreamer;
     std::vector<std::unique_ptr<Fifo>> fifo;
+
+    /** Listener Statistics */
+    std::vector<ListenerStatistics> listenerStatistics;
+
+    /** Fifo node affinity **/
+    unsigned long fifoNodeMask{0};
+    int maxNode{0};
+
+    /** Frame memory assembler in passive mode */
+    bool passiveMode;
+    MPFrameAssemblerPtr frameAssembler;
 };

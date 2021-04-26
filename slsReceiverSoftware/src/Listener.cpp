@@ -21,83 +21,67 @@ const std::string Listener::TypeName = "Listener";
 
 Listener::Listener(int ind, detectorType dtype, Fifo *f,
                    std::atomic<runStatus> *s, uint32_t *portno, std::string *e,
-                   uint64_t *nf, int *us, int *as, uint32_t *fpf,
-                   frameDiscardPolicy *fdp, bool *act, bool *depaden, bool *sm)
+                   int *us, int *as, frameDiscardPolicy *fdp, bool *sm)
     : ThreadObject(ind, TypeName), fifo(f), myDetectorType(dtype), status(s),
-      udpPortNumber(portno), eth(e), numImages(nf), udpSocketBufferSize(us),
-      actualUDPSocketBufferSize(as), framesPerFile(fpf), frameDiscardMode(fdp),
-      activated(act), deactivatedPaddingEnable(depaden), silentMode(sm) {
+      udpPortNumber(portno), eth(e), udpSocketBufferSize(us),
+      actualUDPSocketBufferSize(as), frameDiscardMode(fdp), silentMode(sm) {
     LOG(logDEBUG) << "Listener " << ind << " created";
+    CPU_ZERO(&cpuMask);
 }
 
 Listener::~Listener() = default;
 
-uint64_t Listener::GetPacketsCaught() const { return numPacketsCaught; }
-
-uint64_t Listener::GetLastFrameIndexCaught() const {
-    return lastCaughtFrameIndex;
+uint64_t Listener::GetPacketsCaught() const {
+    if (!packetStream)
+        return 0;
+    return std::visit([&](auto &ps) { return ps.getNumPacketsCaught(); },
+                      *packetStream);
 }
 
-uint64_t Listener::GetNumMissingPacket(bool stoppedFlag,
-                                       uint64_t numPackets) const {
+uint64_t Listener::GetFirstFrameCaught() {
+    if (!packetStream)
+        return 0;
+    return std::visit([&](auto &ps) { return ps.getFirstFrameCaught(); },
+                      *packetStream);
+}
+
+uint64_t Listener::GetNumFramesCaught() {
+    if (!packetStream)
+        return 0;
+    return std::visit([&](auto &ps) { return ps.getNumFramesCaught(); },
+                      *packetStream);
+}
+
+uint64_t Listener::GetLastFrameIndexCaught() const {
+    if (!packetStream)
+        return 0;
+    return std::visit([&](auto &ps) { return ps.getLastFrameIndex(); },
+                      *packetStream);
+}
+
+uint64_t Listener::GetNumMissingPacket(bool stoppedFlag, uint64_t numPackets) {
+    uint64_t numPacketsCaught = GetPacketsCaught();
     if (!stoppedFlag) {
         return (numPackets - numPacketsCaught);
     }
     if (numPacketsCaught == 0) {
         return numPacketsCaught;
     }
-    return (lastCaughtFrameIndex - firstIndex + 1) *
-               generalData->packetsPerFrame -
-           numPacketsCaught;
+    uint64_t frames = GetLastFrameIndexCaught() - GetFirstFrameCaught() + 1;
+    return frames * generalData->packetsPerFrame - numPacketsCaught;
 }
 
 void Listener::SetFifo(Fifo *f) { fifo = f; }
 
-void Listener::ResetParametersforNewAcquisition() {
-    StopRunning();
-    startedFlag = false;
-    numPacketsCaught = 0;
-    firstIndex = 0;
-    currentFrameIndex = 0;
-    lastCaughtFrameIndex = 0;
-    carryOverFlag = false;
-    uint32_t packetSize = generalData->packetSize;
-    if (myDetectorType == GOTTHARD2 && index != 0) {
-        packetSize = generalData->vetoPacketSize;
-    }
-    carryOverPacket = sls::make_unique<char[]>(packetSize);
-    memset(carryOverPacket.get(), 0, packetSize);
-    listeningPacket = sls::make_unique<char[]>(packetSize);
-    memset(carryOverPacket.get(), 0, packetSize);
+void Listener::ResetParametersforNewAcquisition() { StopRunning(); }
 
-    numPacketsStatistic = 0;
-    numFramesStatistic = 0;
-    // reset fifo statistic
-    fifo->GetMaxLevelForFifoBound();
-    fifo->GetMinLevelForFifoFree();
-}
-
-void Listener::RecordFirstIndex(uint64_t fnum) {
-    // listen to this fnum, later +1
-    currentFrameIndex = fnum;
-
-    startedFlag = true;
-    firstIndex = fnum;
-
-    if (!(*silentMode)) {
-        if (!index) {
-            LOG(logINFOBLUE) << index << " First Index: " << firstIndex;
-        }
-    }
+void Listener::SetThreadCPUAffinity(const cpu_set_t &cpu_mask) {
+    cpuMask = cpu_mask;
 }
 
 void Listener::SetGeneralData(GeneralData *g) { generalData = g; }
 
 void Listener::CreateUDPSockets() {
-    if (!(*activated)) {
-        return;
-    }
-
     // if eth is mistaken with ip address
     if ((*eth).find('.') != std::string::npos) {
         (*eth) = "";
@@ -115,7 +99,7 @@ void Listener::CreateUDPSockets() {
 
     // InterfaceNameToIp(eth).str().c_str()
     try {
-        udpSocket = sls::make_unique<sls::UdpRxSocket>(
+        udpSocket = std::make_shared<sls::UdpRxSocket>(
             *udpPortNumber, packetSize,
             ((*eth).length() ? sls::InterfaceNameToIp(*eth).str().c_str()
                              : nullptr),
@@ -126,6 +110,18 @@ void Listener::CreateUDPSockets() {
                                 std::to_string(*udpPortNumber));
     }
 
+    auto packetContainer = fifo->GetPacketContainer();
+
+    try {
+        packetStream = CreatePacketStream(udpSocket, generalData, index,
+                                          cpuMask, GetThreadId(),
+                                          *frameDiscardMode, packetContainer);
+        LOG(logINFO) << index << ": PacketStream for port " << *udpPortNumber;
+    } catch (...) {
+        throw sls::RuntimeError("Could not create PacketStream on port " +
+                                std::to_string(*udpPortNumber));
+    }
+
     udpSocketAlive = true;
 
     // doubled due to kernel bookkeeping (could also be less due to permissions)
@@ -133,21 +129,26 @@ void Listener::CreateUDPSockets() {
 }
 
 void Listener::ShutDownUDPSocket() {
-    if (udpSocket) {
-        udpSocketAlive = false;
-        udpSocket->Shutdown();
-        LOG(logINFO) << "Shut down of UDP port " << *udpPortNumber;
-    }
+    if (!udpSocket)
+        return;
+
+    udpSocketAlive = false;
+    if (packetStream)
+        std::visit(
+            [&](auto &ps) {
+                ps.stop();
+                ps.printStats();
+            },
+            *packetStream);
+    udpSocket->Shutdown();
+    packetStream.reset();
+    udpSocket.reset();
+    LOG(logINFO) << "Shut down of UDP port " << *udpPortNumber;
 }
 
 void Listener::CreateDummySocketForUDPSocketBufferSize(int s) {
     LOG(logINFO) << "Testing UDP Socket Buffer size " << s << " with test port "
                  << *udpPortNumber;
-
-    if (!(*activated)) {
-        *actualUDPSocketBufferSize = (s * 2);
-        return;
-    }
 
     int temp = *udpSocketBufferSize;
     *udpSocketBufferSize = s;
@@ -185,476 +186,11 @@ void Listener::CreateDummySocketForUDPSocketBufferSize(int s) {
     }
 }
 
-void Listener::SetHardCodedPosition(uint16_t r, uint16_t c) {
-    row = r;
-    column = c;
-}
-
 void Listener::ThreadExecution() {
-    FifoFrame *frame;
-    int rc = 0;
-
-    fifo->GetNewFrame(frame);
-    LOG(logDEBUG5) << "Listener " << index << ", " << std::hex << "pop 0x"
-                   << (void *)frame << " "
-                   << "[data: 0x" << (void *)frame->recvFrame.data << "]"
-                   << std::dec;
-
-    sls_receiver_header *recv_header = &frame->recvFrame.header;
-    char *image_data = frame->recvFrame.data;
-
-    // udpsocket doesnt exist
-    if (*activated && !udpSocketAlive && !carryOverFlag) {
-        StopListening(frame);
-        return;
-    }
-
-    // get data
-    if ((*status != TRANSMITTING && (!(*activated) || udpSocketAlive)) ||
-        carryOverFlag) {
-        rc = ListenToAnImage(buffer);
-    }
-
-    // error check, (should not be here) if not transmitting yet (previous if)
-    // rc should be > 0
-    if (rc == 0) {
-        if (!udpSocketAlive) {
-            StopListening(frame);
-        } else
-            fifo->FreeFrame(frame);
-        return;
-    } else if (rc < 0) { // discarding image
-        LOG(logDEBUG) << index << " discarding fnum:" << currentFrameIndex;
-        fifo->FreeFrame(frame);
-        currentFrameIndex++;
-        return;
-    }
-
-    frame->recvFrame.numBytes = rc;
-    // for those returning earlier
-    recv_header->detHeader.frameNumber = currentFrameIndex;
-    currentFrameIndex++;
-
-    // push into fifo
-    fifo->PushFrame(frame);
-
-    // Statistics
-    if (!(*silentMode)) {
-        numFramesStatistic++;
-        if (numFramesStatistic >=
-            // second condition also for infinite #number of frames
-            (((*framesPerFile) == 0) ? STATISTIC_FRAMENUMBER_INFINITE
-                                     : (*framesPerFile)))
-            PrintFifoStatistics();
-    }
-}
-
-Listener::FrameAssemblerPtr
-Listener::CreateFrameAssembler(std::vector<Ptr> &listener, int recv_idx,
-                               int num_det_ifaces[2]) {
-    FrameAssemblerPtr fa;
-    GeneralData *gd = listener[0]->generalData;
-    detectorType d = listener[0]->myDetectorType;
-    int nb_ports = listener.size();
-    bool raw = !gd->gapEnable;
-    frameDiscardPolicy fp = *listener[0]->frameDiscardMode;
-    using namespace FrameAssembler;
-    using XY = sls::Geom::XY;
-    DefaultFrameAssemblerList a;
-    XY det_ifaces{num_det_ifaces[0], num_det_ifaces[1]};
-    auto getModPos = [&](auto recv_ifaces, auto mod_recvs) {
-        auto det_mods = det_ifaces / (mod_recvs * recv_ifaces);
-        int mod_idx = recv_idx / mod_recvs.area();
-        return XY{mod_idx / det_mods.y, mod_idx % det_mods.y};
-    };
-    for (auto &l : listener)
-        a.push_back(l->frameAssembler);
-    if (raw) {
-        fa = std::make_shared<FrameAssembler::RawFrameAssembler>(a, recv_idx);
-    } else if (d == slsDetectorDefs::EIGER) {
-        using namespace sls::Geom::Eiger;
-        auto mod_pos = getModPos(RecvIfaces, ModRecvs);
-        int pixel_bpp = gd->dynamicRange;
-        recv_idx %= ModRecvs.y;
-        fa = FrameAssembler::Eiger::CreateFrameAssembler(
-            pixel_bpp, fp, gd->tgEnable, det_ifaces, mod_pos, recv_idx, a);
-    } else if (d == slsDetectorDefs::JUNGFRAU) {
-        using namespace sls::Geom::Jungfrau;
-        XY mod_pos;
-        std::visit(
-            [&](auto nb) {
-                constexpr int num_udp_ifaces = nb;
-                mod_pos = getModPos(RecvIfaces<num_udp_ifaces>, ModRecvs);
-            },
-            AnyNbUDPIfacesFromNbUDPIfaces(nb_ports));
-        fa = FrameAssembler::Jungfrau::CreateFrameAssembler(det_ifaces, mod_pos,
-                                                            nb_ports, fp, a);
-    } else
-        throw sls::RuntimeError("FrameAssembler not available for " +
-                                sls::ToString(d));
-
-    return fa;
-}
-
-void Listener::ClearAllBuffers() {
-    if (frameAssembler)
-        frameAssembler->clearBuffers();
-}
-
-void Listener::StopListening(FifoFrame *frame) {
-    frame->end = true;
-    fifo->PushFrame(frame);
+    std::visit([&](auto &ps) { ps.threadFunction(); }, *packetStream);
     StopRunning();
-    LOG(logDEBUG1) << index << ": Listening Packets (" << *udpPortNumber
-                   << ") : " << numPacketsCaught;
-    LOG(logDEBUG1) << index << ": Listening Completed";
-}
 
-/* buf includes the fifo header and packet header */
-uint32_t Listener::ListenToAnImage(char *buf) {
-
-    int rc = 0;
-    uint64_t fnum = 0;
-    uint32_t pnum = 0;
-    uint64_t bnum = 0;
-    uint32_t numpackets = 0;
-    uint32_t dsize = generalData->dataSize;
-    uint32_t imageSize = generalData->imageSize;
-    uint32_t packetSize = generalData->packetSize;
-    uint32_t hsize = generalData->headerSizeinPacket;
-    uint32_t fifohsize = generalData->fifoBufferHeaderSize;
-    bool standardheader = generalData->standardheader;
-    if (myDetectorType == GOTTHARD2 && index != 0) {
-        dsize = generalData->vetoDataSize;
-        imageSize = generalData->vetoImageSize;
-        packetSize = generalData->vetoPacketSize;
-        hsize = generalData->vetoHsize;
-        standardheader = false;
+    if (!(*silentMode) && !index) {
+        LOG(logINFOBLUE) << index << " First Index: " << GetFirstFrameCaught();
     }
-    uint32_t pperFrame = generalData->packetsPerFrame;
-    bool isHeaderEmpty = true;
-    sls_detector_header *old_header = nullptr;
-    sls_receiver_header *new_header = nullptr;
-    uint32_t corrected_dsize = dsize - ((pperFrame * dsize) - imageSize);
-
-    // reset to -1
-    memset(buf, 0, fifohsize);
-    new_header = (sls_receiver_header *)(buf + FIFO_HEADER_NUMBYTES);
-
-    // deactivated (eiger)
-    if (!(*activated)) {
-        // no padding
-        if (!(*deactivatedPaddingEnable))
-            return 0;
-        // padding without setting bitmask (all missing packets padded in
-        // dataProcessor)
-        if (currentFrameIndex >= *numImages)
-            return 0;
-
-        //(eiger) first fnum starts at 1
-        if (!currentFrameIndex) {
-            ++currentFrameIndex;
-        }
-        new_header->detHeader.frameNumber = currentFrameIndex;
-        new_header->detHeader.row = row;
-        new_header->detHeader.column = column;
-        new_header->detHeader.detType = (uint8_t)generalData->myDetectorType;
-        new_header->detHeader.version = (uint8_t)SLS_DETECTOR_HEADER_VERSION;
-        return imageSize;
-    }
-
-    // look for carry over
-    if (carryOverFlag) {
-        LOG(logDEBUG3) << index << "carry flag";
-        // check if its the current image packet
-        // -------------------------- new header
-        // ----------------------------------------------------------------------
-        if (standardheader) {
-            old_header = (sls_detector_header *)(&carryOverPacket[0]);
-            fnum = old_header->frameNumber;
-            pnum = old_header->packetNumber;
-        }
-        // -------------------old header
-        // -----------------------------------------------------------------------------
-        else {
-            generalData->GetHeaderInfo(index, &carryOverPacket[0],
-                                       oddStartingPacket, fnum, pnum, bnum);
-        }
-        //------------------------------------------------------------------------------------------------------------
-        if (fnum != currentFrameIndex) {
-            if (fnum < currentFrameIndex) {
-                LOG(logERROR)
-                    << "(Weird), With carry flag: Frame number " << fnum
-                    << " less than current frame number " << currentFrameIndex;
-                carryOverFlag = false;
-                return 0;
-            }
-            switch (*frameDiscardMode) {
-            case DISCARD_EMPTY_FRAMES:
-                if (!numpackets)
-                    return -1;
-                break;
-            case DISCARD_PARTIAL_FRAMES:
-                return -1;
-            default:
-                break;
-            }
-            new_header->detHeader.packetNumber = numpackets;
-            if (isHeaderEmpty) {
-                new_header->detHeader.row = row;
-                new_header->detHeader.column = column;
-            }
-            return imageSize;
-        }
-
-        // copy packet
-        switch (myDetectorType) {
-        // for gotthard, 1st packet: 4 bytes fnum, CACA
-        // + CACA, 639*2 bytes data 				2nd packet: 4
-        // bytes fnum, previous 1*2 bytes data  + 640*2 bytes data !!
-        case GOTTHARD:
-            if (!pnum)
-                memcpy(buf + fifohsize, &carryOverPacket[hsize + 4], dsize - 2);
-            else
-                memcpy(buf + fifohsize + dsize - 2, &carryOverPacket[hsize],
-                       dsize + 2);
-            break;
-        case CHIPTESTBOARD:
-        case MOENCH:
-            if (pnum == (pperFrame - 1))
-                memcpy(buf + fifohsize + (pnum * dsize),
-                       &carryOverPacket[hsize], corrected_dsize);
-            else
-                memcpy(buf + fifohsize + (pnum * dsize),
-                       &carryOverPacket[hsize], dsize);
-            break;
-        default:
-            memcpy(buf + fifohsize + (pnum * dsize), &carryOverPacket[hsize],
-                   dsize);
-            break;
-        }
-
-        carryOverFlag = false;
-        ++numpackets; // number of packets in this image (each time its copied
-                      // to buf)
-        new_header->packetsMask[(
-            (pnum < MAX_NUM_PACKETS) ? pnum : MAX_NUM_PACKETS - 1)] = 1;
-
-        // writer header
-        if (isHeaderEmpty) {
-            // -------------------------- new header
-            // ----------------------------------------------------------------------
-            if (standardheader) {
-                memcpy((char *)new_header, (char *)old_header,
-                       sizeof(sls_detector_header));
-            }
-            // -------------------old header
-            // ------------------------------------------------------------------------------
-            else {
-                new_header->detHeader.frameNumber = fnum;
-                new_header->detHeader.bunchId = bnum;
-                new_header->detHeader.row = row;
-                new_header->detHeader.column = column;
-                new_header->detHeader.detType =
-                    (uint8_t)generalData->myDetectorType;
-                new_header->detHeader.version =
-                    (uint8_t)SLS_DETECTOR_HEADER_VERSION;
-            }
-            //------------------------------------------------------------------------------------------------------------
-            isHeaderEmpty = false;
-        }
-    }
-
-    // until last packet isHeaderEmpty to account for gotthard short frame, else
-    // never entering this loop)
-    while (numpackets < pperFrame) {
-        // listen to new packet
-        rc = 0;
-        if (udpSocketAlive) {
-            rc = udpSocket->ReceiveDataOnly(&listeningPacket[0]);
-        }
-        // end of acquisition
-        if (rc <= 0) {
-            if (numpackets == 0)
-                return 0; // empty image
-
-            switch (*frameDiscardMode) {
-            case DISCARD_EMPTY_FRAMES:
-                if (!numpackets)
-                    return -1;
-                break;
-            case DISCARD_PARTIAL_FRAMES:
-                return -1;
-            default:
-                break;
-            }
-            new_header->detHeader.packetNumber =
-                numpackets; // number of packets caught
-            if (isHeaderEmpty) {
-                new_header->detHeader.row = row;
-                new_header->detHeader.column = column;
-            }
-            return imageSize; // empty packet now, but not empty image
-        }
-
-        // update parameters
-        numPacketsCaught++; // record immediately to get more time before socket
-                            // shutdown
-        numPacketsStatistic++;
-
-        // -------------------------- new header
-        // ----------------------------------------------------------------------
-        if (standardheader) {
-            old_header = (sls_detector_header *)(&listeningPacket[0]);
-            fnum = old_header->frameNumber;
-            pnum = old_header->packetNumber;
-        }
-        // -------------------old header
-        // -----------------------------------------------------------------------------
-        else {
-            // set first packet to be odd or even (check required when switching
-            // from roi to no roi)
-            if (myDetectorType == GOTTHARD && !startedFlag) {
-                oddStartingPacket = generalData->SetOddStartingPacket(
-                    index, &listeningPacket[0]);
-            }
-
-            generalData->GetHeaderInfo(index, &listeningPacket[0],
-                                       oddStartingPacket, fnum, pnum, bnum);
-        }
-        //------------------------------------------------------------------------------------------------------------
-
-        // Eiger Firmware in a weird state
-        if (myDetectorType == EIGER && fnum == 0) {
-            LOG(logERROR) << "[" << *udpPortNumber
-                          << "]: Got Frame Number "
-                             "Zero from Firmware. Discarding Packet";
-            numPacketsCaught--;
-            return 0;
-        }
-
-        lastCaughtFrameIndex = fnum;
-
-        LOG(logDEBUG5) << "Listening " << index
-                       << ": currentfindex:" << currentFrameIndex
-                       << ", fnum:" << fnum << ", pnum:" << pnum
-                       << ", numpackets:" << numpackets;
-
-        if (!startedFlag)
-            RecordFirstIndex(fnum);
-
-        if (pnum >= pperFrame) {
-            LOG(logERROR) << "Bad packet " << pnum << "(fnum: " << fnum
-                          << "), throwing away. "
-                             "Packets caught so far: "
-                          << numpackets;
-            return 0; // bad packet
-        }
-
-        // future packet	by looking at image number  (all other
-        // detectors)
-        if (fnum != currentFrameIndex) {
-            carryOverFlag = true;
-            memcpy(carryOverPacket.get(), &listeningPacket[0], packetSize);
-
-            switch (*frameDiscardMode) {
-            case DISCARD_EMPTY_FRAMES:
-                if (!numpackets)
-                    return -1;
-                break;
-            case DISCARD_PARTIAL_FRAMES:
-                return -1;
-            default:
-                break;
-            }
-            new_header->detHeader.packetNumber =
-                numpackets; // number of packets caught
-            if (isHeaderEmpty) {
-                new_header->detHeader.row = row;
-                new_header->detHeader.column = column;
-            }
-            return imageSize;
-        }
-
-        // copy packet
-        switch (myDetectorType) {
-        // for gotthard, 1st packet: 4 bytes fnum, CACA
-        // + CACA, 639*2 bytes data 				2nd packet: 4
-        // bytes fnum, previous 1*2 bytes data  + 640*2 bytes data !!
-        case GOTTHARD:
-            if (!pnum)
-                memcpy(buf + fifohsize + (pnum * dsize),
-                       &listeningPacket[hsize + 4], dsize - 2);
-            else
-                memcpy(buf + fifohsize + (pnum * dsize) - 2,
-                       &listeningPacket[hsize], dsize + 2);
-            break;
-        case CHIPTESTBOARD:
-        case MOENCH:
-            if (pnum == (pperFrame - 1))
-                memcpy(buf + fifohsize + (pnum * dsize),
-                       &listeningPacket[hsize], corrected_dsize);
-            else
-                memcpy(buf + fifohsize + (pnum * dsize),
-                       &listeningPacket[hsize], dsize);
-            break;
-        default:
-            memcpy(buf + fifohsize + (pnum * dsize), &listeningPacket[hsize],
-                   dsize);
-            break;
-        }
-        ++numpackets; // number of packets in this image (each time its copied
-                      // to buf)
-        new_header->packetsMask[(
-            (pnum < MAX_NUM_PACKETS) ? pnum : MAX_NUM_PACKETS - 1)] = 1;
-
-        if (isHeaderEmpty) {
-            // -------------------------- new header
-            // ----------------------------------------------------------------------
-            if (standardheader) {
-                memcpy((char *)new_header, (char *)old_header,
-                       sizeof(sls_detector_header));
-            }
-            // -------------------old header
-            // ------------------------------------------------------------------------------
-            else {
-                new_header->detHeader.frameNumber = fnum;
-                new_header->detHeader.bunchId = bnum;
-                new_header->detHeader.row = row;
-                new_header->detHeader.column = column;
-                new_header->detHeader.detType =
-                    (uint8_t)generalData->myDetectorType;
-                new_header->detHeader.version =
-                    (uint8_t)SLS_DETECTOR_HEADER_VERSION;
-            }
-            //------------------------------------------------------------------------------------------------------------
-            isHeaderEmpty = false;
-        }
-    }
-
-    // complete image
-    new_header->detHeader.packetNumber = numpackets; // number of packets caught
-    return imageSize;
-}
-
-void Listener::PrintFifoStatistics() {
-    LOG(logDEBUG1) << "numFramesStatistic:" << numFramesStatistic
-                   << " numPacketsStatistic:" << numPacketsStatistic
-                   << " packetsperframe:" << generalData->packetsPerFrame;
-
-    // calculate packet loss
-    int64_t totalP = numFramesStatistic * (generalData->packetsPerFrame);
-    int64_t loss = totalP - numPacketsStatistic;
-    int lossPercent = ((double)loss / (double)totalP) * 100.00;
-    numPacketsStatistic = 0;
-    numFramesStatistic = 0;
-
-    const auto color = loss ? logINFORED : logINFOGREEN;
-    LOG(color) << "[" << *udpPortNumber
-               << "]:  "
-                  "Packet_Loss:"
-               << loss << " (" << lossPercent << "%)"
-               << "  Used_Fifo_Max_Level:" << fifo->GetMaxLevelForFifoBound()
-               << " \tFree_Slots_Min_Level:" << fifo->GetMinLevelForFifoFree()
-               << " \tCurrent_Frame#:" << currentFrameIndex;
 }

@@ -1,10 +1,13 @@
 #pragma once
+#include "sls/FrameAssembler.h"
 #include "sls/sls_detector_defs.h"
 #include <memory>
 
 class ClientInterface;
 
 namespace sls {
+
+using namespace FrameAssembler;
 
 class Receiver : private virtual slsDetectorDefs {
 
@@ -84,6 +87,38 @@ class Receiver : private virtual slsDetectorDefs {
     void registerCallBackRawDataModifyReady(void (*func)(char *, char *,
                                                          uint32_t &, void *),
                                             void *arg);
+
+    /**
+     * Set the passive mode status. Takes effect in next (re)configuration
+     */
+    void setPassiveMode(bool passive);
+
+    /**
+     * Set thread CPU Affinity: a list of CPU masks affecting the
+     * Listener PacketStream writing threads, one per port
+     */
+    void setThreadCPUAffinity(const CPUMaskList &cpu_masks);
+
+    /**
+     * Set the NUMA node affinity for PacketStream buffers
+     * max_node is the maximum valid node in the bitmask
+     */
+    void setBufferNodeAffinity(unsigned long buffer_node_mask, int max_node);
+
+    /**
+     * Create the FrameAssembler for the current detector configuration
+     */
+    MPFrameAssemblerPtr CreateFrameAssembler(AssemblerType asm_type);
+
+    /**
+     * Get the next available packet blocks from the active UDP ports
+     */
+    AnyPacketBlockList GetFramePacketBlocks();
+
+    /**
+     * Clear the PacketStream buffers
+     */
+    void clearAllBuffers();
 
   private:
     std::unique_ptr<ClientInterface> tcpipInterface;

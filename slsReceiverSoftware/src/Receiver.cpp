@@ -145,4 +145,27 @@ void Receiver::registerCallBackRawDataModifyReady(
     tcpipInterface->registerCallBackRawDataModifyReady(func, arg);
 }
 
+void Receiver::setPassiveMode(bool passive) {
+    tcpipInterface->setPassiveMode(passive);
+}
+
+void Receiver::setThreadCPUAffinity(const CPUMaskList &cpu_masks) {
+    tcpipInterface->setThreadCPUAffinity(cpu_masks);
+}
+
+void Receiver::setBufferNodeAffinity(unsigned long buffer_node_mask,
+                                     int max_node) {
+    tcpipInterface->setBufferNodeAffinity(buffer_node_mask, max_node);
+}
+
+MPFrameAssemblerPtr Receiver::CreateFrameAssembler(AssemblerType asm_type) {
+    return tcpipInterface->CreateFrameAssembler(asm_type);
+}
+
+AnyPacketBlockList Receiver::GetFramePacketBlocks() {
+    return tcpipInterface->GetFramePacketBlocks();
+}
+
+void Receiver::clearAllBuffers() { tcpipInterface->clearAllBuffers(); }
+
 } // namespace sls
