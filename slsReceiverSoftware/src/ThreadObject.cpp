@@ -11,6 +11,7 @@
 
 ThreadObject::ThreadObject(int threadIndex, std::string threadType)
     : index(threadIndex), type(threadType) {
+    LOG(logDEBUG) << type << " thread created: " << index;
     sem_init(&semaphore, 1, 0);
     try {
         threadObject = std::thread(&ThreadObject::RunningThread, this);
@@ -18,14 +19,12 @@ ThreadObject::ThreadObject(int threadIndex, std::string threadType)
         throw sls::RuntimeError("Could not create " + type +
                                 " thread with index " + std::to_string(index));
     }
-    LOG(logDEBUG) << type << " thread created: " << index;
 }
 
 ThreadObject::~ThreadObject() {
     killThread = true;
     sem_post(&semaphore);
-    if (threadObject.joinable())
-        threadObject.join();
+    threadObject.join();
     sem_destroy(&semaphore);
 }
 
@@ -56,8 +55,6 @@ void ThreadObject::RunningThread() {
 void ThreadObject::Continue() { sem_post(&semaphore); }
 
 void ThreadObject::SetThreadPriority(int priority) {
-    if (!threadObject.joinable())
-        return;
     struct sched_param param;
     param.sched_priority = priority;
     if (pthread_setschedparam(threadObject.native_handle(), SCHED_FIFO,

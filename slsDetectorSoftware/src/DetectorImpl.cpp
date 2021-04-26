@@ -1051,10 +1051,14 @@ void DetectorImpl::registerDataCallback(void (*userCallback)(detectorData *,
 }
 
 int DetectorImpl::acquire() {
+
     // ensure acquire isnt started multiple times by same client
     if (!isAcquireReady()) {
         return FAIL;
     }
+
+    // We need this to handle Mythen3 synchronization
+    auto detector_type = Parallel(&Module::getDetectorType, {}).squash();
 
     try {
         struct timespec begin, end;
@@ -1083,7 +1087,25 @@ int DetectorImpl::acquire() {
 
         // start and read all
         try {
-            Parallel(&Module::startAndReadAll, {});
+            if (detector_type == defs::MYTHEN3 && detectors.size() > 1) {
+                // Multi module mythen
+                std::vector<int> master;
+                std::vector<int> slaves;
+                auto is_master = Parallel(&Module::isMaster, {});
+                slaves.reserve(detectors.size() - 1); // check this one!!
+                for (size_t i = 0; i < detectors.size(); ++i) {
+                    if (is_master[i])
+                        master.push_back(i);
+                    else
+                        slaves.push_back(i);
+                }
+                Parallel(&Module::startAcquisition, slaves);
+                Parallel(&Module::startAndReadAll, master);
+            } else {
+                // Normal acquire
+                Parallel(&Module::startAndReadAll, {});
+            }
+
         } catch (...) {
             if (receiver)
                 Parallel(&Module::stopReceiver, {});
