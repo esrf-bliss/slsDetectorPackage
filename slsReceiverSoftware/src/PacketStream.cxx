@@ -4,6 +4,7 @@
  ***********************************************/
 
 #include "PacketStream.h"
+#include "sls/logger.h"
 
 /**
  * PacketStream
@@ -28,11 +29,10 @@ PacketStream<P, SD, FP>::~PacketStream() {
 
 template <class P, class SD, class FP>
 void PacketStream<P, SD, FP>::printStats() {
-    std::lock_guard<std::mutex> l(mutex);
     std::ostringstream msg;
-    msg << "[" << socket->getPortNumber() << "]: "
+    msg << "[" << socket->getPortNumber() << "] "
         << "packet_delay_stat=" << packet_delay_stat.calcLinRegress();
-    std::cout << msg.str() << std::endl;
+    LOG(logINFO) << msg.str();
 }
 
 template <class P, class SD, class FP> void PacketStream<P, SD, FP>::stop() {
@@ -103,9 +103,9 @@ class PacketStream<P, SD, FP>::WriterThread {
         struct sched_param param;
         param.sched_priority = 90;
         int ret = sched_setscheduler(thread_id, SCHED_FIFO, &param);
-        if (ret != 0)
-            std::cerr << "Could not set packet thread RT priority!"
-                      << std::endl;
+        if (ret != 0) {
+            LOG(logERROR) << "Could not set packet thread RT priority!";
+        }
     }
 
     ~WriterThread() {
@@ -119,9 +119,10 @@ class PacketStream<P, SD, FP>::WriterThread {
         if (CPU_COUNT(&cpu_aff_mask) != 0) {
             int size = sizeof(cpu_aff_mask);
             int ret = sched_setaffinity(0, size, &cpu_aff_mask);
-            if (ret != 0)
-                std::cerr << "Could not set writer thread "
-                          << "cpu affinity mask" << std::endl;
+            if (ret != 0) {
+                LOG(logERROR) << "Could not set writer thread "
+                              << "cpu affinity mask";
+            }
         }
         {
             std::lock_guard<std::mutex> l(ps.mutex);
@@ -195,13 +196,13 @@ class PacketStream<P, SD, FP>::WriterThread {
         uint32_t packet_number = packet.number();
 
         auto trace_unexpected = [&](auto msg) {
-            std::cout << "*** [" << ps.socket->getPortNumber()
-                      << "] unexpected " << msg << ": "
-                      << "packet_frame=" << packet_frame << ", "
-                      << "packet_number=" << packet_number << ", "
-                      << "curr_frame=" << block->frame_number << ", "
-                      << "curr_packet=" << curr_packet << ", "
-                      << "curr_idx=" << curr_idx << std::endl;
+            LOG(logERROR) << "[" << ps.socket->getPortNumber() << "] "
+                          << "unexpected " << msg << ": "
+                          << "packet_frame=" << packet_frame << ", "
+                          << "packet_number=" << packet_number << ", "
+                          << "curr_frame=" << block->frame_number << ", "
+                          << "curr_packet=" << curr_packet << ", "
+                          << "curr_idx=" << curr_idx;
         };
 
         // moveToGood manages both src & dst valid flags
