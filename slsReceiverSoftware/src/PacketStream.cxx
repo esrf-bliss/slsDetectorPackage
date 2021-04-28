@@ -87,6 +87,8 @@ void PacketStream<P, SD, FP>::addPacketBlock(BlockPtr &&block) {
     }
     if (full_frame || !FP::canDiscardFrame(block->getValidPackets()))
         packet_cont.putReadyPacketBlock(std::move(block));
+    else
+        block.reset();
 }
 
 template <class P, class SD, class FP>
