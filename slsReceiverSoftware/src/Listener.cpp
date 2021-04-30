@@ -116,7 +116,7 @@ void Listener::CreateUDPSockets() {
         packetStream = CreatePacketStream(
             udpSocket, generalData->myDetectorType, generalData->tgEnable,
             generalData->numUDPInterfaces, generalData->dynamicRange, index,
-            cpuMask, GetThreadId(), *frameDiscardMode, packetContainer);
+            cpuMask, *frameDiscardMode, packetContainer);
         LOG(logINFO) << index << ": PacketStream for port " << *udpPortNumber;
     } catch (...) {
         throw sls::RuntimeError("Could not create PacketStream on port " +
