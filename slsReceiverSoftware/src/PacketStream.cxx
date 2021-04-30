@@ -12,12 +12,11 @@
 
 template <class P, class SD, class FP>
 PacketStream<P, SD, FP>::PacketStream(UdpRxSocketPtr s, cpu_set_t cpu_mask,
-                                      pid_t thread_id,
                                       AnyPacketContainerPtr any_pc)
     : socket(s), packet_cont(PacketContainerPtrFromAny<Packet>(any_pc)),
       cpu_aff_mask(cpu_mask) {
     packet_cont.prepare();
-    thread = std::make_unique<WriterThread>(*this, thread_id);
+    thread = std::make_unique<WriterThread>(*this);
 }
 
 template <class P, class SD, class FP>
@@ -99,14 +98,7 @@ void PacketStream<P, SD, FP>::threadFunction() {
 template <class P, class SD, class FP>
 class PacketStream<P, SD, FP>::WriterThread {
   public:
-    WriterThread(PacketStream &s, pid_t thread_id) : ps(s) {
-        struct sched_param param;
-        param.sched_priority = 90;
-        int ret = sched_setscheduler(thread_id, SCHED_FIFO, &param);
-        if (ret != 0) {
-            LOG(logERROR) << "Could not set packet thread RT priority!";
-        }
-    }
+    WriterThread(PacketStream &s) : ps(s) {}
 
     ~WriterThread() {
         std::unique_lock<std::mutex> l(ps.mutex);
@@ -300,7 +292,7 @@ template <class PS, class... Args> auto PSFactory(Args &&...args) {
 
 inline AnyPacketStreamPtr CreatePacketStream(UdpRxSocketPtr s, GeneralDataPtr d,
                                              int idx, cpu_set_t cpu_mask,
-                                             pid_t thread_id, FramePolicy fp,
+                                             FramePolicy fp,
                                              AnyPacketContainerPtr any_pc) {
 
     auto any_pixel = AnyPixelFromBpp(d->dynamicRange);
@@ -311,7 +303,7 @@ inline AnyPacketStreamPtr CreatePacketStream(UdpRxSocketPtr s, GeneralDataPtr d,
             using P = decltype(pixel);
             using FP = decltype(fp);
 
-#define args s, cpu_mask, thread_id, any_pc
+#define args s, cpu_mask, any_pc
 
             if (d->myDetectorType == slsDetectorDefs::EIGER) {
                 auto any_tg = ::Eiger::AnyTenGigaFromTgEnable(d->tgEnable);

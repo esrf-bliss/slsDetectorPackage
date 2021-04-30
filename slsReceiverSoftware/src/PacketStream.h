@@ -72,7 +72,7 @@ template <class P, class SD, class FP> class PacketStream {
     using BlockLayout = typename Block::Layout;
     static constexpr int FramePackets = Block::NbPackets;
 
-    PacketStream(UdpRxSocketPtr s, cpu_set_t cpu_mask, pid_t thread_id,
+    PacketStream(UdpRxSocketPtr s, cpu_set_t cpu_mask,
                  AnyPacketContainerPtr pc);
     ~PacketStream();
 
@@ -197,7 +197,7 @@ using PacketStreamList = std::vector<AnyPacketStreamPtr>;
 
 AnyPacketStreamPtr CreatePacketStream(UdpRxSocketPtr s, GeneralDataPtr d,
                                       int idx, cpu_set_t cpu_mask,
-                                      pid_t thread_id, FramePolicy fp,
+                                      FramePolicy fp,
                                       AnyPacketContainerPtr any_pc);
 
 #include "PacketStream.cxx"
