@@ -11,6 +11,7 @@ class Fifo;
 class slsDetectorDefs;
 
 #include <atomic>
+#include <array>
 #include <chrono>
 #include <exception>
 #include <map>
@@ -257,10 +258,7 @@ class Implementation : private virtual slsDetectorDefs {
                                             void *arg);
 
   private:
-    struct PortGeometry {
-        int g[MAX_DIMENSIONS];
-        int &operator[](int i) { return g[i]; }
-    };
+    typedef std::array<int, MAX_DIMENSIONS> PortGeometry;
 
     void SetLocalNetworkParameters();
     void SetThreadPriorities();

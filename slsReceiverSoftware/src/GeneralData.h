@@ -58,7 +58,7 @@ class GeneralData {
 
     GeneralData(){};
     virtual ~GeneralData(){};
-
+    // Returns the pixel depth in byte, 4 bits being 0.5 byte
     float GetPixelDepth() { return float(dynamicRange) / 8; }
 
     /**
