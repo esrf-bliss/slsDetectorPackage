@@ -33,7 +33,7 @@ PacketContainer<P>::PacketContainer(int frames, unsigned long node_mask,
 
 template <class P> PacketContainer<P>::~PacketContainer() {
     stop();
-    cleanup();
+    cleanUp();
 }
 
 template <class P>
@@ -158,7 +158,7 @@ template <class P> void PacketContainer<P>::stop() {
     }
 }
 
-template <class P> void PacketContainer<P>::cleanup() {
+template <class P> void PacketContainer<P>::cleanUp() {
     releaseReadyPacketBlocks();
     waitUsedPacketBlocks();
 }
