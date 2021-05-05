@@ -23,7 +23,7 @@ template <class P, class SD, class FP>
 PacketStream<P, SD, FP>::~PacketStream() {
     stop();
     thread.reset();
-    packet_cont.cleanup();
+    packet_cont.cleanUp();
 }
 
 template <class P, class SD, class FP>

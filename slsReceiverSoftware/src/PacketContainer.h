@@ -47,7 +47,7 @@ template <class P> class PacketContainer {
         }
 
         void stop() { pc->stop(); }
-        void cleanup() { pc->cleanup(); }
+        void cleanUp() { pc->cleanUp(); }
 
       private:
         Ptr pc;
@@ -77,7 +77,7 @@ template <class P> class PacketContainer {
     void waitUsedPacketBlocks();
 
     void stop();
-    void cleanup();
+    void cleanUp();
 
     const unsigned int num_frames;
     MmappedBlockRegion packet_buffer_array;
