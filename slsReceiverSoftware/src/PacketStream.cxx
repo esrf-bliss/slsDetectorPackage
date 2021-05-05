@@ -290,7 +290,7 @@ uint32_t StreamData<NbUDPIfaces, Idx>::getPacketNumber(uint32_t packet_idx) {
  * PacketStream factory
  */
 
-template <class PS, class... Args> auto PSFactory(Args &&... args) {
+template <class PS, class... Args> auto PSFactory(Args &&...args) {
     return std::make_shared<AnyPacketStream>(std::in_place_type_t<PS>(),
                                              std::forward<Args>(args)...);
 }

@@ -49,7 +49,7 @@ class DataSocket {
     int Send(const std::string &s);
 
     // Variadic template to send all arguments
-    template <class... Args> int SendAll(Args &&... args) {
+    template <class... Args> int SendAll(Args &&...args) {
         auto l = std::initializer_list<int>{Send(args)...};
         auto sum = std::accumulate(begin(l), end(l), 0);
         return sum;
