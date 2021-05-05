@@ -100,7 +100,7 @@ PacketBlockPtr<P> PacketContainer<P>::getReadyPacketBlock(uint64_t frame) {
 }
 
 template <class P>
-void PacketContainer<P>::putReadyPacketBlock(BlockPtr &&block) {
+void PacketContainer<P>::putReadyPacketBlock(BlockPtr block) {
     std::lock_guard<std::mutex> l(block_mutex);
     packet_block_map.emplace(
         FramePacketBlock(block->frame_number, std::move(block)));
@@ -118,8 +118,8 @@ template <class P> void PacketContainer<P>::releaseReadyPacketBlocks() {
     while (waiting_reader_count > 0)
         block_cond.wait_for(l, 5ms);
     PacketBlockMap old_map = std::move(packet_block_map);
+    assert(packet_block_map.empty());
     l.unlock();
-    old_map.clear();
 }
 
 template <class P> void PacketContainer<P>::waitUsedPacketBlocks() {

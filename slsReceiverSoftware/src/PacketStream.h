@@ -91,7 +91,7 @@ template <class P, class SD, class FP> class PacketStream {
     struct WriterThread;
 
     BlockPtr getEmptyBlock() { return packet_cont.getFreePacketBlock(); }
-    void addPacketBlock(BlockPtr &&block);
+    void addPacketBlock(BlockPtr block);
 
     bool wasStopped();
 

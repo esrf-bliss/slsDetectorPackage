@@ -347,7 +347,7 @@ void CopyHelper<P, TG, GD, MGX, MGY, Idx>::assemblePackets(
 
 template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
 Result FrameAssembler<P, TG, GD, MGX, MGY, Idx>::assembleFrame(
-    AnyPacketBlockList &&blocks, RecvHeader *recv_header, char *buf) {
+    AnyPacketBlockList blocks, RecvHeader *recv_header, char *buf) {
 
     if (blocks.size() != std::size_t(NbIfaces) ||
         !std::holds_alternative<BlockPtr>(blocks[0]) ||

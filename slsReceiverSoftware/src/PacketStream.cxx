@@ -73,7 +73,7 @@ uint64_t PacketStream<P, SD, FP>::getLastFrameIndex() {
 }
 
 template <class P, class SD, class FP>
-void PacketStream<P, SD, FP>::addPacketBlock(BlockPtr &&block) {
+void PacketStream<P, SD, FP>::addPacketBlock(BlockPtr block) {
     bool full_frame = block->hasFullFrame();
     {
         std::lock_guard<std::mutex> l(mutex);
@@ -86,8 +86,6 @@ void PacketStream<P, SD, FP>::addPacketBlock(BlockPtr &&block) {
     }
     if (full_frame || !FP::canDiscardFrame(block->getValidPackets()))
         packet_cont.putReadyPacketBlock(std::move(block));
-    else
-        block.reset();
 }
 
 template <class P, class SD, class FP>
@@ -155,8 +153,9 @@ class PacketStream<P, SD, FP>::WriterThread {
     P getNextPacket() { return (*block)[incPacketCounters().second]; }
 
     void finishPacketBlock() {
-        curr_idx = curr_packet = -1;
         ps.addPacketBlock(std::move(block));
+        assert(!block);
+        curr_idx = curr_packet = -1;
     }
 
     void setInvalidPacketsUntil(uint32_t good_packet) {
