@@ -143,7 +143,7 @@ void CopyHelper<GD, MGX, MGY, Idx>::assemblePackets(BlockPtr block, char *buf) {
 template <class GD, bool MGX, bool MGY>
 template <int Idx>
 void FrameAssembler<GD, MGX, MGY>::Worker::assembleIface(
-    AnyPacketBlockPtr &&block) {
+    AnyPacketBlockPtr block) {
     using Helper = CopyHelper<GD, MGX, MGY, Idx>;
     using BlockPtr = typename Helper::BlockPtr;
 
@@ -176,7 +176,7 @@ Result FrameAssembler<GD, MGX, MGY>::Worker::result() {
 }
 
 template <class GD, bool MGX, bool MGY>
-Result FrameAssembler<GD, MGX, MGY>::assembleFrame(AnyPacketBlockList &&blocks,
+Result FrameAssembler<GD, MGX, MGY>::assembleFrame(AnyPacketBlockList blocks,
                                                    RecvHeader *recv_header,
                                                    char *buf) {
     if (blocks.size() != std::size_t(NbIfaces))

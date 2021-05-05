@@ -42,7 +42,7 @@ template <class P> class PacketContainer {
         void prepare() { pc->prepare(); }
 
         BlockPtr getFreePacketBlock() { return pc->getFreePacketBlock(); }
-        void putReadyPacketBlock(BlockPtr &&block) {
+        void putReadyPacketBlock(BlockPtr block) {
             pc->putReadyPacketBlock(std::move(block));
         }
 
@@ -72,7 +72,7 @@ template <class P> class PacketContainer {
     void prepare();
 
     BlockPtr getFreePacketBlock();
-    void putReadyPacketBlock(BlockPtr &&block);
+    void putReadyPacketBlock(BlockPtr block);
     void releaseReadyPacketBlocks();
     void waitUsedPacketBlocks();
 

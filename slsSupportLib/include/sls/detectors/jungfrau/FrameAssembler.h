@@ -29,7 +29,7 @@ class FrameAssembler : public MPFrameAssembler {
 
     FrameAssembler(int offset) : data_offset(offset) {}
 
-    Result assembleFrame(AnyPacketBlockList &&blocks, RecvHeader *recv_header,
+    Result assembleFrame(AnyPacketBlockList blocks, RecvHeader *recv_header,
                          char *buf) override;
 
   private:
@@ -45,7 +45,7 @@ class FrameAssembler : public MPFrameAssembler {
             det_header->packetNumber = 0;
         }
 
-        template <int Idx> void assembleIface(AnyPacketBlockPtr &&block);
+        template <int Idx> void assembleIface(AnyPacketBlockPtr block);
 
         Result result();
     };

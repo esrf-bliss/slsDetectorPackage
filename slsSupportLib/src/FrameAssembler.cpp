@@ -58,7 +58,7 @@ void DefaultFrameAssembler<Packet, DP>::expand4Bits(char *dst, char *src,
 }
 
 template <class Packet, class DP>
-bool DefaultFrameAssembler<Packet, DP>::assembleFrame(AnyPacketBlockPtr &&block,
+bool DefaultFrameAssembler<Packet, DP>::assembleFrame(AnyPacketBlockPtr block,
                                                       RecvHeader *recv_header,
                                                       char *buf) {
     if (!std::holds_alternative<BlockPtr>(block))
@@ -163,7 +163,7 @@ DefaultFrameAssemblerPtr sls::FrameAssembler::CreateDefaultFrameAssembler(
  * RawFrameAssembler
  */
 
-Result RawFrameAssembler::assembleFrame(AnyPacketBlockList &&blocks,
+Result RawFrameAssembler::assembleFrame(AnyPacketBlockList blocks,
                                         RecvHeader *recv_header, char *buf) {
     const int NbIfaces = assembler.size();
     if (blocks.size() != std::size_t(NbIfaces))

@@ -22,7 +22,7 @@ class DefaultFrameAssemblerBase {
   public:
     virtual ~DefaultFrameAssemblerBase() {}
 
-    virtual bool assembleFrame(AnyPacketBlockPtr &&block, RecvHeader *header,
+    virtual bool assembleFrame(AnyPacketBlockPtr block, RecvHeader *header,
                                char *buf) = 0;
 
     virtual int getImageSize() = 0;
@@ -47,7 +47,7 @@ class DefaultFrameAssembler : public DefaultFrameAssemblerBase {
     using Block = PacketBlock<Packet>;
     using BlockPtr = PacketBlockPtr<Packet>;
 
-    bool assembleFrame(AnyPacketBlockPtr &&block, RecvHeader *header,
+    bool assembleFrame(AnyPacketBlockPtr block, RecvHeader *header,
                        char *buf) override;
 
     int getImageSize() override;
@@ -79,8 +79,8 @@ class MPFrameAssembler {
   public:
     virtual ~MPFrameAssembler() {}
 
-    virtual Result assembleFrame(AnyPacketBlockList &&blocks,
-                                 RecvHeader *header, char *buf) = 0;
+    virtual Result assembleFrame(AnyPacketBlockList blocks, RecvHeader *header,
+                                 char *buf) = 0;
 };
 
 using MPFrameAssemblerPtr = std::unique_ptr<MPFrameAssembler>;
@@ -102,7 +102,7 @@ class RawFrameAssembler : public MPFrameAssembler {
         data_offset = assembler.size() * iface_size * recv_idx;
     }
 
-    Result assembleFrame(AnyPacketBlockList &&blocks, RecvHeader *recv_header,
+    Result assembleFrame(AnyPacketBlockList blocks, RecvHeader *recv_header,
                          char *buf) override;
 
   private:
