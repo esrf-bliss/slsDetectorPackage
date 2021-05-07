@@ -4,13 +4,14 @@
  * from udp packets
  ***********************************************/
 
-#include "sls/FrameAssembler.h"
+#include "sls/detectors/eiger/FrameAssembler.h"
+#include "sls/detectors/jungfrau/FrameAssembler.h"
 #include "sls/logger.h"
 
 #include <emmintrin.h>
 #include <string.h>
 
-using namespace FrameAssembler;
+using namespace sls::FrameAssembler;
 
 /**
  * DefaultFrameAssembler
@@ -83,7 +84,7 @@ bool DefaultFrameAssembler<Packet, DP>::assembleFrame(AnyPacketBlockPtr &&block,
     uint32_t prev_adjust = 0;
     for (int i = 0; i < packets_per_frame; ++i) {
         Packet packet = (*b)[i];
-        if (!packet.valid())
+        if (!packet.isValid())
             continue;
 
         int pnum = packet.number();
@@ -117,7 +118,7 @@ bool DefaultFrameAssembler<Packet, DP>::assembleFrame(AnyPacketBlockPtr &&block,
     return true;
 }
 
-DefaultFrameAssemblerPtr FrameAssembler::CreateDefaultFrameAssembler(
+DefaultFrameAssemblerPtr sls::FrameAssembler::CreateDefaultFrameAssembler(
     slsDetectorDefs::detectorType det_type, bool tg_enable, int num_udp_ifaces,
     uint32_t src_dr, uint32_t dst_dr) {
     if (dst_dr == 0)
@@ -132,22 +133,22 @@ DefaultFrameAssemblerPtr FrameAssembler::CreateDefaultFrameAssembler(
             using DP = decltype(dst_pixel);
 
             if (det_type == slsDetectorDefs::EIGER) {
-                auto any_tg = ::Eiger::AnyTenGigaFromTgEnable(tg_enable);
+                auto any_tg = Eiger::AnyTenGigaFromTgEnable(tg_enable);
                 return std::visit(
                     [&](auto tg) -> DefaultFrameAssemblerPtr {
                         using TG = decltype(tg);
-                        using Packet = ::Eiger::Packet<SP, TG>;
+                        using Packet = Eiger::Packet<SP, TG>;
                         using Assembler = DefaultFrameAssembler<Packet, DP>;
                         return std::make_shared<Assembler>();
                     },
                     any_tg);
             } else if (det_type == slsDetectorDefs::JUNGFRAU) {
                 if (num_udp_ifaces == 1) {
-                    using Packet = ::Jungfrau::Packet<1>;
+                    using Packet = Jungfrau::Packet<Jungfrau::OneIface>;
                     using Assembler = DefaultFrameAssembler<Packet>;
                     return std::make_shared<Assembler>();
                 } else {
-                    using Packet = ::Jungfrau::Packet<2>;
+                    using Packet = Jungfrau::Packet<Jungfrau::TwoIface>;
                     using Assembler = DefaultFrameAssembler<Packet>;
                     return std::make_shared<Assembler>();
                 }
@@ -179,6 +180,3 @@ Result RawFrameAssembler::assembleFrame(AnyPacketBlockList &&blocks,
     }
     return res;
 }
-
-#include "FrameAssemblerEiger.cxx"
-#include "FrameAssemblerJungfrau.cxx"

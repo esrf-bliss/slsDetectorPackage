@@ -36,7 +36,8 @@ template <class P> PacketContainer<P>::~PacketContainer() {
     cleanup();
 }
 
-template <class P> PacketBlockPtr<P> PacketContainer<P>::getFreePacketBlock() {
+template <class P>
+sls::PacketBlockPtr<P> PacketContainer<P>::getFreePacketBlock() {
     auto releaser = [&](BlockLayout *layout) {
         std::lock_guard<std::mutex> l(free_mutex);
         free_queue.push(layout);
@@ -58,7 +59,7 @@ template <class P> PacketBlockPtr<P> PacketContainer<P>::getFreePacketBlock() {
 }
 
 template <class P>
-PacketBlockPtr<P> PacketContainer<P>::getReadyPacketBlock(uint64_t frame) {
+sls::PacketBlockPtr<P> PacketContainer<P>::getReadyPacketBlock(uint64_t frame) {
 
     class WaitingCountHelper {
       public:
@@ -193,18 +194,20 @@ inline AnyPacketContainerPtr CreatePacketContainer(GeneralDataPtr d, int frames,
 #define args frames, node_mask, max_node
 
             if (d->myDetectorType == slsDetectorDefs::EIGER) {
-                auto any_tg = ::Eiger::AnyTenGigaFromTgEnable(d->tgEnable);
+                auto any_tg = sls::Eiger::AnyTenGigaFromTgEnable(d->tgEnable);
                 return std::visit(
                     [&](auto tg) {
                         using TG = decltype(tg);
-                        return PCFactory<::Eiger::Packet<P, TG>>(args);
+                        return PCFactory<sls::Eiger::Packet<P, TG>>(args);
                     },
                     any_tg);
             } else if (d->myDetectorType == slsDetectorDefs::JUNGFRAU) {
                 if (d->numUDPInterfaces == 1)
-                    return PCFactory<::Jungfrau::Packet<1>>(args);
+                    return PCFactory<
+                        sls::Jungfrau::Packet<sls::Jungfrau::OneIface>>(args);
                 else
-                    return PCFactory<::Jungfrau::Packet<2>>(args);
+                    return PCFactory<
+                        sls::Jungfrau::Packet<sls::Jungfrau::TwoIface>>(args);
             } else
                 throw sls::RuntimeError("Detector not supported: " +
                                         std::to_string(d->myDetectorType));

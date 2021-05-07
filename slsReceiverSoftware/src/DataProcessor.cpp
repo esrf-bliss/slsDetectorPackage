@@ -86,7 +86,7 @@ void DataProcessor::SetGeneralData(GeneralData *g) {
     generalData = g;
 
     try {
-        frameAssembler = FrameAssembler::CreateDefaultFrameAssembler(
+        frameAssembler = sls::FrameAssembler::CreateDefaultFrameAssembler(
             generalData->myDetectorType, generalData->tgEnable,
             generalData->numUDPInterfaces, generalData->dynamicRange);
         LOG(logINFO) << index << ": Default FrameAssembler created";

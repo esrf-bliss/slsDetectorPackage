@@ -7,6 +7,8 @@
 #include "MasterAttributes.h"
 #include "sls/ToString.h"
 #include "sls/ZmqSocket.h" //just for the zmq port define
+#include "sls/detectors/eiger/FrameAssembler.h"
+#include "sls/detectors/jungfrau/FrameAssembler.h"
 #include "sls/file_utils.h"
 
 #include <cerrno> //eperm
@@ -117,13 +119,13 @@ Implementation::CreateFrameAssembler(AssemblerType asm_type) {
         fa = std::make_unique<RawFrameAssembler>(d, recv_idx, nb_ports, src_dr,
                                                  dst_dr);
     } else if (d == slsDetectorDefs::EIGER) {
-        using namespace sls::Geom::Eiger;
+        using namespace sls::Eiger::Geom;
         auto mod_pos = getModPos(RecvIfaces, ModRecvs);
         recv_idx %= ModRecvs.y;
-        fa = FrameAssembler::Eiger::CreateFrameAssembler(
+        fa = sls::Eiger::FrameAssembler::CreateFrameAssembler(
             src_dr, gd->tgEnable, det_ifaces, mod_pos, recv_idx);
     } else if (d == slsDetectorDefs::JUNGFRAU) {
-        using namespace sls::Geom::Jungfrau;
+        using namespace sls::Jungfrau::Geom;
         XY mod_pos;
         std::visit(
             [&](auto nb) {
@@ -131,7 +133,7 @@ Implementation::CreateFrameAssembler(AssemblerType asm_type) {
                 mod_pos = getModPos(RecvIfaces<num_udp_ifaces>, ModRecvs);
             },
             AnyNbUDPIfacesFromNbUDPIfaces(nb_ports));
-        fa = FrameAssembler::Jungfrau::CreateFrameAssembler(
+        fa = sls::Jungfrau::FrameAssembler::CreateFrameAssembler(
             nb_ports, det_ifaces, mod_pos);
     } else
         throw sls::RuntimeError("FrameAssembler not available for " +
@@ -1740,14 +1742,14 @@ void Implementation::setBufferNodeAffinity(unsigned long buffer_node_mask,
                  << buffer_node_mask << std::dec << ", max_node: " << max_node;
 }
 
-AnyPacketBlockList Implementation::GetFramePacketBlocks() {
+sls::AnyPacketBlockList Implementation::GetFramePacketBlocks() {
     if (!passiveMode)
         throw sls::RuntimeError("GetFramePacketBlocks: not in passiveMode");
 
     if (status != RUNNING)
         return {};
 
-    AnyPacketBlockList blocks;
+    sls::AnyPacketBlockList blocks;
     size_t valid_ports = 0;
     uint64_t frame = uint64_t(-1);
     for (auto &f : fifo) {

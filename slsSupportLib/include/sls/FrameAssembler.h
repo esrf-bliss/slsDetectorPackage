@@ -5,11 +5,14 @@
  * from udp packets
  ***********************************************/
 
-#include "Packet.h"
+#include "PacketTypedefs.h"
 
+namespace sls {
 namespace FrameAssembler {
 
 using namespace sls::Geom;
+
+using RecvHeader = slsDetectorDefs::sls_receiver_header;
 
 /**
  *@short Default frame assembler in Listener
@@ -115,6 +118,4 @@ enum AssemblerType {
 };
 
 } // namespace FrameAssembler
-
-#include "FrameAssemblerEiger.hxx"
-#include "FrameAssemblerJungfrau.hxx"
+} // namespace sls

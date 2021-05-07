@@ -54,7 +54,7 @@ class ClientInterface : private virtual slsDetectorDefs {
     void setThreadCPUAffinity(const CPUMaskList &cpu_masks);
     void setBufferNodeAffinity(unsigned long buffer_node_mask, int max_node);
     MPFrameAssemblerPtr CreateFrameAssembler(AssemblerType asm_type);
-    AnyPacketBlockList GetFramePacketBlocks();
+    sls::AnyPacketBlockList GetFramePacketBlocks();
     void clearAllBuffers();
 
   private:

@@ -66,6 +66,7 @@ message(STATUS "SLS_LTO_AVAILABLE:" ${SLS_LTO_AVAILABLE})
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+
 if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   message(STATUS "No build type selected, default to Release")
   set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type (default Release)" FORCE)
@@ -75,7 +76,7 @@ endif()
 #Add two fake libraries to manage options
 add_library(slsProjectOptions INTERFACE)
 add_library(slsProjectWarnings INTERFACE)
-target_compile_features(slsProjectOptions INTERFACE cxx_std_11)
+#target_compile_features(slsProjectOptions INTERFACE cxx_std_17)
 target_compile_options(slsProjectWarnings INTERFACE 
                                             -Wall
                                             -Wextra
@@ -193,8 +194,6 @@ if (SLS_USE_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif(SLS_USE_TESTS)
-
-
 
 
 # Common functionallity to detector and receiver

@@ -1,10 +1,11 @@
 #include "catch.hpp"
 #include "sls/Geometry.h"
+#include "sls/detectors/eiger/Geometry.h"
 
 namespace sls {
-namespace Geom {
 
 namespace Eiger {
+namespace Geom {
 
 template <class DetGeom> struct TestGeomData {
     int chip_size, iface_chips, recv_ifaces, mod_recvs, chip_gap, mod_gap,
@@ -242,7 +243,10 @@ inline void test() {
 #undef assert_equal
 }
 
+} // namespace Geom
 } // namespace Eiger
+
+namespace Geom {
 
 inline void test() {
     std::cout << "In sls::Geom::test():" << std::endl;
@@ -251,8 +255,6 @@ inline void test() {
               << "c1.area()=" << c1.area() << std::endl;
     static_assert((c1 * XY{2, 4}) == XY{256, 1024});
     static_assert(c1.area() == (128 * 256));
-
-    Eiger::test();
 }
 
 } // namespace Geom
@@ -260,4 +262,5 @@ inline void test() {
 
 TEST_CASE("The Geometry code behaves as expected", "[support]") {
     sls::Geom::test();
+    sls::Eiger::Geom::test();
 }

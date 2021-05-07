@@ -3,8 +3,6 @@
  * @short low-level udp packet reception classes
  ***********************************************/
 
-#include "PacketStream.h"
-
 /**
  * PacketStream
  */
@@ -255,81 +253,3 @@ class PacketStream<P, SD, FP>::WriterThread {
     bool running{false};
     std::condition_variable cond;
 };
-
-namespace Jungfrau {
-
-/**
- * Sequence of Jungfrau packets
- */
-
-template <int NbUDPIfaces, int Idx>
-uint32_t StreamData<NbUDPIfaces, Idx>::getPacketNumber(uint32_t packet_idx) {
-    constexpr int FramePackets =
-        ::Jungfrau::PacketData<NbUDPIfaces>::PacketsPerFrame;
-    constexpr int DirBottom = 1;
-    constexpr int DirTop = -1;
-    if constexpr (NbUDPIfaces == 1) {
-        constexpr int FirstBottom = FramePackets / 2;
-        constexpr int FirstTop = FirstBottom - 1;
-        bool top = ((packet_idx % 2) == 0);
-        int rel_row = packet_idx / 2;
-        int first = top ? FirstTop : FirstBottom;
-        int dir = top ? DirTop : DirBottom;
-        return first + rel_row * dir;
-    } else if constexpr (Idx == 0) {
-        constexpr int FirstTop = FramePackets - 1;
-        return FirstTop + packet_idx * DirTop;
-    } else {
-        return packet_idx;
-    }
-}
-
-} // namespace Jungfrau
-
-/**
- * PacketStream factory
- */
-
-template <class PS, class... Args> auto PSFactory(Args &&... args) {
-    return std::make_shared<AnyPacketStream>(std::in_place_type_t<PS>(),
-                                             std::forward<Args>(args)...);
-}
-
-inline AnyPacketStreamPtr CreatePacketStream(UdpRxSocketPtr s, GeneralDataPtr d,
-                                             int idx, cpu_set_t cpu_mask,
-                                             pid_t thread_id, FramePolicy fp,
-                                             AnyPacketContainerPtr any_pc) {
-
-    auto any_pixel = AnyPixelFromBpp(d->dynamicRange);
-    auto any_fp = AnyFramePolicyFromFP(fp);
-
-    return std::visit(
-        [&](auto pixel, auto fp) {
-            using P = decltype(pixel);
-            using FP = decltype(fp);
-
-#define args s, cpu_mask, thread_id, any_pc
-
-            if (d->myDetectorType == slsDetectorDefs::EIGER) {
-                auto any_tg = ::Eiger::AnyTenGigaFromTgEnable(d->tgEnable);
-                return std::visit(
-                    [&](auto tg) {
-                        using TG = decltype(tg);
-                        return PSFactory<::Eiger::PacketStream<P, TG, FP>>(
-                            args);
-                    },
-                    any_tg);
-            } else if (d->myDetectorType == slsDetectorDefs::JUNGFRAU) {
-                if (d->numUDPInterfaces == 1)
-                    return PSFactory<::Jungfrau::PacketStream<1, 0, FP>>(args);
-                else if (idx == 0)
-                    return PSFactory<::Jungfrau::PacketStream<2, 0, FP>>(args);
-                else
-                    return PSFactory<::Jungfrau::PacketStream<2, 1, FP>>(args);
-            } else
-                throw sls::RuntimeError("Detector not supported: " +
-                                        std::to_string(d->myDetectorType));
-#undef args
-        },
-        any_pixel, any_fp);
-}

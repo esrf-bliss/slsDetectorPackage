@@ -58,17 +58,20 @@ target_include_directories(slsSupportObject
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
   PRIVATE
-    ${ZeroMQ_INCLUDE_DIRS}
+    ${ZeroMQ_INCLUDE_DIR}
 )
 
 target_link_libraries(slsSupportObject 
   PUBLIC
     slsProjectOptions 
-    ${ZeroMQ_LIBRARIES}
+    ${ZeroMQ_LIBRARY}
     rapidjson
   PRIVATE
     slsProjectWarnings     
 )
+
+message("ZeroMQ_INCLUDE_DIR: ${ZeroMQ_INCLUDE_DIR}")
+message("ZeroMQ_LIBRARY: ${ZeroMQ_LIBRARY}")
 
 target_compile_options(slsSupportObject PRIVATE "-Wno-address-of-packed-member")
 

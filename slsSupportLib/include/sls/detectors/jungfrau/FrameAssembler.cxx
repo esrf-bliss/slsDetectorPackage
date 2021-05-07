@@ -5,12 +5,11 @@
  * This file is include in FrameAssembler.cpp
  ***********************************************/
 
-namespace GeomJungfrau = sls::Geom::Jungfrau;
-
-namespace FrameAssembler {
+namespace sls {
 namespace Jungfrau {
+namespace FrameAssembler {
 
-constexpr int IfaceHorzChips = GeomJungfrau::IfaceChips<1>.x;
+constexpr int IfaceHorzChips = Geom::IfaceChips<1>.x;
 
 template <int NbUDPIfaces, int Idx>
 constexpr auto RawIfaceGeom = ::Jungfrau::RawIfaceGeom<NbUDPIfaces, Idx>;
@@ -46,10 +45,10 @@ template <class GD, bool MGX, bool MGY, int Idx> struct GeomHelper {
         return IfaceGeom1.getPacketView(PacketData::PacketPixels, PacketIdx);
     }
 
-    SCI chip_cols = GeomJungfrau::ChipPixels.x;
-    SCI chip_lines = GeomJungfrau::ChipPixels.y;
-    SCA chip_gap_pixels = GeomJungfrau::ChipGap;
-    SCA mod_gap_pixels = GeomJungfrau::ModGap;
+    SCI chip_cols = Geom::ChipPixels.x;
+    SCI chip_lines = Geom::ChipPixels.y;
+    SCA chip_gap_pixels = Geom::ChipGap;
+    SCA mod_gap_pixels = Geom::ModGap;
     SCI frame_packets = PacketData::PacketsPerFrame;
     SCI packet_lines = RawIfaceSize.y / frame_packets;
     SCI flipped = (RecvView.pixelDir().y < 0);
@@ -103,7 +102,7 @@ void CopyHelper<GD, MGX, MGY, Idx>::assemblePackets(BlockPtr block, char *buf) {
             char *ld = d;
             char *ls = s;
             for (int c = 0; c < IfaceHorzChips; ++c) {
-                if (line_packet.valid())
+                if (line_packet.isValid())
                     memcpy(ld, ls, h.src_chip_size);
                 else
                     memset(ld, 0xff, h.src_chip_size);
@@ -198,15 +197,10 @@ Result FrameAssembler<GD, MGX, MGY>::assembleFrame(AnyPacketBlockList &&blocks,
     return w.result();
 }
 
-} // namespace Jungfrau
-} // namespace FrameAssembler
+MPFrameAssemblerPtr CreateFrameAssembler(int mod_ifaces, XY det_ifaces,
+                                         XY mod_pos) {
 
-MPFrameAssemblerPtr
-FrameAssembler::Jungfrau::CreateFrameAssembler(int mod_ifaces, XY det_ifaces,
-                                               XY mod_pos) {
-
-    auto any_nb_ifaces =
-        GeomJungfrau::AnyNbUDPIfacesFromNbUDPIfaces(mod_ifaces);
+    auto any_nb_ifaces = Geom::AnyNbUDPIfacesFromNbUDPIfaces(mod_ifaces);
 
     return std::visit(
         [&](auto nb_ifaces) {
@@ -214,7 +208,7 @@ FrameAssembler::Jungfrau::CreateFrameAssembler(int mod_ifaces, XY det_ifaces,
             constexpr XY iface_size = RawIfaceGeom<NbUDPIfaces, 0>.size;
             XY det_size = iface_size * det_ifaces;
             auto any_det_geom =
-                GeomJungfrau::AnyDetGeomFromDetSize<NbUDPIfaces>(det_size);
+                Geom::AnyDetGeomFromDetSize<NbUDPIfaces>(det_size);
 
             return std::visit(
                 [&](auto gd) {
@@ -239,3 +233,7 @@ FrameAssembler::Jungfrau::CreateFrameAssembler(int mod_ifaces, XY det_ifaces,
         },
         any_nb_ifaces);
 }
+
+} // namespace FrameAssembler
+} // namespace Jungfrau
+} // namespace sls

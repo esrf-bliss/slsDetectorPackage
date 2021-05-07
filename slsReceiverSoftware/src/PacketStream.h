@@ -50,12 +50,6 @@ inline AnyFramePolicy AnyFramePolicyFromFP(FramePolicy fp) {
     }
 }
 
-// An instance of StreamData is included in the PacketStream
-template <class Packet> struct StreamData {
-    // Describes the sequence of the packets in the stream
-    uint32_t getPacketNumber(uint32_t packet_idx) { return packet_idx; }
-};
-
 /**
  *@short manages packet stream with buffer & parallel read functionality
  */
@@ -67,8 +61,8 @@ template <class P, class SD, class FP> class PacketStream {
     using Packet = P;
     using StreamData = SD;
     using FramePolicy = FP;
-    using Block = PacketBlock<Packet>;
-    using BlockPtr = PacketBlockPtr<Packet>;
+    using Block = sls::PacketBlock<Packet>;
+    using BlockPtr = sls::PacketBlockPtr<Packet>;
     using BlockLayout = typename Block::Layout;
     static constexpr int FramePackets = Block::NbPackets;
 
@@ -111,93 +105,46 @@ template <class P, class SD, class FP> class PacketStream {
     std::unique_ptr<WriterThread> thread;
 };
 
-#define AllPacketStreamsFor(P, SD)                                             \
+// UGLY
+#include "sls/detectors/eiger/StreamData.h"
+#include "sls/detectors/jungfrau/StreamData.h"
+
+#define SLS_DEFINE_EIGER_PACKET_STREAM(P)                                      \
+    PacketStream<P, sls::StreamData<P>, NoFrameDiscard>,                       \
+        PacketStream<P, sls::StreamData<P>, EmptyFrameDiscard>,                \
+        PacketStream<P, sls::StreamData<P>, PartialFrameDiscard>
+
+#define SLS_DEFINE_JUNGFRAU_PACKET_STREAM(P, SD)                               \
     PacketStream<P, SD, NoFrameDiscard>,                                       \
         PacketStream<P, SD, EmptyFrameDiscard>,                                \
         PacketStream<P, SD, PartialFrameDiscard>
 
-/*
- * Eiger packet stream definitions
- */
+using JungfrauStreamDataOneIface =
+    sls::Jungfrau::StreamData<sls::Jungfrau::OneIface, 0>;
+using JungfrauStreamDataTwoIface1 =
+    sls::Jungfrau::StreamData<sls::Jungfrau::TwoIface, 0>;
+using JungfrauStreamDataTwoIface2 =
+    sls::Jungfrau::StreamData<sls::Jungfrau::TwoIface, 1>;
 
-namespace Eiger {
+using AnyPacketStream = std::variant<
+    SLS_DEFINE_EIGER_PACKET_STREAM(sls::EigerPacketPixel4TenGigaDisable),
+    SLS_DEFINE_EIGER_PACKET_STREAM(sls::EigerPacketPixel4TenGigaEnable),
+    SLS_DEFINE_EIGER_PACKET_STREAM(sls::EigerPacketPixel8TenGigaDisable),
+    SLS_DEFINE_EIGER_PACKET_STREAM(sls::EigerPacketPixel8TenGigaEnable),
+    SLS_DEFINE_EIGER_PACKET_STREAM(sls::EigerPacketPixel16TenGigaDisable),
+    SLS_DEFINE_EIGER_PACKET_STREAM(sls::EigerPacketPixel16TenGigaEnable),
+    SLS_DEFINE_EIGER_PACKET_STREAM(sls::EigerPacketPixel32TenGigaDisable),
+    SLS_DEFINE_EIGER_PACKET_STREAM(sls::EigerPacketPixel32TenGigaEnable),
+    SLS_DEFINE_JUNGFRAU_PACKET_STREAM(sls::JungfrauPacketOneIface,
+                                      JungfrauStreamDataOneIface),
+    SLS_DEFINE_JUNGFRAU_PACKET_STREAM(sls::JungfrauPacketTwoIface,
+                                      JungfrauStreamDataTwoIface1),
+    SLS_DEFINE_JUNGFRAU_PACKET_STREAM(sls::JungfrauPacketTwoIface,
+                                      JungfrauStreamDataTwoIface2)>;
 
-template <class Pixel, class TenGiga, class FP>
-using PacketStream = ::PacketStream<Packet<Pixel, TenGiga>,
-                                    StreamData<Packet<Pixel, TenGiga>>, FP>;
-
-// Only 10G supported so far
-#define EigerPacketStreamsFor(P)                                               \
-    AllPacketStreamsFor(                                                       \
-        EigerPacketFor(P, ::Eiger::TenGigaDisable),                            \
-        StreamData<EigerPacketFor(P, ::Eiger::TenGigaDisable)>),               \
-        AllPacketStreamsFor(                                                   \
-            EigerPacketFor(P, ::Eiger::TenGigaEnable),                         \
-            StreamData<EigerPacketFor(P, ::Eiger::TenGigaEnable)>)
-
-#define EigerPacketStreams                                                     \
-    EigerPacketStreamsFor(Pixel4), EigerPacketStreamsFor(Pixel8),              \
-        EigerPacketStreamsFor(Pixel16), EigerPacketStreamsFor(Pixel32)
-
-} // namespace Eiger
-
-/*
- * Jungfrau packet stream definitions
- */
-
-namespace Jungfrau {
-
-template <int NbUDPIfaces, int Idx>
-struct StreamData : ::StreamData<Packet<NbUDPIfaces>> {
-    uint32_t getPacketNumber(uint32_t packet_idx);
-};
-
-template <int NbUDPIfaces, int Idx, class FP>
-using PacketStream =
-    ::PacketStream<Packet<NbUDPIfaces>, StreamData<NbUDPIfaces, Idx>, FP>;
-
-#define JungfrauPSData1  ::Jungfrau::StreamData<1, 0>
-#define JungfrauPSData20 ::Jungfrau::StreamData<2, 0>
-#define JungfrauPSData21 ::Jungfrau::StreamData<2, 1>
-
-#define JungfrauPacketStreams                                                  \
-    AllPacketStreamsFor(::Jungfrau::Packet<1>, JungfrauPSData1),               \
-        AllPacketStreamsFor(::Jungfrau::Packet<2>, JungfrauPSData20),          \
-        AllPacketStreamsFor(::Jungfrau::Packet<2>, JungfrauPSData21)
-
-} // namespace Jungfrau
-
-// AnyPacketStream
-using AnyPacketStream = std::variant<EigerPacketStreams, JungfrauPacketStreams>;
-
-template <class PS, class... Ps> constexpr bool IsGroupPacketStream() {
-    using a = std::tuple<std::bool_constant<std::is_same_v<PS, Ps>>...>;
-    using b = std::tuple<std::bool_constant<std::is_same_v<int, Ps>>...>;
-    return !std::is_same_v<a, b>;
-}
-
-template <class PS> constexpr bool IsEigerPacketStream() {
-    return IsGroupPacketStream<PS, EigerPacketStreams>();
-}
-
-template <class PS> constexpr bool IsJungfrauPacketStream() {
-    return IsGroupPacketStream<PS, JungfrauPacketStreams>();
-}
-
-using AnyPacketStreamPtr = std::shared_ptr<AnyPacketStream>;
-using PacketStreamList = std::vector<AnyPacketStreamPtr>;
-
-#undef JungfrauPacketStreams
-#undef JungfrauPSData21
-#undef JungfrauPSData20
-#undef JungfrauPSData1
-#undef EigerPacketStreams
-#undef EigerPacketStreamsFor
-#undef AllPacketStreamsFor
-
-AnyPacketStreamPtr CreatePacketStream(UdpRxSocketPtr s, GeneralDataPtr d,
-                                      int idx, cpu_set_t cpu_mask,
-                                      pid_t thread_id, FramePolicy fp,
-                                      AnyPacketContainerPtr any_pc);
+std::shared_ptr<AnyPacketStream>
+CreatePacketStream(UdpRxSocketPtr s, GeneralDataPtr d, int idx,
+                   cpu_set_t cpu_mask, pid_t thread_id, FramePolicy fp,
+                   AnyPacketContainerPtr any_pc);
 
 #include "PacketStream.cxx"

@@ -1,3 +1,4 @@
+#pragma once
 /************************************************
  * @file FrameAssemblerJungfrau.hxx
  * @short helper classes assembling Jungfrau frames
@@ -6,14 +7,14 @@
  * include "FrameAssembler.h" instead
  ***********************************************/
 
-namespace FrameAssembler {
+#include "sls/FrameAssembler.h"
+#include "sls/detectors/jungfrau/Packet.h"
+
+namespace sls {
 namespace Jungfrau {
+namespace FrameAssembler {
 
-// Import Jungfrau definitions
-
-using Pixel = ::Jungfrau::Pixel;
-
-template <int NbUDPIfaces> using Packet = ::Jungfrau::Packet<NbUDPIfaces>;
+using namespace sls::FrameAssembler;
 
 /**
  *@short Jungfrau frame assembler in standard mode: Default frame assembler
@@ -55,5 +56,6 @@ using XY = sls::Geom::XY;
 MPFrameAssemblerPtr CreateFrameAssembler(int mod_ifaces, XY det_ifaces,
                                          XY mod_pos);
 
-} // namespace Jungfrau
 } // namespace FrameAssembler
+} // namespace Jungfrau
+} // namespace sls

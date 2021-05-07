@@ -11,6 +11,7 @@ set(SOURCES
     src/DataProcessor.cpp
     src/DataStreamer.cpp
     src/Fifo.cpp
+    src/PacketStream.cpp
 )
 
 set(PUBLICHEADERS
@@ -145,4 +146,3 @@ install(TARGETS slsReceiverShared slsReceiver slsMultiReceiver slsReceiverObject
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/sls
 )
-

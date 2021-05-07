@@ -4,7 +4,7 @@
  * @short low-level udp packet container classes
  ***********************************************/
 
-#include "sls/Packet.h"
+#include "sls/PacketTypedefs.h"
 #include "sls/logger.h"
 
 #include <condition_variable>
@@ -29,8 +29,8 @@ template <class P> class PacketContainer {
     ~PacketContainer();
 
     using Packet = P;
-    using Block = PacketBlock<Packet>;
-    using BlockPtr = PacketBlockPtr<Packet>;
+    using Block = sls::PacketBlock<Packet>;
+    using BlockPtr = sls::PacketBlockPtr<Packet>;
     using BlockLayout = typename Block::Layout;
 
     using Ptr = std::shared_ptr<PacketContainer>;
@@ -91,20 +91,17 @@ template <class P> class PacketContainer {
     bool stopped;
 };
 
-// TODO: Automatic definition from AnyPacketBlockPtr
-#define EigerPacketContainersFor(P)                                            \
-    PacketContainer<::Eiger::Packet<P, ::Eiger::TenGigaDisable>>,              \
-        PacketContainer<::Eiger::Packet<P, ::Eiger::TenGigaEnable>>
-
 using AnyPacketContainer =
-    std::variant<EigerPacketContainersFor(sls::Geom::Pixel4),
-                 EigerPacketContainersFor(sls::Geom::Pixel8),
-                 EigerPacketContainersFor(sls::Geom::Pixel16),
-                 EigerPacketContainersFor(sls::Geom::Pixel32),
-                 PacketContainer<::Jungfrau::Packet<1>>,
-                 PacketContainer<::Jungfrau::Packet<2>>>;
-
-#undef EigerPacketContainersFor
+    std::variant<PacketContainer<sls::EigerPacketPixel4TenGigaDisable>,
+                 PacketContainer<sls::EigerPacketPixel4TenGigaEnable>,
+                 PacketContainer<sls::EigerPacketPixel8TenGigaDisable>,
+                 PacketContainer<sls::EigerPacketPixel8TenGigaEnable>,
+                 PacketContainer<sls::EigerPacketPixel16TenGigaDisable>,
+                 PacketContainer<sls::EigerPacketPixel16TenGigaEnable>,
+                 PacketContainer<sls::EigerPacketPixel32TenGigaDisable>,
+                 PacketContainer<sls::EigerPacketPixel32TenGigaEnable>,
+                 PacketContainer<sls::JungfrauPacketOneIface>,
+                 PacketContainer<sls::JungfrauPacketTwoIface>>;
 
 using AnyPacketContainerPtr = std::shared_ptr<AnyPacketContainer>;
 

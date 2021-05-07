@@ -5,14 +5,13 @@
  * This file is included in FrameAssembler.cpp
  ***********************************************/
 
-namespace GeomEiger = sls::Geom::Eiger;
-
-namespace FrameAssembler {
+namespace sls {
 namespace Eiger {
+namespace FrameAssembler {
 
-constexpr int IfaceHorzChips = GeomEiger::IfaceChips.x;
+constexpr int IfaceHorzChips = Geom::IfaceChips.x;
 
-constexpr auto RawIfaceGeom = ::Eiger::RawIfaceGeom;
+constexpr auto RawIfaceGeom = Eiger::RawIfaceGeom;
 
 /**
  * GeomHelper
@@ -45,10 +44,10 @@ struct GeomHelper {
         return IfaceGeom1.getPacketView(PacketData::PacketPixels, PacketIdx);
     }
 
-    SCI chip_cols = GeomEiger::ChipPixels.x;
-    SCI chip_lines = GeomEiger::ChipPixels.y;
-    SCA chip_gap_pixels = GeomEiger::ChipGap;
-    SCA mod_gap_pixels = GeomEiger::ModGap;
+    SCI chip_cols = Geom::ChipPixels.x;
+    SCI chip_lines = Geom::ChipPixels.y;
+    SCA chip_gap_pixels = Geom::ChipGap;
+    SCA mod_gap_pixels = Geom::ModGap;
     SCI frame_packets = PacketData::PacketsPerFrame;
     // 32-bit + TenGigaDisabled: 1 packet -> 0.5 lines. Not supported yet.
     SCI packet_lines = std::max(RawIfaceSize.y / frame_packets, 1);
@@ -108,7 +107,7 @@ struct Expand4BitsHelper : GeomHelper<P, TG, GD, MGX, MGY, Idx> {
     SCI half_module_chips = NbIfaces * IfaceHorzChips;
     SCI block_len = sizeof(__m128i);
     SCI block_bits = block_len * 8;
-    SCI gap_bits = GeomEiger::ChipGap.x * 8;
+    SCI gap_bits = Geom::ChipGap.x * 8;
 
     SCI chip_blocks = H::src_chip_size / block_len;
     SCI iface_blocks = H::src_line_step / block_len;
@@ -160,8 +159,8 @@ int Expand4BitsHelper<P, TG, GD, MGX, MGY, Idx>::Worker::load_packet(
         LOG(logERROR) << "Missaligned src";
         return -1;
     }
-    v[0] = p0.valid();
-    v[1] = p1.valid();
+    v[0] = p0.isValid();
+    v[1] = p1.isValid();
     return 0;
 }
 
@@ -383,20 +382,17 @@ Result FrameAssembler<P, TG, GD, MGX, MGY, Idx>::assembleFrame(
     return Result{NbIfaces, mask};
 }
 
-} // namespace Eiger
-} // namespace FrameAssembler
-
 MPFrameAssemblerPtr FrameAssembler::Eiger::CreateFrameAssembler(
     uint32_t src_dr, bool tg_enable, XY det_ifaces, XY mod_pos, int recv_idx) {
     if ((src_dr == 32) && !tg_enable)
         throw std::runtime_error("32-bit & TenGiga=disabled not supported");
 
     XY det_size = RawIfaceGeom.size * det_ifaces;
-    auto any_det_geom = GeomEiger::AnyDetGeomFromDetSize(det_size);
-    auto any_recv_idx = GeomEiger::AnyRecvIdxFromRecvIdx(recv_idx);
+    auto any_det_geom = Geom::AnyDetGeomFromDetSize(det_size);
+    auto any_recv_idx = Geom::AnyRecvIdxFromRecvIdx(recv_idx);
 
     AnyPixel any_pixel = AnyPixelFromBpp(src_dr);
-    ::Eiger::AnyTenGiga any_tg = ::Eiger::AnyTenGigaFromTgEnable(tg_enable);
+    AnyTenGiga any_tg = AnyTenGigaFromTgEnable(tg_enable);
 
     return std::visit(
         [&](auto gd) {
@@ -424,3 +420,7 @@ MPFrameAssemblerPtr FrameAssembler::Eiger::CreateFrameAssembler(
         },
         any_det_geom);
 }
+
+} // namespace FrameAssembler
+} // namespace Eiger
+} // namespace sls

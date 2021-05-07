@@ -1,6 +1,7 @@
 #pragma once
 #include "receiver_defs.h"
 #include "sls/FrameAssembler.h"
+#include "sls/PacketTypedefs.h"
 #include "sls/container_utils.h"
 #include "sls/logger.h"
 #include "sls/network_utils.h"
@@ -20,7 +21,7 @@ class slsDetectorDefs;
 #include <vector>
 using ns = std::chrono::nanoseconds;
 
-using namespace FrameAssembler;
+using namespace sls::FrameAssembler;
 
 class Implementation : private virtual slsDetectorDefs {
   public:
@@ -268,7 +269,7 @@ class Implementation : private virtual slsDetectorDefs {
     void setThreadCPUAffinity(const CPUMaskList &cpu_masks);
     void setBufferNodeAffinity(unsigned long buffer_node_mask, int max_node);
     MPFrameAssemblerPtr CreateFrameAssembler(AssemblerType asm_type);
-    AnyPacketBlockList GetFramePacketBlocks();
+    sls::AnyPacketBlockList GetFramePacketBlocks();
     void clearAllBuffers();
 
   private:

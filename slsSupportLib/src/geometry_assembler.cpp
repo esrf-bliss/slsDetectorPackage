@@ -21,6 +21,8 @@
 //###########################################################################
 
 #include "sls/Geometry.h"
+#include "sls/detectors/Eiger/Geometry.h"
+#include "sls/detectors/Jungfrau/Geometry.h"
 #include "sls/logger.h"
 #include "sls/sls_detector_exceptions.h"
 
@@ -230,9 +232,9 @@ AnyTypeData AnyTypeDataFromStr(const std::string &data_type) {
 
 struct EigerData {
     static const std::string name;
-    using AnyGeom = sls::Geom::Eiger::AnyDetGeom;
+    using AnyGeom = sls::Eiger::Geom::AnyDetGeom;
     static constexpr auto from_size(const XY &xy) {
-        return sls::Geom::Eiger::AnyDetGeomFromDetSize(xy);
+        return sls::Eiger::Geom::AnyDetGeomFromDetSize(xy);
     }
     AnyGeom any_geom;
 };
@@ -240,9 +242,9 @@ const std::string EigerData::name = "eiger"s;
 
 struct Jungfraux1Data {
     static const std::string name;
-    using AnyGeom = sls::Geom::Jungfrau::AnyDetGeom<1>;
+    using AnyGeom = sls::Jungfrau::Geom::AnyDetGeom<1>;
     static constexpr auto from_size(const XY &xy) {
-        return sls::Geom::Jungfrau::AnyDetGeomFromDetSize<1>(xy);
+        return sls::Jungfrau::Geom::AnyDetGeomFromDetSize<1>(xy);
     }
     AnyGeom any_geom;
 };
@@ -250,9 +252,9 @@ const std::string Jungfraux1Data::name = "jungfraux1"s;
 
 struct Jungfraux2Data {
     static const std::string name;
-    using AnyGeom = sls::Geom::Jungfrau::AnyDetGeom<2>;
+    using AnyGeom = sls::Jungfrau::Geom::AnyDetGeom<2>;
     static constexpr auto from_size(const XY &xy) {
-        return sls::Geom::Jungfrau::AnyDetGeomFromDetSize<2>(xy);
+        return sls::Jungfrau::Geom::AnyDetGeomFromDetSize<2>(xy);
     }
     AnyGeom any_geom;
 };
