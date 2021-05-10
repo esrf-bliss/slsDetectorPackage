@@ -44,9 +44,8 @@ struct PacketData {
 
     // An instance of <derived>::SoftHeader prepends each network packet
     struct SoftHeader {
-        bool valid;
-    };
-
+         bool is_valid;
+    } __attribute__((packed));
     // The Packet structure in the (software) buffer
     struct SoftwarePacket {
         SoftHeader soft_header;

@@ -17,8 +17,8 @@ namespace Geom {
 
 // XY: the basic class for 2D arithmetics
 struct XY {
-    int x{0};
-    int y{0};
+    std::ptrdiff_t x{0};
+    std::ptrdiff_t y{0};
 
     constexpr int area() const { return x * y; }
 };
