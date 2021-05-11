@@ -4,7 +4,7 @@
  * @short low-level udp packet definition classes
  ***********************************************/
 
-#include "sls/Geometry.h"
+#include "sls/Align.h"
 #include "sls/sls_detector_defs.h"
 
 #include <memory>
@@ -56,7 +56,7 @@ struct PacketData {
     static constexpr int DataOffset =
         offsetof(SoftwarePacket, net_packet) + offsetof(NetworkPacket, data);
     static constexpr int Pad =
-        sls::Geom::AlignCeil(DataOffset, Align) - DataOffset;
+        sls::alignCeil(DataOffset, Align) - DataOffset;
 
     struct Layout {
         char pad[Pad];

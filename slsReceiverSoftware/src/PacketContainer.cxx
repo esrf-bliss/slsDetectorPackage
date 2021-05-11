@@ -185,7 +185,7 @@ inline AnyPacketContainerPtr CreatePacketContainer(GeneralDataPtr d, int frames,
                                                    unsigned long node_mask,
                                                    int max_node) {
 
-    auto any_pixel = AnyPixelFromBpp(d->dynamicRange);
+    auto any_pixel = sls::AnyPixelFromBpp(d->dynamicRange);
 
     return std::visit(
         [&](auto pixel) {

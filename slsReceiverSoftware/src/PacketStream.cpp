@@ -21,7 +21,7 @@ CreatePacketStream(UdpRxSocketPtr s, GeneralDataPtr d, int idx,
                    cpu_set_t cpu_mask, pid_t thread_id, FramePolicy fp,
                    AnyPacketContainerPtr any_pc) {
 
-    auto any_pixel = AnyPixelFromBpp(d->dynamicRange);
+    auto any_pixel = sls::AnyPixelFromBpp(d->dynamicRange);
     auto any_fp = AnyFramePolicyFromFP(fp);
 
     return std::visit(

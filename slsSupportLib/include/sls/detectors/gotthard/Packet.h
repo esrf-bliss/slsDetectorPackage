@@ -4,6 +4,7 @@
  * @short Gotthard packet definitions
  ***********************************************/
 
+#include "sls/Pixel.h"
 #include "sls/Packet.h"
 
 /*
@@ -24,7 +25,7 @@ namespace Gotthard {
  *   1st packet: CACA + CACA, (256 - 1) * 2 bytes data
  */
 
-using Pixel = sls::Geom::Pixel16;
+using Pixel = Pixel16;
 
 struct NetworkHeader {
     uint32_t packet_number;

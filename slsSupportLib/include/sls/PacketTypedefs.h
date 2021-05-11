@@ -5,6 +5,7 @@
  ***********************************************/
 
 #include "sls/Packet.h"
+#include "sls/Pixel.h"
 #include "sls/detectors/eiger/Packet.h"
 #include "sls/detectors/gotthard/Packet.h"
 #include "sls/detectors/jungfrau/Packet.h"
@@ -14,11 +15,11 @@ namespace sls {
 // Only 10G supported so far
 #define SLS_EIGER_DEFINE(Pixel, Interface)                                     \
     using EigerPacket##Pixel##Interface =                                      \
-        Eiger::Packet<Geom::Pixel, Eiger::Interface>;                          \
+        Eiger::Packet<Pixel, Eiger::Interface>;                          \
     using EigerPacketBlock##Pixel##Interface =                                 \
-        PacketBlock<Eiger::Packet<Geom::Pixel, Eiger::Interface>>;             \
+        PacketBlock<Eiger::Packet<Pixel, Eiger::Interface>>;             \
     using EigerPacketBlockPtr##Pixel##Interface =                              \
-        PacketBlockPtr<Eiger::Packet<Geom::Pixel, Eiger::Interface>>;
+        PacketBlockPtr<Eiger::Packet<Pixel, Eiger::Interface>>;
 
 #define SLS_EIGER_DEFINE_PIXEL(Pixel)                                          \
     SLS_EIGER_DEFINE(Pixel, TenGigaDisable)                                    \

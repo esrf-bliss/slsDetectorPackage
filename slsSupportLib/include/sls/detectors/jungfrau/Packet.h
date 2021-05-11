@@ -12,7 +12,7 @@ namespace Jungfrau {
 
 constexpr int PacketDataLen = 8192;
 
-using Pixel = Geom::Pixel16;
+using Pixel = Pixel16;
 
 struct OneIface {
     static constexpr int NbIfaces = 1;
