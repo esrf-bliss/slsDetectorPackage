@@ -8,19 +8,19 @@ The aims of the library is to propose a framework to reconstruct frames from net
 
 #### Pixel
 
-`Pixel`
+ - `Pixel`
 
 #### Point
 
-`XY`
+ - `XY`
 
 ### Network
 
 #### Packet
 
-`Packet`
+ - `Packet`
 
-#### FramePackets
+#### Packet block
 
 #### Packet container
 
@@ -28,12 +28,35 @@ The aims of the library is to propose a framework to reconstruct frames from net
 
 ### Detector Geometry
 
-#### 
+#### Geometry description
+
+ - `ChipPixels`
+ - `ChipGap`
+ - `IfaceChips`
+ - `RecvIfaces`
+ - `ModRecvFlip`
+ - `ModRecvs`
+ - `ModGap`
 
 ### Frame Reconstruction
 
 #### FrameAssembler
 
+## API
+
+`CreateFrameAssembler()`
+
+returns
+
+```
+class FrameAssembler {
+  public:
+    virtual bool assembleFrame(AnyPacketBlockPtr &&block, RecvHeader *header,
+                               char *buf) = 0;
+
+    virtual int getImageSize() = 0;
+};
+```
 
 ## Defining detectors
 
