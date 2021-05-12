@@ -1,10 +1,8 @@
 #pragma once
 /************************************************
- * @file FrameAssemblerJungfrau.hxx
+ * @file Jungfrau/FrameAssembler.h
  * @short helper classes assembling Jungfrau frames
  * from udp packets
- * DO NOT INCLUDE THIS FILE DIRECTLY IN YOUR CODE
- * include "FrameAssembler.h" instead
  ***********************************************/
 
 #include "sls/FrameAssembler.h"
@@ -26,7 +24,8 @@ template <class GD, bool MGX, bool MGY, int Idx> struct CopyHelper;
 template <class GD, bool MGX, bool MGY>
 class FrameAssembler : public MPFrameAssembler {
   public:
-    static constexpr int NbUDPIfaces = GD::num_udp_ifaces;
+    using NbUDPIfaces = typename GD::num_udp_ifaces;
+    static constexpr int NbIfaces = NbUDPIfaces::NbIfaces;
 
     FrameAssembler(int offset) : data_offset(offset) {}
 
@@ -59,3 +58,5 @@ MPFrameAssemblerPtr CreateFrameAssembler(int mod_ifaces, XY det_ifaces,
 } // namespace FrameAssembler
 } // namespace Jungfrau
 } // namespace sls
+
+#include "sls/detectors/jungfrau/FrameAssembler.cxx"

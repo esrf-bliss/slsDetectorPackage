@@ -12,16 +12,26 @@ namespace Geom {
 
 using namespace sls::Geom;
 
+// Jungfrau types defining number of UDP interfaces
+struct OneIface {
+    static constexpr int NbIfaces = 1;
+};
+struct TwoIface {
+    static constexpr int NbIfaces = 2;
+};
+
 // Jungfrau definitions and helpers
 constexpr XY ChipPixels{256, 256};
 constexpr XY ChipGap{2, 2};
-template <int NbUDPIfaces> constexpr XY IfaceChips{4, 2 / NbUDPIfaces};
-template <int NbUDPIfaces> constexpr XY RecvIfaces{1, NbUDPIfaces};
+template <typename NbUDPIfaces>
+constexpr XY IfaceChips{4, 2 / NbUDPIfaces::NbIfaces};
+template <typename NbUDPIfaces>
+constexpr XY RecvIfaces{1, NbUDPIfaces::NbIfaces};
 using ModRecvFlip = DefaultModRecvFlip;
 constexpr XY ModRecvs{1, 1};
 constexpr XY ModGap{9, 36};
 
-template <int NbUDPIfaces> struct TiledDetGeom {
+template <typename NbUDPIfaces> struct TiledDetGeom {
     template <int MX, int MY, class Fmt> struct Generator {
         constexpr auto operator()() {
             return Geom::DetGeom<Fmt, ModRecvFlip>(
@@ -31,15 +41,15 @@ template <int NbUDPIfaces> struct TiledDetGeom {
     };
 };
 
-template <int NbUDPIfaces, int MX, int MY>
+template <typename NbUDPIfaces, int MX, int MY>
 using GeomDataBase =
     DetGeomData<MX, MY, TiledDetGeom<NbUDPIfaces>::template Generator>;
 
-template <int NbUDPIfaces, int MX, int MY>
+template <typename NbUDPIfaces, int MX, int MY>
 struct GeomData : GeomDataBase<NbUDPIfaces, MX, MY> {
     using B = GeomDataBase<NbUDPIfaces, MX, MY>;
 
-    static constexpr int num_udp_ifaces = NbUDPIfaces;
+    using num_udp_ifaces = NbUDPIfaces;
 
     template <int Idx> struct RawIfaceGeom {
         static constexpr auto geom =
@@ -57,19 +67,24 @@ struct GeomData : GeomDataBase<NbUDPIfaces, MX, MY> {
     };
 };
 
-template <int NbUDPIfaces> using Jungfrau500kGeom = GeomData<NbUDPIfaces, 1, 1>;
-template <int NbUDPIfaces> using Jungfrau1MGeom = GeomData<NbUDPIfaces, 1, 2>;
-template <int NbUDPIfaces> using Jungfrau1MWGeom = GeomData<NbUDPIfaces, 2, 1>;
-template <int NbUDPIfaces> using Jungfrau4MGeom = GeomData<NbUDPIfaces, 2, 4>;
-template <int NbUDPIfaces> using Jungfrau16MGeom = GeomData<NbUDPIfaces, 4, 8>;
+template <typename NbUDPIfaces>
+using Jungfrau500kGeom = GeomData<NbUDPIfaces, 1, 1>;
+template <typename NbUDPIfaces>
+using Jungfrau1MGeom = GeomData<NbUDPIfaces, 1, 2>;
+template <typename NbUDPIfaces>
+using Jungfrau1MWGeom = GeomData<NbUDPIfaces, 2, 1>;
+template <typename NbUDPIfaces>
+using Jungfrau4MGeom = GeomData<NbUDPIfaces, 2, 4>;
+template <typename NbUDPIfaces>
+using Jungfrau16MGeom = GeomData<NbUDPIfaces, 4, 8>;
 
-template <int NbUDPIfaces>
+template <typename NbUDPIfaces>
 using AnyDetGeom =
     std::variant<Jungfrau500kGeom<NbUDPIfaces>, Jungfrau1MGeom<NbUDPIfaces>,
                  Jungfrau1MWGeom<NbUDPIfaces>, Jungfrau4MGeom<NbUDPIfaces>,
                  Jungfrau16MGeom<NbUDPIfaces>>;
 
-template <int NbUDPIfaces>
+template <typename NbUDPIfaces>
 constexpr auto AnyDetGeomFromDetSize(const XY &det_size) {
     using AnyDet = AnyDetGeom<NbUDPIfaces>;
     auto idx = GetDetCollectIdxFromDetSize<AnyDet>(det_size);
@@ -81,11 +96,13 @@ constexpr auto AnyDetGeomFromDetSize(const XY &det_size) {
             std::to_string(det_size.y));
 }
 
-using AnyNbUDPIfaces = std::variant<std::integral_constant<int, 1>,
-                                    std::integral_constant<int, 2>>;
+using AnyNbUDPIfaces = std::variant<OneIface, TwoIface>;
 
-constexpr auto AnyNbUDPIfacesFromNbUDPIfaces(int num_udp_ifaces) {
-    return GetValidVariant<AnyNbUDPIfaces>(num_udp_ifaces - 1);
+constexpr AnyNbUDPIfaces AnyNbUDPIfacesFromNbUDPIfaces(int num_udp_ifaces) {
+    if (num_udp_ifaces == 1)
+        return OneIface();
+    else
+        return TwoIface();
 }
 
 } // namespace Geom

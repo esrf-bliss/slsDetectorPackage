@@ -120,11 +120,11 @@ template <class P, class SD, class FP> class PacketStream {
         PacketStream<P, SD, PartialFrameDiscard>
 
 using JungfrauStreamDataOneIface =
-    sls::Jungfrau::StreamData<sls::Jungfrau::OneIface, 0>;
+    sls::Jungfrau::StreamData<sls::Jungfrau::Geom::OneIface, 0>;
 using JungfrauStreamDataTwoIface1 =
-    sls::Jungfrau::StreamData<sls::Jungfrau::TwoIface, 0>;
+    sls::Jungfrau::StreamData<sls::Jungfrau::Geom::TwoIface, 0>;
 using JungfrauStreamDataTwoIface2 =
-    sls::Jungfrau::StreamData<sls::Jungfrau::TwoIface, 1>;
+    sls::Jungfrau::StreamData<sls::Jungfrau::Geom::TwoIface, 1>;
 
 using AnyPacketStream = std::variant<
     SLS_DEFINE_EIGER_PACKET_STREAM(sls::EigerPacketPixel4TenGigaDisable),

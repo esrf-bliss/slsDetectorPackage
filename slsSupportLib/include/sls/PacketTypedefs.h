@@ -32,11 +32,11 @@ SLS_EIGER_DEFINE_PIXEL(Pixel32);
 
 #define SLS_JUNGFRAU_DEFINE(NbUDPIfaces)                                       \
     using JungfrauPacket##NbUDPIfaces =                                        \
-        Jungfrau::Packet<Jungfrau::NbUDPIfaces>;                               \
+        Jungfrau::Packet<Jungfrau::Geom::NbUDPIfaces>;                         \
     using JungfrauPacketBlock##NbUDPIfaces =                                   \
-        PacketBlock<Jungfrau::Packet<Jungfrau::NbUDPIfaces>>;                  \
+        PacketBlock<Jungfrau::Packet<Jungfrau::Geom::NbUDPIfaces>>;            \
     using JungfrauPacketBlockPtr##NbUDPIfaces =                                \
-        PacketBlockPtr<Jungfrau::Packet<Jungfrau::NbUDPIfaces>>;
+        PacketBlockPtr<Jungfrau::Packet<Jungfrau::Geom::NbUDPIfaces>>;
 
 SLS_JUNGFRAU_DEFINE(OneIface);
 SLS_JUNGFRAU_DEFINE(TwoIface);

@@ -14,26 +14,19 @@ constexpr int PacketDataLen = 8192;
 
 using Pixel = Pixel16;
 
-struct OneIface {
-    static constexpr int NbIfaces = 1;
-};
-struct TwoIface {
-    static constexpr int NbIfaces = 2;
-};
-
-template <int NbUDPIfaces>
+template <typename NbUDPIfaces>
 using Jungfrau500kGeom = Geom::Jungfrau500kGeom<NbUDPIfaces>;
 
-template <int NbUDPIfaces, int Idx>
+template <typename NbUDPIfaces, int Idx>
 constexpr auto RawIfaceGeom =
     Geom::Jungfrau500kGeom<NbUDPIfaces>::template RawIfaceGeom<Idx>::geom;
 
-template <int NbUDPIfaces>
+template <typename NbUDPIfaces>
 constexpr auto FramePixels = RawIfaceGeom<NbUDPIfaces, 0>.pixels();
 
 template <typename NbUDPIfaces>
 struct PacketData
-    : StdPacketData<Pixel, PacketDataLen, FramePixels<NbUDPIfaces::NbIfaces>> {
+    : StdPacketData<Pixel, PacketDataLen, FramePixels<NbUDPIfaces>> {
     static constexpr int NbIfaces = NbUDPIfaces::NbIfaces;
 };
 

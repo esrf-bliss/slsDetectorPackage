@@ -1,9 +1,11 @@
 /************************************************
- * @file FrameAssemblerEiger.cxx
+ * @file Eiger/FrameAssembler.cxx
  * @short helper classes assembling Eiger frames
  * from udp packets
- * This file is included in FrameAssembler.cpp
  ***********************************************/
+
+#include "sls/logger.h"
+#include <emmintrin.h>
 
 namespace sls {
 namespace Eiger {
@@ -50,7 +52,7 @@ struct GeomHelper {
     SCA mod_gap_pixels = Geom::ModGap;
     SCI frame_packets = PacketData::PacketsPerFrame;
     // 32-bit + TenGigaDisabled: 1 packet -> 0.5 lines. Not supported yet.
-    SCI packet_lines = std::max(RawIfaceSize.y / frame_packets, 1);
+    SCI packet_lines = std::max(RawIfaceSize.y / frame_packets, 1L);
     SCI flipped = (RecvView.pixelDir().y < 0);
     SCF src_pixel_size = SrcPixel::depth();
     SCI src_chip_size = chip_cols * src_pixel_size;
@@ -316,7 +318,7 @@ void CopyHelper<P, TG, GD, MGX, MGY, Idx>::assemblePackets(
             for (int i = 0; i < NbIfaces; ++i) {
                 char *ls = s[i];
                 for (int c = 0; c < IfaceHorzChips; ++c) {
-                    if (line_packet[i].valid())
+                    if (line_packet[i].isValid())
                         memcpy(ld, ls, h.src_chip_size);
                     else
                         memset(ld, 0xff, h.src_chip_size);
@@ -382,8 +384,9 @@ Result FrameAssembler<P, TG, GD, MGX, MGY, Idx>::assembleFrame(
     return Result{NbIfaces, mask};
 }
 
-MPFrameAssemblerPtr FrameAssembler::Eiger::CreateFrameAssembler(
-    uint32_t src_dr, bool tg_enable, XY det_ifaces, XY mod_pos, int recv_idx) {
+inline MPFrameAssemblerPtr CreateFrameAssembler(uint32_t src_dr, bool tg_enable,
+                                                XY det_ifaces, XY mod_pos,
+                                                int recv_idx) {
     if ((src_dr == 32) && !tg_enable)
         throw std::runtime_error("32-bit & TenGiga=disabled not supported");
 

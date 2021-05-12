@@ -1,8 +1,8 @@
 // CLI to assemble an image from a raw image given a detector type
 
 #include "sls/Geometry.h"
-#include "sls/detectors/Eiger/Geometry.h"
-#include "sls/detectors/Jungfrau/Geometry.h"
+#include "sls/detectors/eiger/Geometry.h"
+#include "sls/detectors/jungfrau/Geometry.h"
 #include "sls/logger.h"
 #include "sls/sls_detector_exceptions.h"
 
@@ -222,9 +222,10 @@ const std::string EigerData::name = "eiger"s;
 
 struct Jungfraux1Data {
     static const std::string name;
-    using AnyGeom = sls::Jungfrau::Geom::AnyDetGeom<1>;
+    using NbIfaces = sls::Jungfrau::Geom::OneIface;
+    using AnyGeom = sls::Jungfrau::Geom::AnyDetGeom<NbIfaces>;
     static constexpr auto from_size(const XY &xy) {
-        return sls::Jungfrau::Geom::AnyDetGeomFromDetSize<1>(xy);
+        return sls::Jungfrau::Geom::AnyDetGeomFromDetSize<NbIfaces>(xy);
     }
     AnyGeom any_geom;
 };
@@ -232,9 +233,10 @@ const std::string Jungfraux1Data::name = "jungfraux1"s;
 
 struct Jungfraux2Data {
     static const std::string name;
-    using AnyGeom = sls::Jungfrau::Geom::AnyDetGeom<2>;
+    using NbIfaces = sls::Jungfrau::Geom::TwoIface;
+    using AnyGeom = sls::Jungfrau::Geom::AnyDetGeom<NbIfaces>;
     static constexpr auto from_size(const XY &xy) {
-        return sls::Jungfrau::Geom::AnyDetGeomFromDetSize<2>(xy);
+        return sls::Jungfrau::Geom::AnyDetGeomFromDetSize<NbIfaces>(xy);
     }
     AnyGeom any_geom;
 };

@@ -1,11 +1,11 @@
 /************************************************
- * @file PacketStream.cxx
+ * @file PacketStream.cpp
  * @short low-level udp packet reception classes
  ***********************************************/
 
 #include "PacketStream.h"
-#include "sls/detectors/Eiger/StreamData.h"
-#include "sls/detectors/Jungfrau/StreamData.h"
+#include "sls/detectors/eiger/StreamData.h"
+#include "sls/detectors/jungfrau/StreamData.h"
 
 /**
  * PacketStream factory
@@ -43,13 +43,13 @@ CreatePacketStream(UdpRxSocketPtr s, GeneralDataPtr d, int idx,
             } else if (d->myDetectorType == slsDetectorDefs::JUNGFRAU) {
                 if (d->numUDPInterfaces == 1)
                     return PSFactory<sls::Jungfrau::PacketStream<
-                        sls::Jungfrau::OneIface, 0, FP>>(args);
+                        sls::Jungfrau::Geom::OneIface, 0, FP>>(args);
                 else if (idx == 0)
                     return PSFactory<sls::Jungfrau::PacketStream<
-                        sls::Jungfrau::TwoIface, 0, FP>>(args);
+                        sls::Jungfrau::Geom::TwoIface, 0, FP>>(args);
                 else
                     return PSFactory<sls::Jungfrau::PacketStream<
-                        sls::Jungfrau::TwoIface, 1, FP>>(args);
+                        sls::Jungfrau::Geom::TwoIface, 1, FP>>(args);
             } else
                 throw sls::RuntimeError("Detector not supported: " +
                                         std::to_string(d->myDetectorType));

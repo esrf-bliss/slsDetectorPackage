@@ -1,18 +1,18 @@
 /************************************************
- * @file FrameAssemblerJungfrau.cxx
+ * @file Jungfrau/FrameAssembler.cxx
  * @short helper classes assembling Jungfrau frames
  * from udp packets
- * This file is include in FrameAssembler.cpp
  ***********************************************/
 
 namespace sls {
 namespace Jungfrau {
 namespace FrameAssembler {
 
-constexpr int IfaceHorzChips = Geom::IfaceChips<1>.x;
+constexpr int IfaceHorzChips =
+    Geom::IfaceChips<sls::Jungfrau::Geom::OneIface>.x;
 
-template <int NbUDPIfaces, int Idx>
-constexpr auto RawIfaceGeom = ::Jungfrau::RawIfaceGeom<NbUDPIfaces, Idx>;
+template <typename NbUDPIfaces, int Idx>
+constexpr auto RawIfaceGeom = sls::Jungfrau::RawIfaceGeom<NbUDPIfaces, Idx>;
 
 /**
  * GeomHelper
@@ -27,7 +27,7 @@ template <class GD, bool MGX, bool MGY, int Idx> struct GeomHelper {
 #define SCA static constexpr auto
 #define SCI static constexpr int
 
-    SCI NbUDPIfaces = GD::num_udp_ifaces;
+    using NbUDPIfaces = typename GD::num_udp_ifaces;
 
     using BlockPtr = PacketBlockPtr<Packet<NbUDPIfaces>>;
 
@@ -172,14 +172,14 @@ void FrameAssembler<GD, MGX, MGY>::Worker::assembleIface(
 
 template <class GD, bool MGX, bool MGY>
 Result FrameAssembler<GD, MGX, MGY>::Worker::result() {
-    return Result{NbUDPIfaces, mask};
+    return Result{NbIfaces, mask};
 }
 
 template <class GD, bool MGX, bool MGY>
 Result FrameAssembler<GD, MGX, MGY>::assembleFrame(AnyPacketBlockList &&blocks,
                                                    RecvHeader *recv_header,
                                                    char *buf) {
-    if (blocks.size() != std::size_t(NbUDPIfaces))
+    if (blocks.size() != std::size_t(NbIfaces))
         throw std::runtime_error("Invalid packet block list");
 
     if (buf)
@@ -187,24 +187,24 @@ Result FrameAssembler<GD, MGX, MGY>::assembleFrame(AnyPacketBlockList &&blocks,
 
     Worker w(recv_header, buf);
 
-    for (int i = 0; i < NbUDPIfaces; ++i) {
+    for (int i = 0; i < NbIfaces; ++i) {
         if (i == 0)
             w.template assembleIface<0>(std::move(blocks[0]));
-        else if constexpr (NbUDPIfaces == 2)
+        else if constexpr (NbIfaces == 2)
             w.template assembleIface<1>(std::move(blocks[1]));
     }
 
     return w.result();
 }
 
-MPFrameAssemblerPtr CreateFrameAssembler(int mod_ifaces, XY det_ifaces,
-                                         XY mod_pos) {
+inline MPFrameAssemblerPtr CreateFrameAssembler(int mod_ifaces, XY det_ifaces,
+                                                XY mod_pos) {
 
     auto any_nb_ifaces = Geom::AnyNbUDPIfacesFromNbUDPIfaces(mod_ifaces);
 
     return std::visit(
         [&](auto nb_ifaces) {
-            constexpr int NbUDPIfaces = nb_ifaces;
+            using NbUDPIfaces = decltype(nb_ifaces);
             constexpr XY iface_size = RawIfaceGeom<NbUDPIfaces, 0>.size;
             XY det_size = iface_size * det_ifaces;
             auto any_det_geom =
@@ -221,8 +221,7 @@ MPFrameAssemblerPtr CreateFrameAssembler(int mod_ifaces, XY det_ifaces,
                     auto any_fill =
                         AnyModGapFillingFromModPos(det_geom, mod_pos);
                     return std::visit(
-                        [&, NbUDPIfaces](auto gx,
-                                         auto gy) -> MPFrameAssemblerPtr {
+                        [&](auto gx, auto gy) -> MPFrameAssemblerPtr {
                             constexpr bool MGX = gx, MGY = gy;
                             using Assembler = FrameAssembler<GD, MGX, MGY>;
                             return std::make_unique<Assembler>(data_offset);

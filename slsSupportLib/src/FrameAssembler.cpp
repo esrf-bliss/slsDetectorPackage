@@ -144,11 +144,11 @@ DefaultFrameAssemblerPtr sls::FrameAssembler::CreateDefaultFrameAssembler(
                     any_tg);
             } else if (det_type == slsDetectorDefs::JUNGFRAU) {
                 if (num_udp_ifaces == 1) {
-                    using Packet = Jungfrau::Packet<Jungfrau::OneIface>;
+                    using Packet = Jungfrau::Packet<Jungfrau::Geom::OneIface>;
                     using Assembler = DefaultFrameAssembler<Packet>;
                     return std::make_shared<Assembler>();
                 } else {
-                    using Packet = Jungfrau::Packet<Jungfrau::TwoIface>;
+                    using Packet = Jungfrau::Packet<Jungfrau::Geom::TwoIface>;
                     using Assembler = DefaultFrameAssembler<Packet>;
                     return std::make_shared<Assembler>();
                 }

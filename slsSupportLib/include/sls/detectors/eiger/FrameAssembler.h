@@ -1,10 +1,8 @@
 #pragma once
 /************************************************
- * @file FrameAssemblerEiger.hxx
+ * @file Eiger/FrameAssembler.h
  * @short helper classes assembling Eiger frames
  * from udp packets
- * DO NOT INCLUDE THIS FILE DIRECTLY IN YOUR CODE
- * include "FrameAssembler.h" instead
  ***********************************************/
 
 #include "sls/FrameAssembler.h"
@@ -56,3 +54,5 @@ MPFrameAssemblerPtr CreateFrameAssembler(uint32_t src_dr, bool tg_enable,
 } // namespace FrameAssembler
 } // namespace Eiger
 } // namespace sls
+
+#include "sls/detectors/eiger/FrameAssembler.cxx"

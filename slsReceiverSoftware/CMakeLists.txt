@@ -11,6 +11,7 @@ set(SOURCES
     src/DataProcessor.cpp
     src/DataStreamer.cpp
     src/Fifo.cpp
+    src/PacketContainer.cpp
     src/PacketStream.cpp
 )
 

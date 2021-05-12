@@ -129,7 +129,7 @@ Implementation::CreateFrameAssembler(AssemblerType asm_type) {
         XY mod_pos;
         std::visit(
             [&](auto nb) {
-                constexpr int num_udp_ifaces = nb;
+                using num_udp_ifaces = decltype(nb);
                 mod_pos = getModPos(RecvIfaces<num_udp_ifaces>, ModRecvs);
             },
             AnyNbUDPIfacesFromNbUDPIfaces(nb_ports));

@@ -112,6 +112,8 @@ PacketContainerPtrFromAny(AnyPacketContainerPtr any_pc) {
 }
 
 AnyPacketContainerPtr
-CreatePacketContainer(GeneralDataPtr d, unsigned long node_mask, int max_node);
+CreatePacketContainer(slsDetectorDefs::detectorType det_type, bool tg_enable,
+                      int num_udp_ifaces, uint32_t dr, int frames,
+                      unsigned long node_mask, int max_node);
 
 #include "PacketContainer.cxx"
