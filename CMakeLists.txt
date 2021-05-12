@@ -22,10 +22,6 @@ endif()
 string(TOUPPER "${PROJECT_NAME}" PROJECT_NAME_UPPER)
 string(TOLOWER "${PROJECT_NAME}" PROJECT_NAME_LOWER)
 
-# Set targets export name (used by slsDetectorPackage and dependencies)
-set(TARGETS_EXPORT_NAME "${PROJECT_NAME_LOWER}-targets")
-#set(namespace "${PROJECT_NAME}::")
-
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
 
 
@@ -33,6 +29,12 @@ set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
 set(SLS_MASTER_PROJECT OFF)
 if (CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
     set(SLS_MASTER_PROJECT ON)
+endif()
+
+# Set targets export name (used by slsDetectorPackage and dependencies)
+if(SLS_MASTER_PROJECT)
+  set(TARGETS_EXPORT_NAME "${PROJECT_NAME_LOWER}-targets")
+  #set(namespace "${PROJECT_NAME}::")
 endif()
 
 option (SLS_USE_HDF5 "HDF5 File format" OFF)
