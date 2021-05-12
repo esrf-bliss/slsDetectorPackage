@@ -4,8 +4,8 @@
  * @short Gotthard packet definitions
  ***********************************************/
 
-#include "sls/Pixel.h"
 #include "sls/Packet.h"
+#include "sls/Pixel.h"
 
 /*
  * \TODO: update to new Packet/Data/StreamData interface

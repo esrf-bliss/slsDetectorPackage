@@ -15,9 +15,9 @@ namespace sls {
 // Only 10G supported so far
 #define SLS_EIGER_DEFINE(Pixel, Interface)                                     \
     using EigerPacket##Pixel##Interface =                                      \
-        Eiger::Packet<Pixel, Eiger::Interface>;                          \
+        Eiger::Packet<Pixel, Eiger::Interface>;                                \
     using EigerPacketBlock##Pixel##Interface =                                 \
-        PacketBlock<Eiger::Packet<Pixel, Eiger::Interface>>;             \
+        PacketBlock<Eiger::Packet<Pixel, Eiger::Interface>>;                   \
     using EigerPacketBlockPtr##Pixel##Interface =                              \
         PacketBlockPtr<Eiger::Packet<Pixel, Eiger::Interface>>;
 

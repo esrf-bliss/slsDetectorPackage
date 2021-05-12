@@ -12,8 +12,8 @@ class DataStreamer;
 class Fifo;
 class slsDetectorDefs;
 
-#include <atomic>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <exception>
 #include <map>

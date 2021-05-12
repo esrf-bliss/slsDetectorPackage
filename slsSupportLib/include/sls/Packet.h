@@ -55,8 +55,7 @@ struct PacketData {
 
     static constexpr int DataOffset =
         offsetof(SoftwarePacket, net_packet) + offsetof(NetworkPacket, data);
-    static constexpr int Pad =
-        sls::alignCeil(DataOffset, Align) - DataOffset;
+    static constexpr int Pad = sls::alignCeil(DataOffset, Align) - DataOffset;
 
     struct Layout {
         char pad[Pad];

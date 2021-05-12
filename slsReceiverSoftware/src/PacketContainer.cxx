@@ -175,7 +175,7 @@ template <class P> long long PacketContainer<P>::getMemorySize() {
  * PacketContainer factory
  */
 
-template <class P, class... Args> auto PCFactory(Args &&... args) {
+template <class P, class... Args> auto PCFactory(Args &&...args) {
     using PC = PacketContainer<P>;
     return std::make_shared<AnyPacketContainer>(std::in_place_type_t<PC>(),
                                                 std::forward<Args>(args)...);
