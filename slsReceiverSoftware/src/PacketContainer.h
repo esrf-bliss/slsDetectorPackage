@@ -55,7 +55,7 @@ template <class P> class PacketContainer {
 
     BlockPtr getReadyPacketBlock(uint64_t frame = uint64_t(-1));
 
-    bool hasPendingPacket();
+    unsigned int getPendingPackets();
 
     void clearBuffers();
     long long getMemorySize();
