@@ -108,9 +108,9 @@ void PacketContainer<P>::putReadyPacketBlock(BlockPtr block) {
     block_cond.notify_all();
 }
 
-template <class P> bool PacketContainer<P>::hasPendingPacket() {
+template <class P> unsigned int PacketContainer<P>::getPendingPackets() {
     std::lock_guard<std::mutex> l(free_mutex);
-    return (free_queue.size() != num_frames);
+    return num_frames - free_queue.size();
 }
 
 template <class P> void PacketContainer<P>::releaseReadyPacketBlocks() {
@@ -127,19 +127,18 @@ template <class P> void PacketContainer<P>::waitUsedPacketBlocks() {
     using namespace std::chrono_literals;
     Clock::duration wait_reader_timeout = 10s;
     Clock::time_point t0 = Clock::now();
-    while (hasPendingPacket()) {
+    while (getPendingPackets() > 0) {
         Clock::time_point t = Clock::now();
         if (t - t0 > wait_reader_timeout)
             break;
         std::this_thread::sleep_for(5ms);
     }
-    if (hasPendingPacket()) {
+    auto missing = getPendingPackets();
+    if (missing > 0) {
         std::lock_guard<std::mutex> l(free_mutex);
         std::ostringstream error;
-        error << "PacketContainer: Missing free frames after "
-              << ToSeconds(wait_reader_timeout).count() << " sec: "
-              << "expected " << num_frames << ", "
-              << "got " << free_queue.size();
+        error << "PacketContainer: Missing " << missing << " free frames "
+              << "after " << ToSeconds(wait_reader_timeout).count() << " sec";
         std::cerr << error.str() << std::endl;
     }
 }
