@@ -99,11 +99,12 @@ void generate_map(Gen &gen, const SDG &src_det, T *src, const TDG &tgt_det,
                   T *tgt, T gap_pixel_val = -1) {
     fill_gap_pixel_value(tgt_det, tgt, gap_pixel_val);
 
-    det2_for_each_chip(
-        src_det, tgt_det, [&](auto &chip, auto &src_chip, auto &tgt_chip) {
+    det_for_each_chip(
+        src_det, tgt_det,
+        [&](auto const &chip, auto const &src_chip, auto const &tgt_chip) {
             using SV = decltype(src_chip);
             using TV = decltype(tgt_chip);
-            view2_for_each_pixel(
+            for_each_pixel(
                 src_chip, tgt_chip,
                 [&](const SV &src_chip, const TV &tgt_chip, const XY &pixel) {
                     int ti = tgt_chip.calcMapPixelIndex(pixel);
@@ -305,7 +306,7 @@ void geometry_assembler(DT det_type, std::string gen_type, const SDG &src_geom,
 template <class SDG, class TDG>
 void print_geom(const SDG &src_geom, const TDG &tgt_geom) {
     std::cout << src_geom.size << " " << tgt_geom.size << std::endl;
-    det_for_each_mod(tgt_geom, [&](auto &mod, auto &mod_geom) {
+    det_for_each_mod(tgt_geom, [&](auto const &mod, auto const &mod_geom) {
         auto &v = mod_geom.view;
         std::cout << " " << v.view_origin << "x" << v.size;
     });

@@ -118,20 +118,23 @@ constexpr auto ViewFromMap(const XY &map_size) {
 constexpr auto EmptyView = ViewFromMap({0, 0});
 
 // Helper pixel iterator
-inline void
-view_for_each_pixel(const MapView &view,
-                    std::function<void(const MapView &, const XY &)> f) {
+template <typename UnaryFunction>
+UnaryFunction for_each_pixel(const MapView &view, UnaryFunction f) {
     for (int pixely = 0; pixely < view.size.y; ++pixely)
         for (int pixelx = 0; pixelx < view.size.x; ++pixelx)
             f(view, {pixelx, pixely});
+
+    return f;
 }
 
-inline void view2_for_each_pixel(
-    const MapView &view1, const MapView &view2,
-    std::function<void(const MapView &, const MapView &, const XY &)> f) {
+template <typename BinaryFunction>
+BinaryFunction for_each_pixel(const MapView &view1, const MapView &view2,
+                              BinaryFunction f) {
     for (int pixely = 0; pixely < view1.size.y; ++pixely)
         for (int pixelx = 0; pixelx < view1.size.x; ++pixelx)
             f(view1, view2, {pixelx, pixely});
+
+    return f;
 }
 
 /*
@@ -256,13 +259,8 @@ template <class Fmt> struct IfaceGeom {
 };
 
 // Helper chip iterator
-template <class IG>
-void iface_for_each_chip(
-    const IG &iface_geom,
-    std::function<void(
-        const XY &,
-        const decltype(std::declval<IG>().getChipView(std::declval<XY>())) &)>
-        f) {
+template <class IG, typename UnaryFunction>
+void iface_for_each_chip(const IG &iface_geom, UnaryFunction f) {
     for (int chipy = 0; chipy < iface_geom.iface_chips.y; ++chipy) {
         for (int chipx = 0; chipx < iface_geom.iface_chips.x; ++chipx) {
             XY chip = {chipx, chipy};
@@ -271,14 +269,9 @@ void iface_for_each_chip(
     }
 }
 
-template <class IG1, class IG2>
-void iface2_for_each_chip(
-    const IG1 &iface_geom1, const IG2 &iface_geom2,
-    std::function<void(
-        const XY &,
-        const decltype(std::declval<IG1>().getChipView(std::declval<XY>())) &,
-        const decltype(std::declval<IG2>().getChipView(std::declval<XY>())) &)>
-        f) {
+template <class IG1, class IG2, typename BinaryFunction>
+void iface_for_each_chip(const IG1 &iface_geom1, const IG2 &iface_geom2,
+                         BinaryFunction f) {
     for (int chipy = 0; chipy < iface_geom1.iface_chips.y; ++chipy) {
         for (int chipx = 0; chipx < iface_geom1.iface_chips.x; ++chipx) {
             XY chip = {chipx, chipy};
@@ -326,33 +319,25 @@ template <class Fmt> struct RecvGeom {
 struct DefaultModRecvFlip {
     static constexpr auto getRecvFlip(const XY & /*recv_idx*/) {
         return NoFlip;
-    }
-};
+    } // namespace Geom
+};    // namespace sls
 
 // Helper iface iterator
-template <class RG>
-void recv_for_each_iface(
-    const RG &recv_geom,
-    std::function<void(
-        const XY &,
-        const decltype(std::declval<RG>().getIfaceGeom(std::declval<XY>())) &)>
-        f) {
+template <class RG, typename UnaryFunction>
+UnaryFunction recv_for_each_iface(const RG &recv_geom, UnaryFunction f) {
     for (int ifacey = 0; ifacey < recv_geom.recv_ifaces.y; ++ifacey) {
         for (int ifacex = 0; ifacex < recv_geom.recv_ifaces.x; ++ifacex) {
             XY iface = {ifacex, ifacey};
             f(iface, recv_geom.getIfaceGeom(iface));
         }
     }
+
+    return f;
 }
 
-template <class RG1, class RG2>
-void recv2_for_each_iface(
-    const RG1 &recv_geom1, const RG2 &recv_geom2,
-    std::function<void(
-        const XY &,
-        const decltype(std::declval<RG1>().getIfaceGeom(std::declval<XY>())) &,
-        const decltype(std::declval<RG2>().getIfaceGeom(std::declval<XY>())) &)>
-        f) {
+template <class RG1, class RG2, typename BinaryFunction>
+BinaryFunction recv_for_each_iface(const RG1 &recv_geom1, const RG2 &recv_geom2,
+                                   BinaryFunction f) {
     for (int ifacey = 0; ifacey < recv_geom1.recv_ifaces.y; ++ifacey) {
         for (int ifacex = 0; ifacex < recv_geom1.recv_ifaces.x; ++ifacex) {
             XY iface = {ifacex, ifacey};
@@ -361,6 +346,8 @@ void recv2_for_each_iface(
             f(iface, iface_geom1, iface_geom2);
         }
     }
+
+    return f;
 }
 
 // ModGeom: multi-receiver module geometry
@@ -400,29 +387,21 @@ template <class Fmt, class ModRecvFlip> struct ModGeom {
 };
 
 // Helper recv iterator
-template <class MG>
-void mod_for_each_recv(
-    const MG &mod_geom,
-    std::function<void(
-        const XY &,
-        const decltype(std::declval<MG>().getRecvGeom(std::declval<XY>())) &)>
-        f) {
+template <class MG, typename UnaryFunction>
+UnaryFunction mod_for_each_recv(const MG &mod_geom, UnaryFunction f) {
     for (int recvy = 0; recvy < mod_geom.mod_recvs.y; ++recvy) {
         for (int recvx = 0; recvx < mod_geom.mod_recvs.x; ++recvx) {
             XY recv = {recvx, recvy};
             f(recv, mod_geom.getRecvGeom(recv));
         }
     }
+
+    return f;
 }
 
-template <class MG1, class MG2>
-void mod2_for_each_recv(
-    const MG1 &mod_geom1, const MG2 &mod_geom2,
-    std::function<void(
-        const XY &,
-        const decltype(std::declval<MG1>().getRecvGeom(std::declval<XY>())) &,
-        const decltype(std::declval<MG2>().getRecvGeom(std::declval<XY>())) &)>
-        f) {
+template <class MG1, class MG2, typename BinaryFunction>
+BinaryFunction mod_for_each_recv(const MG1 &mod_geom1, const MG2 &mod_geom2,
+                                 BinaryFunction f) {
     for (int recvy = 0; recvy < mod_geom1.mod_recvs.y; ++recvy) {
         for (int recvx = 0; recvx < mod_geom1.mod_recvs.x; ++recvx) {
             XY recv = {recvx, recvy};
@@ -431,6 +410,8 @@ void mod2_for_each_recv(
             f(recv, recv_geom1, recv_geom2);
         }
     }
+
+    return f;
 }
 
 // DetGeom: multi-module detector geometry
@@ -468,28 +449,21 @@ template <class Fmt, class ModRecvFlip> struct DetGeom {
 };
 
 // Helper module iterator
-template <class DG>
-void det_for_each_mod(
-    const DG &det_geom,
-    std::function<void(const XY &, const decltype(std::declval<DG>().getModGeom(
-                                       std::declval<XY>())) &)>
-        f) {
+template <class DG, typename UnaryFunction>
+UnaryFunction det_for_each_mod(const DG &det_geom, UnaryFunction f) {
     for (int mody = 0; mody < det_geom.det_mods.y; ++mody) {
         for (int modx = 0; modx < det_geom.det_mods.x; ++modx) {
             XY mod = {modx, mody};
             f(mod, det_geom.getModGeom(mod));
         }
     }
+
+    return f;
 }
 
-template <class DG1, class DG2>
-void det2_for_each_mod(
-    const DG1 &det_geom1, const DG2 &det_geom2,
-    std::function<void(
-        const XY &,
-        const decltype(std::declval<DG1>().getModGeom(std::declval<XY>())) &,
-        const decltype(std::declval<DG2>().getModGeom(std::declval<XY>())) &)>
-        f) {
+template <class DG1, class DG2, typename BinaryFunction>
+BinaryFunction det_for_each_mod(const DG1 &det_geom1, const DG2 &det_geom2,
+                                BinaryFunction f) {
     for (int mody = 0; mody < det_geom1.det_mods.y; ++mody) {
         for (int modx = 0; modx < det_geom1.det_mods.x; ++modx) {
             XY mod = {modx, mody};
@@ -498,13 +472,14 @@ void det2_for_each_mod(
             f(mod, mod_geom1, mod_geom2);
         }
     }
+
+    return f;
 }
 
 // Helper detector iterator
 
-template <class DG>
-void det_for_each_chip(const DG &det_geom,
-                       std::function<void(const XY &, const MapView &)> f) {
+template <class DG, typename UnaryFunction>
+UnaryFunction det_for_each_chip(const DG &det_geom, UnaryFunction f) {
     det_for_each_mod(det_geom, [&](auto &mod, auto &mod_geom) {
         mod_for_each_recv(mod_geom, [&](auto &recv, auto &recv_geom) {
             recv_for_each_iface(recv_geom, [&](auto &iface, auto &iface_geom) {
@@ -517,29 +492,31 @@ void det_for_each_chip(const DG &det_geom,
             });
         });
     });
+
+    return f;
 }
 
-template <class DG>
-void det_for_each_pixel(const DG &det_geom,
-                        std::function<void(const MapView &, const XY &)> f) {
-    det_for_each_chip(det_geom, [&](auto &chip, auto &chip_view) {
-        view_for_each_pixel(chip_view, f);
+template <class DG, typename UnaryFunction>
+UnaryFunction det_for_each_pixel(const DG &det_geom, UnaryFunction f) {
+    for_each_chip(det_geom, [&](auto &chip, auto &chip_view) {
+        for_each_pixel(chip_view, f);
     });
+
+    return f;
 }
 
-template <class DG1, class DG2>
-void det2_for_each_chip(
-    const DG1 &det_geom1, const DG2 &det_geom2,
-    std::function<void(const XY &, const MapView &, const MapView &)> f) {
-    det2_for_each_mod(
+template <class DG1, class DG2, typename BinaryFunction>
+BinaryFunction det_for_each_chip(const DG1 &det_geom1, const DG2 &det_geom2,
+                                 BinaryFunction f) {
+    det_for_each_mod(
         det_geom1, det_geom2, [&](auto &mod, auto &mod_geom1, auto &mod_geom2) {
-            mod2_for_each_recv(
+            mod_for_each_recv(
                 mod_geom1, mod_geom2,
                 [&](auto &recv, auto &recv_geom1, auto &recv_geom2) {
-                    recv2_for_each_iface(
+                    recv_for_each_iface(
                         recv_geom1, recv_geom2,
                         [&](auto &iface, auto &iface_geom1, auto &iface_geom2) {
-                            iface2_for_each_chip(
+                            iface_for_each_chip(
                                 iface_geom1, iface_geom2,
                                 [&](auto &chip, auto &chip_view1,
                                     auto &chip_view2) {
@@ -551,16 +528,19 @@ void det2_for_each_chip(
                         });
                 });
         });
+
+    return f;
 }
 
-template <class DG1, class DG2>
-void det2_for_each_pixel(
-    const DG1 &det_geom1, const DG2 &det_geom2,
-    std::function<void(const MapView &, const MapView &, const XY &)> f) {
-    det2_for_each_chip(det_geom1, det_geom2,
-                       [&](auto &chip, auto &chip_view1, auto &chip_view2) {
-                           view2_for_each_pixel(chip_view1, chip_view2, f);
-                       });
+template <class DG1, class DG2, typename BinaryFunction>
+BinaryFunction det_for_each_pixel(const DG1 &det_geom1, const DG2 &det_geom2,
+                                  BinaryFunction f) {
+    det_for_each_chip(det_geom1, det_geom2,
+                      [&](auto &chip, auto &chip_view1, auto &chip_view2) {
+                          for_each_pixel(chip_view1, chip_view2, f);
+                      });
+
+    return f;
 }
 
 // Detector geometry data: stores all geometry for a particular detector
@@ -615,6 +595,5 @@ constexpr AnyModGapFilling AnyModGapFillingFromModPos(const DG &det_geom,
     return {GetValidVariant<AnyGapFilling>(has_gap.x),
             GetValidVariant<AnyGapFilling>(has_gap.y)};
 }
-
 }; // namespace Geom
 }; // namespace sls
