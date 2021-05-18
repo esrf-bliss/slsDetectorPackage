@@ -3,7 +3,7 @@
  * @short low-level udp packet reception classes
  ***********************************************/
 
-#include "PacketStream.h"
+#include "sls/PacketStream.h"
 #include "sls/detectors/eiger/StreamData.h"
 #include "sls/detectors/jungfrau/StreamData.h"
 

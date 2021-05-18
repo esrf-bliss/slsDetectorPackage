@@ -3,8 +3,7 @@
  * @short low-level udp packet container classes
  ***********************************************/
 
-#include "PacketContainer.h"
-
+#include <cassert>
 #include <chrono>
 #include <thread>
 

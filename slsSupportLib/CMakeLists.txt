@@ -9,6 +9,8 @@ set(SOURCES
     src/network_utils.cpp
     src/ZmqSocket.cpp
     src/UdpRxSocket.cpp
+    src/PacketContainer.cpp
+    src/PacketStream.cpp
     src/FrameAssembler.cpp
     src/sls_detector_exceptions.cpp
 )
@@ -57,6 +59,7 @@ target_include_directories(slsSupportObject
   PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
+    ${NUMA_INCLUDE_DIR}
   PRIVATE
     ${ZeroMQ_INCLUDE_DIR}
 )
@@ -66,6 +69,7 @@ target_link_libraries(slsSupportObject
     slsProjectOptions 
     ${ZeroMQ_LIBRARY}
     rapidjson
+    ${NUMA_LIBRARY}
   PRIVATE
     slsProjectWarnings     
 )

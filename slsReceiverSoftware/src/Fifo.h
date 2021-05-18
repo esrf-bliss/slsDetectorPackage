@@ -10,9 +10,9 @@
  */
 
 #include "GeneralData.h"
-#include "PacketContainer.h"
 #include "receiver_defs.h"
 #include "sls/CircularFifo.h"
+#include "sls/PacketContainer.h"
 #include "sls/PacketTypedefs.h"
 #include "sls/logger.h"
 #include "sls/sls_detector_defs.h"

@@ -9,9 +9,9 @@
  *@short creates & manages a listener thread each
  */
 
-#include "PacketStream.h"
 #include "ThreadObject.h"
 #include "receiver_defs.h"
+#include "sls/PacketStream.h"
 #include "sls/UdpRxSocket.h"
 #include <atomic>
 #include <memory>

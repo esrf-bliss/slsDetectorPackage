@@ -3,6 +3,8 @@
  * @short low-level udp packet reception classes
  ***********************************************/
 
+#include <cassert>
+
 /**
  * PacketStream
  */

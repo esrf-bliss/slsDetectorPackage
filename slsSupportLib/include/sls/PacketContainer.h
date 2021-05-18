@@ -13,8 +13,7 @@
 #include <queue>
 #include <variant>
 
-#include "GeneralData.h"
-#include "MmappedRegion.h"
+#include "sls/MmappedRegion.h"
 
 /**
  *@short container managing packet blocks to/from stream
