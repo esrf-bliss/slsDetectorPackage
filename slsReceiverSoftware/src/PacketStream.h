@@ -143,7 +143,8 @@ using AnyPacketStream = std::variant<
                                       JungfrauStreamDataTwoIface2)>;
 
 std::shared_ptr<AnyPacketStream>
-CreatePacketStream(UdpRxSocketPtr s, GeneralDataPtr d, int idx,
+CreatePacketStream(UdpRxSocketPtr s, slsDetectorDefs::detectorType det_type,
+                   bool tg_enable, int num_udp_ifaces, uint32_t dr, int idx,
                    cpu_set_t cpu_mask, pid_t thread_id, FramePolicy fp,
                    AnyPacketContainerPtr any_pc);
 

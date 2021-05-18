@@ -17,11 +17,12 @@ template <class PS, class... Args> auto PSFactory(Args &&...args) {
 }
 
 std::shared_ptr<AnyPacketStream>
-CreatePacketStream(UdpRxSocketPtr s, GeneralDataPtr d, int idx,
+CreatePacketStream(UdpRxSocketPtr s, slsDetectorDefs::detectorType det_type,
+                   bool tg_enable, int num_udp_ifaces, uint32_t dr, int idx,
                    cpu_set_t cpu_mask, pid_t thread_id, FramePolicy fp,
                    AnyPacketContainerPtr any_pc) {
 
-    auto any_pixel = sls::AnyPixelFromBpp(d->dynamicRange);
+    auto any_pixel = sls::AnyPixelFromBpp(dr);
     auto any_fp = AnyFramePolicyFromFP(fp);
 
     return std::visit(
@@ -31,8 +32,8 @@ CreatePacketStream(UdpRxSocketPtr s, GeneralDataPtr d, int idx,
 
 #define args s, cpu_mask, thread_id, any_pc
 
-            if (d->myDetectorType == slsDetectorDefs::EIGER) {
-                auto any_tg = sls::Eiger::AnyTenGigaFromTgEnable(d->tgEnable);
+            if (det_type == slsDetectorDefs::EIGER) {
+                auto any_tg = sls::Eiger::AnyTenGigaFromTgEnable(tg_enable);
                 return std::visit(
                     [&](auto tg) {
                         using TG = decltype(tg);
@@ -40,8 +41,8 @@ CreatePacketStream(UdpRxSocketPtr s, GeneralDataPtr d, int idx,
                             args);
                     },
                     any_tg);
-            } else if (d->myDetectorType == slsDetectorDefs::JUNGFRAU) {
-                if (d->numUDPInterfaces == 1)
+            } else if (det_type == slsDetectorDefs::JUNGFRAU) {
+                if (num_udp_ifaces == 1)
                     return PSFactory<sls::Jungfrau::PacketStream<
                         sls::Jungfrau::Geom::OneIface, 0, FP>>(args);
                 else if (idx == 0)
@@ -52,7 +53,7 @@ CreatePacketStream(UdpRxSocketPtr s, GeneralDataPtr d, int idx,
                         sls::Jungfrau::Geom::TwoIface, 1, FP>>(args);
             } else
                 throw sls::RuntimeError("Detector not supported: " +
-                                        std::to_string(d->myDetectorType));
+                                        std::to_string(det_type));
 #undef args
         },
         any_pixel, any_fp);
