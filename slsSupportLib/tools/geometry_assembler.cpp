@@ -104,7 +104,7 @@ void generate_map(Gen &gen, const SDG &src_det, T *src, const TDG &tgt_det,
         [&](auto const &chip, auto const &src_chip, auto const &tgt_chip) {
             using SV = decltype(src_chip);
             using TV = decltype(tgt_chip);
-            for_each_pixel(
+            view_for_each_pixel(
                 src_chip, tgt_chip,
                 [&](const SV &src_chip, const TV &tgt_chip, const XY &pixel) {
                     int ti = tgt_chip.calcMapPixelIndex(pixel);

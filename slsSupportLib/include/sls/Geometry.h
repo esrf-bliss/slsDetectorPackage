@@ -119,20 +119,20 @@ constexpr auto EmptyView = ViewFromMap({0, 0});
 
 // Helper pixel iterator
 template <typename UnaryFunction>
-UnaryFunction for_each_pixel(const MapView &view, UnaryFunction f) {
+UnaryFunction view_for_each_pixel(const MapView &view, UnaryFunction f) {
     for (int pixely = 0; pixely < view.size.y; ++pixely)
         for (int pixelx = 0; pixelx < view.size.x; ++pixelx)
-            f(view, {pixelx, pixely});
+            f(view, XY{pixelx, pixely});
 
     return f;
 }
 
 template <typename BinaryFunction>
-BinaryFunction for_each_pixel(const MapView &view1, const MapView &view2,
-                              BinaryFunction f) {
+BinaryFunction view_for_each_pixel(const MapView &view1, const MapView &view2,
+                                   BinaryFunction f) {
     for (int pixely = 0; pixely < view1.size.y; ++pixely)
         for (int pixelx = 0; pixelx < view1.size.x; ++pixelx)
-            f(view1, view2, {pixelx, pixely});
+            f(view1, view2, XY{pixelx, pixely});
 
     return f;
 }
@@ -480,17 +480,19 @@ BinaryFunction det_for_each_mod(const DG1 &det_geom1, const DG2 &det_geom2,
 
 template <class DG, typename UnaryFunction>
 UnaryFunction det_for_each_chip(const DG &det_geom, UnaryFunction f) {
-    det_for_each_mod(det_geom, [&](auto &mod, auto &mod_geom) {
-        mod_for_each_recv(mod_geom, [&](auto &recv, auto &recv_geom) {
-            recv_for_each_iface(recv_geom, [&](auto &iface, auto &iface_geom) {
-                iface_for_each_chip(
-                    iface_geom, [&](auto &chip, auto &chip_view) {
+    det_for_each_mod(det_geom, [&](auto const &mod, auto const &mod_geom) {
+        mod_for_each_recv(
+            mod_geom, [&](auto const &recv, auto const &recv_geom) {
+                recv_for_each_iface(recv_geom, [&](auto const &iface,
+                                                   auto const &iface_geom) {
+                    iface_for_each_chip(iface_geom, [&](auto const &chip,
+                                                        auto const &chip_view) {
                         auto first_chip =
                             (iface_geom.iface_idx * iface_geom.iface_chips);
                         f(first_chip + chip, chip_view);
                     });
+                });
             });
-        });
     });
 
     return f;
@@ -498,8 +500,8 @@ UnaryFunction det_for_each_chip(const DG &det_geom, UnaryFunction f) {
 
 template <class DG, typename UnaryFunction>
 UnaryFunction det_for_each_pixel(const DG &det_geom, UnaryFunction f) {
-    for_each_chip(det_geom, [&](auto &chip, auto &chip_view) {
-        for_each_pixel(chip_view, f);
+    det_for_each_chip(det_geom, [&](auto const &chip, auto const &chip_view) {
+        view_for_each_pixel(chip_view, f);
     });
 
     return f;
@@ -509,17 +511,20 @@ template <class DG1, class DG2, typename BinaryFunction>
 BinaryFunction det_for_each_chip(const DG1 &det_geom1, const DG2 &det_geom2,
                                  BinaryFunction f) {
     det_for_each_mod(
-        det_geom1, det_geom2, [&](auto &mod, auto &mod_geom1, auto &mod_geom2) {
+        det_geom1, det_geom2,
+        [&](auto const &mod, auto const &mod_geom1, auto const &mod_geom2) {
             mod_for_each_recv(
                 mod_geom1, mod_geom2,
-                [&](auto &recv, auto &recv_geom1, auto &recv_geom2) {
+                [&](auto const &recv, auto const &recv_geom1,
+                    auto const &recv_geom2) {
                     recv_for_each_iface(
                         recv_geom1, recv_geom2,
-                        [&](auto &iface, auto &iface_geom1, auto &iface_geom2) {
+                        [&](auto const &iface, auto const &iface_geom1,
+                            auto const &iface_geom2) {
                             iface_for_each_chip(
                                 iface_geom1, iface_geom2,
-                                [&](auto &chip, auto &chip_view1,
-                                    auto &chip_view2) {
+                                [&](auto const &chip, auto const &chip_view1,
+                                    auto const &chip_view2) {
                                     auto first_chip = (iface_geom1.iface_idx *
                                                        iface_geom1.iface_chips);
                                     f(first_chip + chip, chip_view1,
@@ -535,10 +540,11 @@ BinaryFunction det_for_each_chip(const DG1 &det_geom1, const DG2 &det_geom2,
 template <class DG1, class DG2, typename BinaryFunction>
 BinaryFunction det_for_each_pixel(const DG1 &det_geom1, const DG2 &det_geom2,
                                   BinaryFunction f) {
-    det_for_each_chip(det_geom1, det_geom2,
-                      [&](auto &chip, auto &chip_view1, auto &chip_view2) {
-                          for_each_pixel(chip_view1, chip_view2, f);
-                      });
+    det_for_each_chip(
+        det_geom1, det_geom2,
+        [&](auto const &chip, auto const &chip_view1, auto const &chip_view2) {
+            view_for_each_pixel(chip_view1, chip_view2, f);
+        });
 
     return f;
 }
