@@ -29,21 +29,16 @@ class FrameAssembler : public MPFrameAssembler {
 
     FrameAssembler(int offset) : data_offset(offset) {}
 
-    Result assembleFrame(AnyPacketBlockList blocks, RecvHeader *recv_header,
-                         char *buf) override;
+    Result assembleFrame(AnyPacketBlockList blocks, char *buf) override;
 
   private:
     int data_offset;
 
     struct Worker {
         PortsMask mask;
-        bool header_empty{true};
-        DetHeader *det_header;
         char *buf;
 
-        Worker(RecvHeader *rh, char *b) : det_header(&rh->detHeader), buf(b) {
-            det_header->packetNumber = 0;
-        }
+        Worker(char *b) : buf(b) {}
 
         template <int Idx> void assembleIface(AnyPacketBlockPtr block);
 

@@ -152,19 +152,10 @@ void FrameAssembler<GD, MGX, MGY>::Worker::assembleIface(
         throw std::runtime_error("Invalid packet block");
 
     BlockPtr b = std::get<BlockPtr>(std::move(block));
-    int packet_count = b ? b->getValidPackets() : 0;
-    if (packet_count == 0)
+    if (!b || (b->getValidPackets() == 0))
         return;
 
     mask.set(Idx, true);
-    det_header->packetNumber += packet_count;
-
-    // write header
-    if (header_empty) {
-        auto p = (*b)[0];
-        p.fillDetHeader(det_header);
-        header_empty = false;
-    }
 
     Helper::assemblePackets(std::move(b), buf);
     if (buf)
@@ -178,7 +169,6 @@ Result FrameAssembler<GD, MGX, MGY>::Worker::result() {
 
 template <class GD, bool MGX, bool MGY>
 Result FrameAssembler<GD, MGX, MGY>::assembleFrame(AnyPacketBlockList blocks,
-                                                   RecvHeader *recv_header,
                                                    char *buf) {
     if (blocks.size() != std::size_t(NbIfaces))
         throw std::runtime_error("Invalid packet block list");
@@ -186,7 +176,7 @@ Result FrameAssembler<GD, MGX, MGY>::assembleFrame(AnyPacketBlockList blocks,
     if (buf)
         buf += data_offset;
 
-    Worker w(recv_header, buf);
+    Worker w(buf);
 
     for (int i = 0; i < NbIfaces; ++i) {
         if (i == 0)

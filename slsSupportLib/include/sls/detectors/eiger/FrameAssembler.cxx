@@ -351,7 +351,7 @@ void CopyHelper<P, TG, GD, MGX, MGY, Idx>::assemblePackets(
 
 template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
 Result FrameAssembler<P, TG, GD, MGX, MGY, Idx>::assembleFrame(
-    AnyPacketBlockList blocks, RecvHeader *recv_header, char *buf) {
+    AnyPacketBlockList blocks, char *buf) {
 
     if (blocks.size() != std::size_t(NbIfaces) ||
         !std::holds_alternative<BlockPtr>(blocks[0]) ||
@@ -361,25 +361,8 @@ Result FrameAssembler<P, TG, GD, MGX, MGY, Idx>::assembleFrame(
     BlockPtr b[NbIfaces] = {std::get<BlockPtr>(std::move(blocks[0])),
                             std::get<BlockPtr>(std::move(blocks[1]))};
     PortsMask mask;
-    bool header_empty = true;
-
-    DetHeader *det_header = &recv_header->detHeader;
-    det_header->packetNumber = 0;
-
-    for (int i = 0; i < NbIfaces; ++i) {
-        int packet_count = b[i] ? b[i]->getValidPackets() : 0;
-        if (packet_count == 0)
-            continue;
-        mask.set(i, true);
-        det_header->packetNumber += packet_count;
-
-        // write header
-        if (header_empty) {
-            Packet<P, TG> p = (*b[i])[0];
-            p.fillDetHeader(det_header);
-            header_empty = false;
-        }
-    }
+    for (int i = 0; i < NbIfaces; ++i)
+        mask[i] = (b[i] && (b[i]->getValidPackets() > 0));
 
     if (mask.any() && buf)
         helper.assemblePackets(b, buf + data_offset);

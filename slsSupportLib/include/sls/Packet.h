@@ -109,10 +109,6 @@ template <class PacketData> struct StdPacket : Packet<PacketData> {
     uint32_t number() { return Base::networkHeader()->packetNumber; }
 
     uint32_t sizeAdjust() { return 0; }
-
-    void fillDetHeader(DetHeader *det_header) {
-        memcpy(det_header, Base::networkHeader(), sizeof(*det_header));
-    }
 };
 
 /**

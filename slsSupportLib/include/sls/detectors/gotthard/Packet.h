@@ -99,8 +99,6 @@ template <class Mode> struct PacketImpl : Packet<PacketData<Mode>> {
     }
 
     uint32_t sizeAdjust() { return (number() == 0) ? 0 : (2 * 2); }
-
-    void fillDetHeader(DetHeader *det_header);
 };
 
 using FullPacket = PacketImpl<FullMode>;

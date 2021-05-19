@@ -59,7 +59,6 @@ void DefaultFrameAssembler<Packet, DP>::expand4Bits(char *dst, char *src,
 
 template <class Packet, class DP>
 bool DefaultFrameAssembler<Packet, DP>::assembleFrame(AnyPacketBlockPtr block,
-                                                      RecvHeader *recv_header,
                                                       char *buf) {
     if (!std::holds_alternative<BlockPtr>(block))
         throw std::runtime_error("Invalid packet block");
@@ -67,9 +66,10 @@ bool DefaultFrameAssembler<Packet, DP>::assembleFrame(AnyPacketBlockPtr block,
     BlockPtr b = std::get<BlockPtr>(std::move(block));
     if (!b || (b->getValidPackets() == 0))
         return false;
+    else if (!buf)
+        return true;
 
     constexpr int packets_per_frame = Packet::Data::PacketsPerFrame;
-    DetHeader *det_header = &recv_header->detHeader;
     constexpr uint32_t src_dsize = PacketData::PacketDataLen;
     constexpr uint32_t frame_size = PacketData::FrameLen;
 #define check_last(i, p) (((i) % (p)) ? ((i) % (p)) : (p))
@@ -78,43 +78,25 @@ bool DefaultFrameAssembler<Packet, DP>::assembleFrame(AnyPacketBlockPtr block,
     constexpr uint32_t dst_dsize =
         PacketData::PacketDataLen / SP::depth() * DP::depth();
 
-    recv_header->packetsMask.reset();
-    bool header_empty = true;
-
     uint32_t prev_adjust = 0;
     auto valid_packet_mask = b->getValidPacketMask();
     for (int i = 0; i < packets_per_frame; ++i) {
-        if (!valid_packet_mask[i])
-            continue;
-
-        Packet packet = (*b)[i];
-        int pnum = packet.number();
-        recv_header->packetsMask[pnum] = 1;
-
-        // write header
-        if (header_empty) {
-            packet.fillDetHeader(det_header);
-            header_empty = false;
-        }
-
-        if (!buf)
-            continue;
-
         // copy packet
-        char *dst = buf + pnum * dst_dsize;
-        bool last_packet = (pnum == (packets_per_frame - 1));
+        Packet packet = (*b)[i];
+        char *dst = buf + i * dst_dsize;
+        bool last_packet = (i == (packets_per_frame - 1));
         uint32_t copy_dsize = last_packet ? last_dsize : src_dsize;
         uint32_t size_adjust = packet.sizeAdjust();
         copy_dsize += size_adjust;
         dst += prev_adjust;
         prev_adjust = size_adjust;
-        if (Expand4Bits)
+        if (!valid_packet_mask[i])
+            memset(dst, 0xff, copy_dsize);
+        else if (Expand4Bits)
             expand4Bits(dst, packet.data(), copy_dsize);
         else
             memcpy(dst, packet.data(), copy_dsize);
     }
-
-    det_header->packetNumber = b->getValidPackets();
 
     return true;
 }
@@ -164,8 +146,7 @@ DefaultFrameAssemblerPtr sls::FrameAssembler::CreateDefaultFrameAssembler(
  * RawFrameAssembler
  */
 
-Result RawFrameAssembler::assembleFrame(AnyPacketBlockList blocks,
-                                        RecvHeader *recv_header, char *buf) {
+Result RawFrameAssembler::assembleFrame(AnyPacketBlockList blocks, char *buf) {
     const int NbIfaces = assembler.size();
     if (blocks.size() != std::size_t(NbIfaces))
         throw std::runtime_error("Invalid packet block list");
@@ -175,7 +156,7 @@ Result RawFrameAssembler::assembleFrame(AnyPacketBlockList blocks,
     Result res{NbIfaces, 0};
     for (int i = 0; i < NbIfaces; ++i) {
         res.valid_data[i] =
-            assembler[i]->assembleFrame(std::move(blocks[i]), recv_header, buf);
+            assembler[i]->assembleFrame(std::move(blocks[i]), buf);
         if (buf)
             buf += assembler[i]->getImageSize();
     }
