@@ -95,6 +95,7 @@ void CopyHelper<GD, MGX, MGY, Idx>::assemblePackets(BlockPtr block, char *buf) {
     char *d = buf;
     int line = 0;
     int packet = h.src_first_packet;
+    auto valid_packet_mask = block->getValidPacketMask();
     for (int p = 0; p < h.frame_packets; ++p, packet += h.src_dir) {
         auto line_packet = (*block)[packet];
         char *s = line_packet.data() + h.src_offset;
@@ -102,7 +103,7 @@ void CopyHelper<GD, MGX, MGY, Idx>::assemblePackets(BlockPtr block, char *buf) {
             char *ld = d;
             char *ls = s;
             for (int c = 0; c < IfaceHorzChips; ++c) {
-                if (line_packet.isValid())
+                if (valid_packet_mask[packet])
                     memcpy(ld, ls, h.src_chip_size);
                 else
                     memset(ld, 0xff, h.src_chip_size);

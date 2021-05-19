@@ -82,11 +82,12 @@ bool DefaultFrameAssembler<Packet, DP>::assembleFrame(AnyPacketBlockPtr block,
     bool header_empty = true;
 
     uint32_t prev_adjust = 0;
+    auto valid_packet_mask = b->getValidPacketMask();
     for (int i = 0; i < packets_per_frame; ++i) {
-        Packet packet = (*b)[i];
-        if (!packet.isValid())
+        if (!valid_packet_mask[i])
             continue;
 
+        Packet packet = (*b)[i];
         int pnum = packet.number();
         recv_header->packetsMask[pnum] = 1;
 

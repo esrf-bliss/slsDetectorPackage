@@ -45,7 +45,7 @@ struct PacketData {
 
     // An instance of <derived>::SoftHeader prepends each network packet
     struct SoftHeader {
-        bool valid;
+        int unused;
     } __attribute__((packed));
     // The Packet structure in the (software) buffer
     struct SoftwarePacket {
@@ -82,8 +82,6 @@ template <class PD> struct Packet {
     SoftHeader *softHeader() { return &buffer->soft_header; }
 
     void initSoftHeader() {}
-
-    bool isValid() const { return softHeader()->valid; }
 
     void *networkBuffer() { return &buffer->net_packet; }
 
@@ -128,33 +126,44 @@ template <class P> class PacketBlock {
     static constexpr int NbPackets = Packet::Data::PacketsPerFrame;
     using Layout = std::array<typename Packet::Layout, NbPackets>;
     using LayoutPtr = std::unique_ptr<Layout, std::function<void(Layout *)>>;
+    using NetworkHeader = typename Packet::NetworkPacketHeader;
+    using sls_bitset = slsDetectorDefs::sls_bitset;
 
     PacketBlock(LayoutPtr &&l) : layout(std::move(l)){};
 
     Packet operator[](unsigned int i) { return Packet(&(*layout)[i]); }
 
     void setValid(unsigned int i, bool valid) {
-        (*this)[i].softHeader()->valid = valid;
-        if (valid)
-            ++valid_packets;
+        Packet p = (*this)[i];
+        if (valid) {
+            valid_packet_mask[i] = true;
+            if (!header || (p.number() < header->packetNumber))
+                header = p.networkHeader();
+        }
     }
 
     void moveToGood(Packet &p) {
         P dst = (*this)[p.number()];
         *dst.buffer = *p.buffer;
-        p.softHeader()->valid = false;
-        dst.softHeader()->valid = true;
+        setValid(p.number(), true);
     }
 
-    bool hasFullFrame() { return valid_packets == NbPackets; }
+    bool hasFullFrame() { return getValidPackets() == NbPackets; }
 
-    int getValidPackets() { return valid_packets; }
+    int getValidPackets() { return valid_packet_mask.count(); }
 
-    uint64_t frame_number{0};
+    const sls_bitset &getValidPacketMask() { return valid_packet_mask; }
+
+    NetworkHeader *getNetworkHeader() { return header; }
+
+    uint64_t getFrameNumber() const {
+        return header ? header->frameNumber : -1;
+    }
 
   private:
     LayoutPtr layout;
-    int valid_packets{0};
+    sls_bitset valid_packet_mask;
+    NetworkHeader *header{nullptr};
 };
 
 template <class P> using PacketBlockPtr = std::unique_ptr<PacketBlock<P>>;

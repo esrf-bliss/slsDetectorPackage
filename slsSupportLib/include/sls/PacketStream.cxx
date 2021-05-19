@@ -77,13 +77,14 @@ template <class P, class SD, class FP>
 void PacketStream<P, SD, FP>::addPacketBlock(BlockPtr block) {
     bool full_frame = block->hasFullFrame();
     {
+        uint64_t frame = block->getFrameNumber();
         std::lock_guard<std::mutex> l(mutex);
         if (first_frame == uint64_t(-1))
-            first_frame = block->frame_number;
+            first_frame = frame;
         if (full_frame)
             ++frames_caught;
-        if (block->frame_number > last_frame)
-            last_frame = block->frame_number;
+        if (frame > last_frame)
+            last_frame = frame;
     }
     if (full_frame || !FP::canDiscardFrame(block->getValidPackets()))
         packet_cont.putReadyPacketBlock(std::move(block));
@@ -198,15 +199,14 @@ class PacketStream<P, SD, FP>::WriterThread {
                       << "] unexpected " << msg << ": "
                       << "packet_frame=" << packet_frame << ", "
                       << "packet_number=" << packet_number << ", "
-                      << "curr_frame=" << block->frame_number << ", "
+                      << "curr_frame=" << block->getFrameNumber() << ", "
                       << "curr_packet=" << curr_packet << ", "
                       << "curr_idx=" << curr_idx << std::endl;
         };
 
         // moveToGood manages both src & dst valid flags
-        if (curr_idx == 0)
-            block->frame_number = packet_frame;
-        if (packet_frame != block->frame_number) {
+        bool first_packet = !block->getNetworkHeader();
+        if (!first_packet && (packet_frame != block->getFrameNumber())) {
             trace_unexpected("new frame");
             BlockPtr new_block = ps.getEmptyBlock();
             if (new_block)
@@ -218,7 +218,6 @@ class PacketStream<P, SD, FP>::WriterThread {
             if (!new_block)
                 return false;
             block = std::move(new_block);
-            block->frame_number = packet_frame;
             setInvalidPacketsUntil(packet_number);
         } else if (packet_number != curr_packet) {
             trace_unexpected("bad frame");

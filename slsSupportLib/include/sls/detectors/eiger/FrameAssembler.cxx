@@ -161,8 +161,8 @@ int Expand4BitsHelper<P, TG, GD, MGX, MGY, Idx>::Worker::load_packet(
         LOG(logERROR) << "Missaligned src";
         return -1;
     }
-    v[0] = p0.isValid();
-    v[1] = p1.isValid();
+    v[0] = block[0]->getValidPacketMask()[packet];
+    v[1] = block[1]->getValidPacketMask()[packet];
     return 0;
 }
 
@@ -308,6 +308,9 @@ void CopyHelper<P, TG, GD, MGX, MGY, Idx>::assemblePackets(
     H h;
     int packet = h.src_first_packet;
     char *d = buf;
+    using sls_bitset = slsDetectorDefs::sls_bitset;
+    sls_bitset valid_packet_mask[NbIfaces] = {block[0]->getValidPacketMask(),
+                                              block[1]->getValidPacketMask()};
     for (int p = 0; p < h.frame_packets; ++p, packet += h.src_dir) {
         Packet<P, TG> line_packet[NbIfaces] = {(*block[0])[packet],
                                                (*block[1])[packet]};
@@ -318,7 +321,7 @@ void CopyHelper<P, TG, GD, MGX, MGY, Idx>::assemblePackets(
             for (int i = 0; i < NbIfaces; ++i) {
                 char *ls = s[i];
                 for (int c = 0; c < IfaceHorzChips; ++c) {
-                    if (line_packet[i].isValid())
+                    if (valid_packet_mask[i][packet])
                         memcpy(ld, ls, h.src_chip_size);
                     else
                         memset(ld, 0xff, h.src_chip_size);
