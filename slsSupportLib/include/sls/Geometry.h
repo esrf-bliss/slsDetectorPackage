@@ -302,6 +302,13 @@ template <class Fmt> struct RecvGeom {
           size(Fmt::calcArraySize(iface_geom_size, recv_ifaces, chip_gap)),
           iface_step(iface_geom_size + (IsRaw<Fmt>() ? XY0 : chip_gap)) {}
 
+    constexpr auto getIfacePos(const XY &iface_idx) const {
+        auto recv_flip = view.flipped;
+        auto offset = recv_flip * (recv_ifaces - XY1);
+        XY dir{!recv_flip.x ? 1 : -1, !recv_flip.y ? 1 : -1};
+        return iface_idx * dir + offset;
+    }
+
     constexpr auto getIfaceView(const XY &iface_idx) const {
         return Fmt::getElementView(iface_geom_size, recv_ifaces, chip_gap,
                                    iface_idx, view);
@@ -319,8 +326,8 @@ template <class Fmt> struct RecvGeom {
 struct DefaultModRecvFlip {
     static constexpr auto getRecvFlip(const XY & /*recv_idx*/) {
         return NoFlip;
-    } // namespace Geom
-};    // namespace sls
+    }
+};
 
 // Helper iface iterator
 template <class RG, typename UnaryFunction>

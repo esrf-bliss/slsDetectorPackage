@@ -71,6 +71,11 @@ template <class GD, bool MGX, bool MGY, int Idx> struct GeomHelper {
     SCA first_packet_offset = first_packet_view.calcViewOrigin();
     SCI src_offset = first_packet_offset.y * src_line_size;
     SCI dst_iface_step = RecvGeom.iface_step.y * dst_line_size;
+    SCI dst_iface_pos = RecvGeom.getIfacePos(XY{0, Idx}).y;
+    SCI dst_iface_offset = dst_iface_pos * dst_iface_step;
+    SCA fill_mod_gap_cols = MGX;
+    SCA bottom_iface = ((NbUDPIfaces::NbIfaces == 1) || (dst_iface_pos == 1));
+    SCA fill_mod_gap_lines = (MGY && bottom_iface);
 
 #undef SCI
 #undef SCA
@@ -95,6 +100,7 @@ void CopyHelper<GD, MGX, MGY, Idx>::assemblePackets(BlockPtr block, char *buf) {
     char *d = buf;
     int line = 0;
     int packet = h.src_first_packet;
+    constexpr int pos = h.dst_iface_pos;
     auto valid_packet_mask = block->getValidPacketMask();
     for (int p = 0; p < h.frame_packets; ++p, packet += h.src_dir) {
         auto line_packet = (*block)[packet];
@@ -110,17 +116,16 @@ void CopyHelper<GD, MGX, MGY, Idx>::assemblePackets(BlockPtr block, char *buf) {
                 ls += h.src_chip_size;
                 ld += h.src_chip_size;
                 bool fill_chip_gap_cols = (c < IfaceHorzChips - 1);
-                constexpr bool fill_mod_gap_cols = MGX;
                 if (fill_chip_gap_cols)
                     memset(ld, 0, h.cg_cols_size);
-                else if constexpr (fill_mod_gap_cols)
+                else if constexpr (h.fill_mod_gap_cols)
                     memset(ld, 0, h.mg_cols_size);
                 ld += h.dst_chip_size - h.src_chip_size;
             }
             s += h.src_line_step;
             d += h.dst_line_size;
         }
-        bool fill_chip_gap_lines = ((Idx == 0) && (line == h.chip_lines));
+        bool fill_chip_gap_lines = ((pos == 0) && (line == h.chip_lines));
         if (fill_chip_gap_lines) {
             for (int i = 0; i < h.chip_gap_pixels.y; ++i) {
                 memset(d, 0, h.dst_iface_line_size);
@@ -128,8 +133,7 @@ void CopyHelper<GD, MGX, MGY, Idx>::assemblePackets(BlockPtr block, char *buf) {
             }
         }
     }
-    constexpr bool fill_mod_gap_lines = MGY;
-    if constexpr (fill_mod_gap_lines) {
+    if constexpr (h.fill_mod_gap_lines) {
         for (int i = 0; i < h.mod_gap_pixels.y; ++i) {
             memset(d, 0, h.dst_iface_line_size);
             d += h.dst_line_size;
@@ -143,8 +147,8 @@ void CopyHelper<GD, MGX, MGY, Idx>::assemblePackets(BlockPtr block, char *buf) {
 
 template <class GD, bool MGX, bool MGY>
 template <int Idx>
-void FrameAssembler<GD, MGX, MGY>::Worker::assembleIface(
-    AnyPacketBlockPtr block) {
+bool FrameAssembler<GD, MGX, MGY>::assembleIface(AnyPacketBlockPtr block,
+                                                 char *buf) {
     using Helper = CopyHelper<GD, MGX, MGY, Idx>;
     using BlockPtr = typename Helper::BlockPtr;
 
@@ -153,18 +157,11 @@ void FrameAssembler<GD, MGX, MGY>::Worker::assembleIface(
 
     BlockPtr b = std::get<BlockPtr>(std::move(block));
     if (!b || (b->getValidPackets() == 0))
-        return;
+        return false;
 
-    mask.set(Idx, true);
-
-    Helper::assemblePackets(std::move(b), buf);
-    if (buf)
-        buf += Helper::dst_iface_step;
-}
-
-template <class GD, bool MGX, bool MGY>
-Result FrameAssembler<GD, MGX, MGY>::Worker::result() {
-    return Result{NbIfaces, mask};
+    auto offset = buf ? (data_offset + Helper::dst_iface_offset) : 0;
+    Helper::assemblePackets(std::move(b), buf + offset);
+    return true;
 }
 
 template <class GD, bool MGX, bool MGY>
@@ -173,19 +170,17 @@ Result FrameAssembler<GD, MGX, MGY>::assembleFrame(AnyPacketBlockList blocks,
     if (blocks.size() != std::size_t(NbIfaces))
         throw std::runtime_error("Invalid packet block list");
 
-    if (buf)
-        buf += data_offset;
-
-    Worker w(buf);
-
+    PortsMask mask;
     for (int i = 0; i < NbIfaces; ++i) {
+        bool ok;
         if (i == 0)
-            w.template assembleIface<0>(std::move(blocks[0]));
+            ok = assembleIface<0>(std::move(blocks[0]), buf);
         else if constexpr (NbIfaces == 2)
-            w.template assembleIface<1>(std::move(blocks[1]));
+            ok = assembleIface<1>(std::move(blocks[1]), buf);
+        mask.set(i, ok);
     }
 
-    return w.result();
+    return Result{NbIfaces, mask};
 }
 
 inline MPFrameAssemblerPtr CreateFrameAssembler(int mod_ifaces, XY det_ifaces,

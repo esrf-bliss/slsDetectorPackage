@@ -32,18 +32,9 @@ class FrameAssembler : public MPFrameAssembler {
     Result assembleFrame(AnyPacketBlockList blocks, char *buf) override;
 
   private:
+    template <int Idx> bool assembleIface(AnyPacketBlockPtr block, char *buf);
+
     int data_offset;
-
-    struct Worker {
-        PortsMask mask;
-        char *buf;
-
-        Worker(char *b) : buf(b) {}
-
-        template <int Idx> void assembleIface(AnyPacketBlockPtr block);
-
-        Result result();
-    };
 };
 
 using XY = sls::Geom::XY;

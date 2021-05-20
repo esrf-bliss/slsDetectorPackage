@@ -27,7 +27,12 @@ template <typename NbUDPIfaces>
 constexpr XY IfaceChips{4, 2 / NbUDPIfaces::NbIfaces};
 template <typename NbUDPIfaces>
 constexpr XY RecvIfaces{1, NbUDPIfaces::NbIfaces};
-using ModRecvFlip = DefaultModRecvFlip;
+struct ModRecvFlip : DefaultModRecvFlip {
+    static constexpr auto getRecvFlip(const XY & /*recv_idx*/) {
+        return VertFlip;
+    }
+};
+
 constexpr XY ModRecvs{1, 1};
 constexpr XY ModGap{9, 36};
 

@@ -19,7 +19,7 @@ constexpr XY ChipGap{2, 2};
 constexpr XY IfaceChips{2, 1};
 constexpr XY RecvIfaces{2, 1};
 
-struct ModRecvFlip {
+struct ModRecvFlip : DefaultModRecvFlip {
     // Eiger top recv is vertically flipped
     static constexpr auto getRecvFlip(const XY &recv_idx) {
         return (recv_idx == XY{0, 0}) ? VertFlip : NoFlip;
