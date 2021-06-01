@@ -34,30 +34,20 @@ template <class P> class PacketContainer {
 
     using Ptr = std::shared_ptr<PacketContainer>;
 
-    class StreamIface {
-      public:
-        StreamIface(Ptr c) : pc(c) {}
-
-        void prepare() { pc->prepare(); }
-
-        BlockPtr getFreePacketBlock() { return pc->getFreePacketBlock(); }
-        void putReadyPacketBlock(BlockPtr block) {
-            pc->putReadyPacketBlock(std::move(block));
-        }
-
-        void stop() { pc->stop(); }
-        void cleanUp() { pc->cleanUp(); }
-
-      private:
-        Ptr pc;
-    };
-
     BlockPtr getReadyPacketBlock(uint64_t frame = uint64_t(-1));
 
     unsigned int getPendingPackets();
 
     void clearBuffers();
     long long getMemorySize();
+
+    void prepare();
+
+    BlockPtr getFreePacketBlock();
+    void putReadyPacketBlock(BlockPtr block);
+
+    void stop();
+    void cleanUp();
 
   private:
     friend class StreamIface;
@@ -68,15 +58,8 @@ template <class P> class PacketContainer {
     using MapIterator = typename PacketBlockMap::iterator;
     using FramePacketBlock = typename PacketBlockMap::value_type;
 
-    void prepare();
-
-    BlockPtr getFreePacketBlock();
-    void putReadyPacketBlock(BlockPtr block);
     void releaseReadyPacketBlocks();
     void waitUsedPacketBlocks();
-
-    void stop();
-    void cleanUp();
 
     const unsigned int num_frames;
     MmappedBlockRegion packet_buffer_array;

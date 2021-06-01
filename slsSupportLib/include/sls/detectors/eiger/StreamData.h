@@ -11,7 +11,7 @@ namespace Eiger {
 
 template <class Pixel, class TenGiga, class FP>
 using PacketStream =
-    ::PacketStream<Packet<Pixel, TenGiga>,
+    ::PacketStream<PacketContainer<Packet<Pixel, TenGiga>>,
                    sls::StreamData<Packet<Pixel, TenGiga>>, FP>;
 
 } // namespace Eiger

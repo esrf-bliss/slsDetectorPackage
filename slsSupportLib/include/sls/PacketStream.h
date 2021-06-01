@@ -54,20 +54,21 @@ inline AnyFramePolicy AnyFramePolicyFromFP(FramePolicy fp) {
  *@short manages packet stream with buffer & parallel read functionality
  */
 
-// P: Packet, SD: Stream Data, FP: Frame discard policy
-template <class P, class SD, class FP> class PacketStream {
+// PC: Packet Container, SD: Stream Data, FP: Frame discard policy
+template <class PC, class SD, class FP> class PacketStream {
 
   public:
-    using Packet = P;
+    using PacketContainer = PC;
+    using Packet = typename PacketContainer::Packet;
     using StreamData = SD;
     using FramePolicy = FP;
-    using Block = sls::PacketBlock<Packet>;
-    using BlockPtr = sls::PacketBlockPtr<Packet>;
-    using BlockLayout = typename Block::Layout;
+    using Block = typename PacketContainer::Block;
+    using BlockPtr = typename PacketContainer::BlockPtr;
+    using BlockLayout = typename PacketContainer::BlockLayout;
     static constexpr int FramePackets = Block::NbPackets;
 
     PacketStream(UdpRxSocketPtr s, cpu_set_t cpu_mask,
-                 AnyPacketContainerPtr pc);
+                 AnyPacketContainerPtr any_pc);
     ~PacketStream();
 
     void threadFunction();
@@ -84,7 +85,7 @@ template <class P, class SD, class FP> class PacketStream {
   private:
     struct WriterThread;
 
-    BlockPtr getEmptyBlock() { return packet_cont.getFreePacketBlock(); }
+    BlockPtr getEmptyBlock() { return packet_cont->getFreePacketBlock(); }
     void addPacketBlock(BlockPtr block);
 
     bool wasStopped();
@@ -98,7 +99,7 @@ template <class P, class SD, class FP> class PacketStream {
     StreamData stream_data;
     int header_pad;
     int packet_len;
-    typename PacketContainer<Packet>::StreamIface packet_cont;
+    typename PacketContainer::Ptr packet_cont;
     bool stopped{false};
     cpu_set_t cpu_aff_mask;
     XYStat packet_delay_stat{1e6};
@@ -110,14 +111,16 @@ template <class P, class SD, class FP> class PacketStream {
 #include "sls/detectors/jungfrau/StreamData.h"
 
 #define SLS_DEFINE_EIGER_PACKET_STREAM(P)                                      \
-    PacketStream<P, sls::StreamData<P>, NoFrameDiscard>,                       \
-        PacketStream<P, sls::StreamData<P>, EmptyFrameDiscard>,                \
-        PacketStream<P, sls::StreamData<P>, PartialFrameDiscard>
+    PacketStream<PacketContainer<P>, sls::StreamData<P>, NoFrameDiscard>,      \
+        PacketStream<PacketContainer<P>, sls::StreamData<P>,                   \
+                     EmptyFrameDiscard>,                                       \
+        PacketStream<PacketContainer<P>, sls::StreamData<P>,                   \
+                     PartialFrameDiscard>
 
 #define SLS_DEFINE_JUNGFRAU_PACKET_STREAM(P, SD)                               \
-    PacketStream<P, SD, NoFrameDiscard>,                                       \
-        PacketStream<P, SD, EmptyFrameDiscard>,                                \
-        PacketStream<P, SD, PartialFrameDiscard>
+    PacketStream<PacketContainer<P>, SD, NoFrameDiscard>,                      \
+        PacketStream<PacketContainer<P>, SD, EmptyFrameDiscard>,               \
+        PacketStream<PacketContainer<P>, SD, PartialFrameDiscard>
 
 using JungfrauStreamDataOneIface =
     sls::Jungfrau::StreamData<sls::Jungfrau::Geom::OneIface, 0>;

@@ -36,8 +36,8 @@ struct StreamData : sls::StreamData<Packet<NbUDPIfaces>> {
 };
 
 template <typename NbUDPIfaces, int Idx, class FP>
-using PacketStream =
-    ::PacketStream<Packet<NbUDPIfaces>, StreamData<NbUDPIfaces, Idx>, FP>;
+using PacketStream = ::PacketStream<PacketContainer<Packet<NbUDPIfaces>>,
+                                    StreamData<NbUDPIfaces, Idx>, FP>;
 
 } // namespace Jungfrau
 } // namespace sls

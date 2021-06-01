@@ -12,70 +12,70 @@
  * PacketStream
  */
 
-template <class P, class SD, class FP>
-PacketStream<P, SD, FP>::PacketStream(UdpRxSocketPtr s, cpu_set_t cpu_mask,
-                                      AnyPacketContainerPtr any_pc)
+template <class PC, class SD, class FP>
+PacketStream<PC, SD, FP>::PacketStream(UdpRxSocketPtr s, cpu_set_t cpu_mask,
+                                       AnyPacketContainerPtr any_pc)
     : socket(s), packet_cont(PacketContainerPtrFromAny<Packet>(any_pc)),
       cpu_aff_mask(cpu_mask) {
-    packet_cont.prepare();
+    packet_cont->prepare();
     thread = std::make_unique<WriterThread>(*this);
 }
 
-template <class P, class SD, class FP>
-PacketStream<P, SD, FP>::~PacketStream() {
+template <class PC, class SD, class FP>
+PacketStream<PC, SD, FP>::~PacketStream() {
     stop();
     thread.reset();
-    packet_cont.cleanUp();
+    packet_cont->cleanUp();
 }
 
-template <class P, class SD, class FP>
-void PacketStream<P, SD, FP>::printStats() {
+template <class PC, class SD, class FP>
+void PacketStream<PC, SD, FP>::printStats() {
     std::ostringstream msg;
     msg << "[" << socket->getPortNumber() << "] "
         << "packet_delay_stat=" << packet_delay_stat.calcLinRegress();
     LOG(logINFO) << msg.str();
 }
 
-template <class P, class SD, class FP> void PacketStream<P, SD, FP>::stop() {
+template <class PC, class SD, class FP> void PacketStream<PC, SD, FP>::stop() {
     {
         std::lock_guard<std::mutex> l(mutex);
         stopped = true;
     }
-    packet_cont.stop();
+    packet_cont->stop();
 }
 
-template <class P, class SD, class FP>
-bool PacketStream<P, SD, FP>::wasStopped() {
+template <class PC, class SD, class FP>
+bool PacketStream<PC, SD, FP>::wasStopped() {
     std::lock_guard<std::mutex> l(mutex);
     return stopped;
 }
 
-template <class P, class SD, class FP>
-int PacketStream<P, SD, FP>::getNumPacketsCaught() {
+template <class PC, class SD, class FP>
+int PacketStream<PC, SD, FP>::getNumPacketsCaught() {
     std::lock_guard<std::mutex> l(mutex);
     return packets_caught;
 }
 
-template <class P, class SD, class FP>
-uint64_t PacketStream<P, SD, FP>::getFirstFrameCaught() {
+template <class PC, class SD, class FP>
+uint64_t PacketStream<PC, SD, FP>::getFirstFrameCaught() {
     std::lock_guard<std::mutex> l(mutex);
     return first_frame;
 }
 
-template <class P, class SD, class FP>
-uint64_t PacketStream<P, SD, FP>::getNumFramesCaught() {
+template <class PC, class SD, class FP>
+uint64_t PacketStream<PC, SD, FP>::getNumFramesCaught() {
     std::lock_guard<std::mutex> l(mutex);
     return frames_caught;
 }
 
-template <class P, class SD, class FP>
-uint64_t PacketStream<P, SD, FP>::getLastFrameIndex() {
+template <class PC, class SD, class FP>
+uint64_t PacketStream<PC, SD, FP>::getLastFrameIndex() {
     std::lock_guard<std::mutex> l(mutex);
     return last_frame;
 }
 
-template <class P, class SD, class FP>
-void PacketStream<P, SD, FP>::addPacketBlock(BlockPtr block) {
+template <class PC, class SD, class FP>
+void PacketStream<PC, SD, FP>::addPacketBlock(BlockPtr block) {
     bool full_frame = block->hasFullFrame();
     {
         uint64_t frame = block->getFrameNumber();
@@ -88,16 +88,16 @@ void PacketStream<P, SD, FP>::addPacketBlock(BlockPtr block) {
             last_frame = frame;
     }
     if (full_frame || !FP::canDiscardFrame(block->getValidPackets()))
-        packet_cont.putReadyPacketBlock(std::move(block));
+        packet_cont->putReadyPacketBlock(std::move(block));
 }
 
-template <class P, class SD, class FP>
-void PacketStream<P, SD, FP>::threadFunction() {
+template <class PC, class SD, class FP>
+void PacketStream<PC, SD, FP>::threadFunction() {
     thread->threadFunction();
 }
 
-template <class P, class SD, class FP>
-class PacketStream<P, SD, FP>::WriterThread {
+template <class PC, class SD, class FP>
+class PacketStream<PC, SD, FP>::WriterThread {
   public:
     WriterThread(PacketStream &s) : ps(s) {}
 
@@ -153,7 +153,7 @@ class PacketStream<P, SD, FP>::WriterThread {
         return {curr_idx, curr_packet};
     }
 
-    P getNextPacket() { return (*block)[incPacketCounters().second]; }
+    Packet getNextPacket() { return (*block)[incPacketCounters().second]; }
 
     void finishPacketBlock() {
         ps.addPacketBlock(std::move(block));
@@ -173,7 +173,7 @@ class PacketStream<P, SD, FP>::WriterThread {
             block->setValid(curr_packet, false);
     }
 
-    void addPacketDelayStat(P &packet, uint32_t index) {
+    void addPacketDelayStat(Packet &packet, uint32_t index) {
         Clock::time_point t = Clock::now();
         long packet_idx = ((packet.frame() - 1) * ps.FramePackets + index);
         if (packet_idx == 0)
@@ -183,7 +183,7 @@ class PacketStream<P, SD, FP>::WriterThread {
         ps.packet_delay_stat.add(packet_idx, sec);
     }
 
-    bool addPacket(P &packet) {
+    bool addPacket(Packet &packet) {
         addPacketDelayStat(packet, curr_idx);
 
         uint64_t packet_frame = packet.frame();
@@ -231,7 +231,7 @@ class PacketStream<P, SD, FP>::WriterThread {
         if (!checkBlock())
             return false;
 
-        P packet = getNextPacket();
+        Packet packet = getNextPacket();
         char *b = static_cast<char *>(packet.networkBuffer());
         int ret = ps.socket->ReceiveDataOnly(b);
         if (ps.wasStopped() || (ret < 0))
