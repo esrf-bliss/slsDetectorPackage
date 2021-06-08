@@ -12,6 +12,7 @@ class Fifo;
 class slsDetectorDefs;
 
 #include <atomic>
+#include <array>
 #include <chrono>
 #include <exception>
 #include <map>
@@ -271,10 +272,7 @@ class Implementation : private virtual slsDetectorDefs {
     void clearAllBuffers();
 
   private:
-    struct PortGeometry {
-        int g[MAX_DIMENSIONS];
-        int &operator[](int i) { return g[i]; }
-    };
+    typedef std::array<int, MAX_DIMENSIONS> PortGeometry;
 
     struct ListenerStatistics {
         uint64_t packets_missing;
