@@ -3,8 +3,7 @@
  * @short low-level udp packet container classes
  ***********************************************/
 
-#include "PacketContainer.h"
-
+#include <cassert>
 #include <chrono>
 #include <thread>
 
@@ -33,10 +32,11 @@ PacketContainer<P>::PacketContainer(int frames, unsigned long node_mask,
 
 template <class P> PacketContainer<P>::~PacketContainer() {
     stop();
-    cleanup();
+    cleanUp();
 }
 
-template <class P> PacketBlockPtr<P> PacketContainer<P>::getFreePacketBlock() {
+template <class P>
+sls::PacketBlockPtr<P> PacketContainer<P>::getFreePacketBlock() {
     auto releaser = [&](BlockLayout *layout) {
         std::lock_guard<std::mutex> l(free_mutex);
         free_queue.push(layout);
@@ -58,7 +58,7 @@ template <class P> PacketBlockPtr<P> PacketContainer<P>::getFreePacketBlock() {
 }
 
 template <class P>
-PacketBlockPtr<P> PacketContainer<P>::getReadyPacketBlock(uint64_t frame) {
+sls::PacketBlockPtr<P> PacketContainer<P>::getReadyPacketBlock(uint64_t frame) {
 
     class WaitingCountHelper {
       public:
@@ -100,16 +100,16 @@ PacketBlockPtr<P> PacketContainer<P>::getReadyPacketBlock(uint64_t frame) {
 }
 
 template <class P>
-void PacketContainer<P>::putReadyPacketBlock(BlockPtr &&block) {
+void PacketContainer<P>::putReadyPacketBlock(BlockPtr block) {
     std::lock_guard<std::mutex> l(block_mutex);
     packet_block_map.emplace(
-        FramePacketBlock(block->frame_number, std::move(block)));
+        FramePacketBlock(block->getFrameNumber(), std::move(block)));
     block_cond.notify_all();
 }
 
-template <class P> bool PacketContainer<P>::hasPendingPacket() {
+template <class P> unsigned int PacketContainer<P>::getPendingPackets() {
     std::lock_guard<std::mutex> l(free_mutex);
-    return (free_queue.size() != num_frames);
+    return num_frames - free_queue.size();
 }
 
 template <class P> void PacketContainer<P>::releaseReadyPacketBlocks() {
@@ -118,27 +118,26 @@ template <class P> void PacketContainer<P>::releaseReadyPacketBlocks() {
     while (waiting_reader_count > 0)
         block_cond.wait_for(l, 5ms);
     PacketBlockMap old_map = std::move(packet_block_map);
+    assert(packet_block_map.empty());
     l.unlock();
-    old_map.clear();
 }
 
 template <class P> void PacketContainer<P>::waitUsedPacketBlocks() {
     using namespace std::chrono_literals;
     Clock::duration wait_reader_timeout = 10s;
     Clock::time_point t0 = Clock::now();
-    while (hasPendingPacket()) {
+    while (getPendingPackets() > 0) {
         Clock::time_point t = Clock::now();
         if (t - t0 > wait_reader_timeout)
             break;
         std::this_thread::sleep_for(5ms);
     }
-    if (hasPendingPacket()) {
+    auto missing = getPendingPackets();
+    if (missing > 0) {
         std::lock_guard<std::mutex> l(free_mutex);
         std::ostringstream error;
-        error << "PacketContainer: Missing free frames after "
-              << ToSeconds(wait_reader_timeout).count() << " sec: "
-              << "expected " << num_frames << ", "
-              << "got " << free_queue.size();
+        error << "PacketContainer: Missing " << missing << " free frames "
+              << "after " << ToSeconds(wait_reader_timeout).count() << " sec";
         std::cerr << error.str() << std::endl;
     }
 }
@@ -157,7 +156,7 @@ template <class P> void PacketContainer<P>::stop() {
     }
 }
 
-template <class P> void PacketContainer<P>::cleanup() {
+template <class P> void PacketContainer<P>::cleanUp() {
     releaseReadyPacketBlocks();
     waitUsedPacketBlocks();
 }
@@ -168,47 +167,4 @@ template <class P> void PacketContainer<P>::clearBuffers() {
 
 template <class P> long long PacketContainer<P>::getMemorySize() {
     return packet_buffer_array.getMemorySize();
-}
-
-/**
- * PacketContainer factory
- */
-
-template <class P, class... Args> auto PCFactory(Args &&... args) {
-    using PC = PacketContainer<P>;
-    return std::make_shared<AnyPacketContainer>(std::in_place_type_t<PC>(),
-                                                std::forward<Args>(args)...);
-}
-
-inline AnyPacketContainerPtr CreatePacketContainer(GeneralDataPtr d, int frames,
-                                                   unsigned long node_mask,
-                                                   int max_node) {
-
-    auto any_pixel = AnyPixelFromBpp(d->dynamicRange);
-
-    return std::visit(
-        [&](auto pixel) {
-            using P = decltype(pixel);
-
-#define args frames, node_mask, max_node
-
-            if (d->myDetectorType == slsDetectorDefs::EIGER) {
-                auto any_tg = ::Eiger::AnyTenGigaFromTgEnable(d->tgEnable);
-                return std::visit(
-                    [&](auto tg) {
-                        using TG = decltype(tg);
-                        return PCFactory<::Eiger::Packet<P, TG>>(args);
-                    },
-                    any_tg);
-            } else if (d->myDetectorType == slsDetectorDefs::JUNGFRAU) {
-                if (d->numUDPInterfaces == 1)
-                    return PCFactory<::Jungfrau::Packet<1>>(args);
-                else
-                    return PCFactory<::Jungfrau::Packet<2>>(args);
-            } else
-                throw sls::RuntimeError("Detector not supported: " +
-                                        std::to_string(d->myDetectorType));
-#undef args
-        },
-        any_pixel);
 }

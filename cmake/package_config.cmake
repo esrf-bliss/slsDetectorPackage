@@ -7,7 +7,7 @@
 include(CMakePackageConfigHelpers)
 
 configure_package_config_file(
-  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/project-config.cmake.in"
+  "${CMAKE_SOURCE_DIR}/cmake/project-config.cmake.in"
   "${PROJECT_BINARY_DIR}/${PROJECT_NAME_LOWER}-config.cmake"
   INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME_LOWER}
   PATH_VARS CMAKE_INSTALL_DIR)
@@ -26,7 +26,7 @@ install(FILES
 )
 
 install(FILES
-  "${CMAKE_CURRENT_SOURCE_DIR}/libzmq-pkg-config/FindZeroMQ.cmake"
+  "${CMAKE_SOURCE_DIR}/libzmq-pkg-config/FindZeroMQ.cmake"
   COMPONENT devel
   DESTINATION ${CMAKE_INSTALL_DIR}/libzmq-pkg-config
 )

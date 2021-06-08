@@ -86,7 +86,7 @@ void DataProcessor::SetGeneralData(GeneralData *g) {
     generalData = g;
 
     try {
-        frameAssembler = FrameAssembler::CreateDefaultFrameAssembler(
+        frameAssembler = sls::FrameAssembler::CreateDefaultFrameAssembler(
             generalData->myDetectorType, generalData->tgEnable,
             generalData->numUDPInterfaces, generalData->dynamicRange);
         LOG(logINFO) << index << ": Default FrameAssembler created";
@@ -268,11 +268,21 @@ int DataProcessor::AssembleAnImage(FifoFrame *frame) {
         return imageSize;
     }
 
+    auto block = fifo->GetFramePackets();
+    std::visit(
+        [&](auto &b) {
+            if (!b)
+                return;
+            recv_header->packetsMask = b->getValidPacketMask();
+            auto *header = b->getNetworkHeader();
+            if (header)
+                recv_header->detHeader = *header;
+        },
+        block);
     recv_header->detHeader.row = row;
     recv_header->detHeader.column = column;
 
-    auto block = fifo->GetFramePackets();
-    bool ok = frameAssembler->assembleFrame(std::move(block), recv_header, buf);
+    bool ok = frameAssembler->assembleFrame(std::move(block), buf);
     if (!ok)
         return -1;
 

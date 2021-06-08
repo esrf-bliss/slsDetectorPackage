@@ -1,18 +1,19 @@
 /************************************************
- * @file FrameAssemblerEiger.cxx
+ * @file Eiger/FrameAssembler.cxx
  * @short helper classes assembling Eiger frames
  * from udp packets
- * This file is included in FrameAssembler.cpp
  ***********************************************/
 
-namespace GeomEiger = sls::Geom::Eiger;
+#include "sls/logger.h"
+#include <emmintrin.h>
 
-namespace FrameAssembler {
+namespace sls {
 namespace Eiger {
+namespace FrameAssembler {
 
-constexpr int IfaceHorzChips = GeomEiger::IfaceChips.x;
+constexpr int IfaceHorzChips = Geom::IfaceChips.x;
 
-constexpr auto RawIfaceGeom = ::Eiger::RawIfaceGeom;
+constexpr auto RawIfaceGeom = Eiger::RawIfaceGeom;
 
 /**
  * GeomHelper
@@ -45,13 +46,13 @@ struct GeomHelper {
         return IfaceGeom1.getPacketView(PacketData::PacketPixels, PacketIdx);
     }
 
-    SCI chip_cols = GeomEiger::ChipPixels.x;
-    SCI chip_lines = GeomEiger::ChipPixels.y;
-    SCA chip_gap_pixels = GeomEiger::ChipGap;
-    SCA mod_gap_pixels = GeomEiger::ModGap;
+    SCI chip_cols = Geom::ChipPixels.x;
+    SCI chip_lines = Geom::ChipPixels.y;
+    SCA chip_gap_pixels = Geom::ChipGap;
+    SCA mod_gap_pixels = Geom::ModGap;
     SCI frame_packets = PacketData::PacketsPerFrame;
     // 32-bit + TenGigaDisabled: 1 packet -> 0.5 lines. Not supported yet.
-    SCI packet_lines = std::max(RawIfaceSize.y / frame_packets, 1);
+    SCI packet_lines = std::max(RawIfaceSize.y / frame_packets, 1L);
     SCI flipped = (RecvView.pixelDir().y < 0);
     SCF src_pixel_size = SrcPixel::depth();
     SCI src_chip_size = chip_cols * src_pixel_size;
@@ -108,7 +109,7 @@ struct Expand4BitsHelper : GeomHelper<P, TG, GD, MGX, MGY, Idx> {
     SCI half_module_chips = NbIfaces * IfaceHorzChips;
     SCI block_len = sizeof(__m128i);
     SCI block_bits = block_len * 8;
-    SCI gap_bits = GeomEiger::ChipGap.x * 8;
+    SCI gap_bits = Geom::ChipGap.x * 8;
 
     SCI chip_blocks = H::src_chip_size / block_len;
     SCI iface_blocks = H::src_line_step / block_len;
@@ -160,8 +161,8 @@ int Expand4BitsHelper<P, TG, GD, MGX, MGY, Idx>::Worker::load_packet(
         LOG(logERROR) << "Missaligned src";
         return -1;
     }
-    v[0] = p0.valid();
-    v[1] = p1.valid();
+    v[0] = block[0]->getValidPacketMask()[packet];
+    v[1] = block[1]->getValidPacketMask()[packet];
     return 0;
 }
 
@@ -307,6 +308,9 @@ void CopyHelper<P, TG, GD, MGX, MGY, Idx>::assemblePackets(
     H h;
     int packet = h.src_first_packet;
     char *d = buf;
+    using sls_bitset = slsDetectorDefs::sls_bitset;
+    sls_bitset valid_packet_mask[NbIfaces] = {block[0]->getValidPacketMask(),
+                                              block[1]->getValidPacketMask()};
     for (int p = 0; p < h.frame_packets; ++p, packet += h.src_dir) {
         Packet<P, TG> line_packet[NbIfaces] = {(*block[0])[packet],
                                                (*block[1])[packet]};
@@ -317,7 +321,7 @@ void CopyHelper<P, TG, GD, MGX, MGY, Idx>::assemblePackets(
             for (int i = 0; i < NbIfaces; ++i) {
                 char *ls = s[i];
                 for (int c = 0; c < IfaceHorzChips; ++c) {
-                    if (line_packet[i].valid())
+                    if (valid_packet_mask[i][packet])
                         memcpy(ld, ls, h.src_chip_size);
                     else
                         memset(ld, 0xff, h.src_chip_size);
@@ -347,7 +351,7 @@ void CopyHelper<P, TG, GD, MGX, MGY, Idx>::assemblePackets(
 
 template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
 Result FrameAssembler<P, TG, GD, MGX, MGY, Idx>::assembleFrame(
-    AnyPacketBlockList &&blocks, RecvHeader *recv_header, char *buf) {
+    AnyPacketBlockList blocks, char *buf) {
 
     if (blocks.size() != std::size_t(NbIfaces) ||
         !std::holds_alternative<BlockPtr>(blocks[0]) ||
@@ -357,25 +361,8 @@ Result FrameAssembler<P, TG, GD, MGX, MGY, Idx>::assembleFrame(
     BlockPtr b[NbIfaces] = {std::get<BlockPtr>(std::move(blocks[0])),
                             std::get<BlockPtr>(std::move(blocks[1]))};
     PortsMask mask;
-    bool header_empty = true;
-
-    DetHeader *det_header = &recv_header->detHeader;
-    det_header->packetNumber = 0;
-
-    for (int i = 0; i < NbIfaces; ++i) {
-        int packet_count = b[i] ? b[i]->getValidPackets() : 0;
-        if (packet_count == 0)
-            continue;
-        mask.set(i, true);
-        det_header->packetNumber += packet_count;
-
-        // write header
-        if (header_empty) {
-            Packet<P, TG> p = (*b[i])[0];
-            p.fillDetHeader(det_header);
-            header_empty = false;
-        }
-    }
+    for (int i = 0; i < NbIfaces; ++i)
+        mask[i] = (b[i] && (b[i]->getValidPackets() > 0));
 
     if (mask.any() && buf)
         helper.assemblePackets(b, buf + data_offset);
@@ -383,20 +370,18 @@ Result FrameAssembler<P, TG, GD, MGX, MGY, Idx>::assembleFrame(
     return Result{NbIfaces, mask};
 }
 
-} // namespace Eiger
-} // namespace FrameAssembler
-
-MPFrameAssemblerPtr FrameAssembler::Eiger::CreateFrameAssembler(
-    uint32_t src_dr, bool tg_enable, XY det_ifaces, XY mod_pos, int recv_idx) {
+inline MPFrameAssemblerPtr CreateFrameAssembler(uint32_t src_dr, bool tg_enable,
+                                                XY det_ifaces, XY mod_pos,
+                                                int recv_idx) {
     if ((src_dr == 32) && !tg_enable)
         throw std::runtime_error("32-bit & TenGiga=disabled not supported");
 
     XY det_size = RawIfaceGeom.size * det_ifaces;
-    auto any_det_geom = GeomEiger::AnyDetGeomFromDetSize(det_size);
-    auto any_recv_idx = GeomEiger::AnyRecvIdxFromRecvIdx(recv_idx);
+    auto any_det_geom = Geom::AnyDetGeomFromDetSize(det_size);
+    auto any_recv_idx = Geom::AnyRecvIdxFromRecvIdx(recv_idx);
 
     AnyPixel any_pixel = AnyPixelFromBpp(src_dr);
-    ::Eiger::AnyTenGiga any_tg = ::Eiger::AnyTenGigaFromTgEnable(tg_enable);
+    AnyTenGiga any_tg = AnyTenGigaFromTgEnable(tg_enable);
 
     return std::visit(
         [&](auto gd) {
@@ -424,3 +409,7 @@ MPFrameAssemblerPtr FrameAssembler::Eiger::CreateFrameAssembler(
         },
         any_det_geom);
 }
+
+} // namespace FrameAssembler
+} // namespace Eiger
+} // namespace sls

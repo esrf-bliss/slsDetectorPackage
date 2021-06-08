@@ -10,9 +10,10 @@
  */
 
 #include "GeneralData.h"
-#include "PacketContainer.h"
 #include "receiver_defs.h"
 #include "sls/CircularFifo.h"
+#include "sls/PacketContainer.h"
+#include "sls/PacketTypedefs.h"
 #include "sls/logger.h"
 #include "sls/sls_detector_defs.h"
 
@@ -42,7 +43,7 @@ class Fifo : private virtual slsDetectorDefs {
     /**
      * Get frame packets
      */
-    AnyPacketBlockPtr GetFramePackets(uint64_t frame = uint64_t(-1));
+    sls::AnyPacketBlockPtr GetFramePackets(uint64_t frame = uint64_t(-1));
 
     /**
      * Frees the bound frame by pushing into fifoFree

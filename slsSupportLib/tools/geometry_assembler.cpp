@@ -1,26 +1,8 @@
-//###########################################################################
-// This file is part of LImA, a Library for Image Acquisition
-//
-// Copyright (C) : 2009-2011
-// European Synchrotron Radiation Facility
-// BP 220, Grenoble 38043
-// FRANCE
-//
-// This is free software; you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation; either version 3 of the License, or
-// (at your option) any later version.
-//
-// This software is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program; if not, see <http://www.gnu.org/licenses/>.
-//###########################################################################
+// CLI to assemble an image from a raw image given a detector type
 
 #include "sls/Geometry.h"
+#include "sls/detectors/eiger/Geometry.h"
+#include "sls/detectors/jungfrau/Geometry.h"
 #include "sls/logger.h"
 #include "sls/sls_detector_exceptions.h"
 
@@ -117,11 +99,12 @@ void generate_map(Gen &gen, const SDG &src_det, T *src, const TDG &tgt_det,
                   T *tgt, T gap_pixel_val = -1) {
     fill_gap_pixel_value(tgt_det, tgt, gap_pixel_val);
 
-    det2_for_each_chip(
-        src_det, tgt_det, [&](auto &chip, auto &src_chip, auto &tgt_chip) {
+    det_for_each_chip(
+        src_det, tgt_det,
+        [&](auto const &chip, auto const &src_chip, auto const &tgt_chip) {
             using SV = decltype(src_chip);
             using TV = decltype(tgt_chip);
-            view2_for_each_pixel(
+            view_for_each_pixel(
                 src_chip, tgt_chip,
                 [&](const SV &src_chip, const TV &tgt_chip, const XY &pixel) {
                     int ti = tgt_chip.calcMapPixelIndex(pixel);
@@ -230,9 +213,9 @@ AnyTypeData AnyTypeDataFromStr(const std::string &data_type) {
 
 struct EigerData {
     static const std::string name;
-    using AnyGeom = sls::Geom::Eiger::AnyDetGeom;
+    using AnyGeom = sls::Eiger::Geom::AnyDetGeom;
     static constexpr auto from_size(const XY &xy) {
-        return sls::Geom::Eiger::AnyDetGeomFromDetSize(xy);
+        return sls::Eiger::Geom::AnyDetGeomFromDetSize(xy);
     }
     AnyGeom any_geom;
 };
@@ -240,9 +223,10 @@ const std::string EigerData::name = "eiger"s;
 
 struct Jungfraux1Data {
     static const std::string name;
-    using AnyGeom = sls::Geom::Jungfrau::AnyDetGeom<1>;
+    using NbIfaces = sls::Jungfrau::Geom::OneIface;
+    using AnyGeom = sls::Jungfrau::Geom::AnyDetGeom<NbIfaces>;
     static constexpr auto from_size(const XY &xy) {
-        return sls::Geom::Jungfrau::AnyDetGeomFromDetSize<1>(xy);
+        return sls::Jungfrau::Geom::AnyDetGeomFromDetSize<NbIfaces>(xy);
     }
     AnyGeom any_geom;
 };
@@ -250,9 +234,10 @@ const std::string Jungfraux1Data::name = "jungfraux1"s;
 
 struct Jungfraux2Data {
     static const std::string name;
-    using AnyGeom = sls::Geom::Jungfrau::AnyDetGeom<2>;
+    using NbIfaces = sls::Jungfrau::Geom::TwoIface;
+    using AnyGeom = sls::Jungfrau::Geom::AnyDetGeom<NbIfaces>;
     static constexpr auto from_size(const XY &xy) {
-        return sls::Geom::Jungfrau::AnyDetGeomFromDetSize<2>(xy);
+        return sls::Jungfrau::Geom::AnyDetGeomFromDetSize<NbIfaces>(xy);
     }
     AnyGeom any_geom;
 };
@@ -321,7 +306,7 @@ void geometry_assembler(DT det_type, std::string gen_type, const SDG &src_geom,
 template <class SDG, class TDG>
 void print_geom(const SDG &src_geom, const TDG &tgt_geom) {
     std::cout << src_geom.size << " " << tgt_geom.size << std::endl;
-    det_for_each_mod(tgt_geom, [&](auto &mod, auto &mod_geom) {
+    det_for_each_mod(tgt_geom, [&](auto const &mod, auto const &mod_geom) {
         auto &v = mod_geom.view;
         std::cout << " " << v.view_origin << "x" << v.size;
     });

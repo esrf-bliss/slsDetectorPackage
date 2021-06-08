@@ -5,8 +5,9 @@
  * from udp packets
  ***********************************************/
 
-#include "Packet.h"
+#include "PacketTypedefs.h"
 
+namespace sls {
 namespace FrameAssembler {
 
 using namespace sls::Geom;
@@ -19,8 +20,7 @@ class DefaultFrameAssemblerBase {
   public:
     virtual ~DefaultFrameAssemblerBase() {}
 
-    virtual bool assembleFrame(AnyPacketBlockPtr &&block, RecvHeader *header,
-                               char *buf) = 0;
+    virtual bool assembleFrame(AnyPacketBlockPtr block, char *buf) = 0;
 
     virtual int getImageSize() = 0;
 };
@@ -44,8 +44,7 @@ class DefaultFrameAssembler : public DefaultFrameAssemblerBase {
     using Block = PacketBlock<Packet>;
     using BlockPtr = PacketBlockPtr<Packet>;
 
-    bool assembleFrame(AnyPacketBlockPtr &&block, RecvHeader *header,
-                       char *buf) override;
+    bool assembleFrame(AnyPacketBlockPtr block, char *buf) override;
 
     int getImageSize() override;
 
@@ -76,8 +75,7 @@ class MPFrameAssembler {
   public:
     virtual ~MPFrameAssembler() {}
 
-    virtual Result assembleFrame(AnyPacketBlockList &&blocks,
-                                 RecvHeader *header, char *buf) = 0;
+    virtual Result assembleFrame(AnyPacketBlockList blocks, char *buf) = 0;
 };
 
 using MPFrameAssemblerPtr = std::unique_ptr<MPFrameAssembler>;
@@ -99,8 +97,7 @@ class RawFrameAssembler : public MPFrameAssembler {
         data_offset = assembler.size() * iface_size * recv_idx;
     }
 
-    Result assembleFrame(AnyPacketBlockList &&blocks, RecvHeader *recv_header,
-                         char *buf) override;
+    Result assembleFrame(AnyPacketBlockList blocks, char *buf) override;
 
   private:
     using DefaultFrameAssemblerList = std::vector<DefaultFrameAssemblerPtr>;
@@ -115,6 +112,4 @@ enum AssemblerType {
 };
 
 } // namespace FrameAssembler
-
-#include "FrameAssemblerEiger.hxx"
-#include "FrameAssemblerJungfrau.hxx"
+} // namespace sls

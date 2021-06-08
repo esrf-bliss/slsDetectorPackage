@@ -17,8 +17,8 @@ namespace Geom {
 
 // XY: the basic class for 2D arithmetics
 struct XY {
-    int x{0};
-    int y{0};
+    std::ptrdiff_t x{0};
+    std::ptrdiff_t y{0};
 
     constexpr int area() const { return x * y; }
 };
@@ -118,20 +118,23 @@ constexpr auto ViewFromMap(const XY &map_size) {
 constexpr auto EmptyView = ViewFromMap({0, 0});
 
 // Helper pixel iterator
-inline void
-view_for_each_pixel(const MapView &view,
-                    std::function<void(const MapView &, const XY &)> f) {
+template <typename UnaryFunction>
+UnaryFunction view_for_each_pixel(const MapView &view, UnaryFunction f) {
     for (int pixely = 0; pixely < view.size.y; ++pixely)
         for (int pixelx = 0; pixelx < view.size.x; ++pixelx)
-            f(view, {pixelx, pixely});
+            f(view, XY{pixelx, pixely});
+
+    return f;
 }
 
-inline void view2_for_each_pixel(
-    const MapView &view1, const MapView &view2,
-    std::function<void(const MapView &, const MapView &, const XY &)> f) {
+template <typename BinaryFunction>
+BinaryFunction view_for_each_pixel(const MapView &view1, const MapView &view2,
+                                   BinaryFunction f) {
     for (int pixely = 0; pixely < view1.size.y; ++pixely)
         for (int pixelx = 0; pixelx < view1.size.x; ++pixelx)
-            f(view1, view2, {pixelx, pixely});
+            f(view1, view2, XY{pixelx, pixely});
+
+    return f;
 }
 
 /*
@@ -256,13 +259,8 @@ template <class Fmt> struct IfaceGeom {
 };
 
 // Helper chip iterator
-template <class IG>
-void iface_for_each_chip(
-    const IG &iface_geom,
-    std::function<void(
-        const XY &,
-        const decltype(std::declval<IG>().getChipView(std::declval<XY>())) &)>
-        f) {
+template <class IG, typename UnaryFunction>
+void iface_for_each_chip(const IG &iface_geom, UnaryFunction f) {
     for (int chipy = 0; chipy < iface_geom.iface_chips.y; ++chipy) {
         for (int chipx = 0; chipx < iface_geom.iface_chips.x; ++chipx) {
             XY chip = {chipx, chipy};
@@ -271,14 +269,9 @@ void iface_for_each_chip(
     }
 }
 
-template <class IG1, class IG2>
-void iface2_for_each_chip(
-    const IG1 &iface_geom1, const IG2 &iface_geom2,
-    std::function<void(
-        const XY &,
-        const decltype(std::declval<IG1>().getChipView(std::declval<XY>())) &,
-        const decltype(std::declval<IG2>().getChipView(std::declval<XY>())) &)>
-        f) {
+template <class IG1, class IG2, typename BinaryFunction>
+void iface_for_each_chip(const IG1 &iface_geom1, const IG2 &iface_geom2,
+                         BinaryFunction f) {
     for (int chipy = 0; chipy < iface_geom1.iface_chips.y; ++chipy) {
         for (int chipx = 0; chipx < iface_geom1.iface_chips.x; ++chipx) {
             XY chip = {chipx, chipy};
@@ -309,6 +302,13 @@ template <class Fmt> struct RecvGeom {
           size(Fmt::calcArraySize(iface_geom_size, recv_ifaces, chip_gap)),
           iface_step(iface_geom_size + (IsRaw<Fmt>() ? XY0 : chip_gap)) {}
 
+    constexpr auto getIfacePos(const XY &iface_idx) const {
+        auto recv_flip = view.flipped;
+        auto offset = recv_flip * (recv_ifaces - XY1);
+        XY dir{!recv_flip.x ? 1 : -1, !recv_flip.y ? 1 : -1};
+        return iface_idx * dir + offset;
+    }
+
     constexpr auto getIfaceView(const XY &iface_idx) const {
         return Fmt::getElementView(iface_geom_size, recv_ifaces, chip_gap,
                                    iface_idx, view);
@@ -330,29 +330,21 @@ struct DefaultModRecvFlip {
 };
 
 // Helper iface iterator
-template <class RG>
-void recv_for_each_iface(
-    const RG &recv_geom,
-    std::function<void(
-        const XY &,
-        const decltype(std::declval<RG>().getIfaceGeom(std::declval<XY>())) &)>
-        f) {
+template <class RG, typename UnaryFunction>
+UnaryFunction recv_for_each_iface(const RG &recv_geom, UnaryFunction f) {
     for (int ifacey = 0; ifacey < recv_geom.recv_ifaces.y; ++ifacey) {
         for (int ifacex = 0; ifacex < recv_geom.recv_ifaces.x; ++ifacex) {
             XY iface = {ifacex, ifacey};
             f(iface, recv_geom.getIfaceGeom(iface));
         }
     }
+
+    return f;
 }
 
-template <class RG1, class RG2>
-void recv2_for_each_iface(
-    const RG1 &recv_geom1, const RG2 &recv_geom2,
-    std::function<void(
-        const XY &,
-        const decltype(std::declval<RG1>().getIfaceGeom(std::declval<XY>())) &,
-        const decltype(std::declval<RG2>().getIfaceGeom(std::declval<XY>())) &)>
-        f) {
+template <class RG1, class RG2, typename BinaryFunction>
+BinaryFunction recv_for_each_iface(const RG1 &recv_geom1, const RG2 &recv_geom2,
+                                   BinaryFunction f) {
     for (int ifacey = 0; ifacey < recv_geom1.recv_ifaces.y; ++ifacey) {
         for (int ifacex = 0; ifacex < recv_geom1.recv_ifaces.x; ++ifacex) {
             XY iface = {ifacex, ifacey};
@@ -361,6 +353,8 @@ void recv2_for_each_iface(
             f(iface, iface_geom1, iface_geom2);
         }
     }
+
+    return f;
 }
 
 // ModGeom: multi-receiver module geometry
@@ -400,29 +394,21 @@ template <class Fmt, class ModRecvFlip> struct ModGeom {
 };
 
 // Helper recv iterator
-template <class MG>
-void mod_for_each_recv(
-    const MG &mod_geom,
-    std::function<void(
-        const XY &,
-        const decltype(std::declval<MG>().getRecvGeom(std::declval<XY>())) &)>
-        f) {
+template <class MG, typename UnaryFunction>
+UnaryFunction mod_for_each_recv(const MG &mod_geom, UnaryFunction f) {
     for (int recvy = 0; recvy < mod_geom.mod_recvs.y; ++recvy) {
         for (int recvx = 0; recvx < mod_geom.mod_recvs.x; ++recvx) {
             XY recv = {recvx, recvy};
             f(recv, mod_geom.getRecvGeom(recv));
         }
     }
+
+    return f;
 }
 
-template <class MG1, class MG2>
-void mod2_for_each_recv(
-    const MG1 &mod_geom1, const MG2 &mod_geom2,
-    std::function<void(
-        const XY &,
-        const decltype(std::declval<MG1>().getRecvGeom(std::declval<XY>())) &,
-        const decltype(std::declval<MG2>().getRecvGeom(std::declval<XY>())) &)>
-        f) {
+template <class MG1, class MG2, typename BinaryFunction>
+BinaryFunction mod_for_each_recv(const MG1 &mod_geom1, const MG2 &mod_geom2,
+                                 BinaryFunction f) {
     for (int recvy = 0; recvy < mod_geom1.mod_recvs.y; ++recvy) {
         for (int recvx = 0; recvx < mod_geom1.mod_recvs.x; ++recvx) {
             XY recv = {recvx, recvy};
@@ -431,6 +417,8 @@ void mod2_for_each_recv(
             f(recv, recv_geom1, recv_geom2);
         }
     }
+
+    return f;
 }
 
 // DetGeom: multi-module detector geometry
@@ -468,28 +456,21 @@ template <class Fmt, class ModRecvFlip> struct DetGeom {
 };
 
 // Helper module iterator
-template <class DG>
-void det_for_each_mod(
-    const DG &det_geom,
-    std::function<void(const XY &, const decltype(std::declval<DG>().getModGeom(
-                                       std::declval<XY>())) &)>
-        f) {
+template <class DG, typename UnaryFunction>
+UnaryFunction det_for_each_mod(const DG &det_geom, UnaryFunction f) {
     for (int mody = 0; mody < det_geom.det_mods.y; ++mody) {
         for (int modx = 0; modx < det_geom.det_mods.x; ++modx) {
             XY mod = {modx, mody};
             f(mod, det_geom.getModGeom(mod));
         }
     }
+
+    return f;
 }
 
-template <class DG1, class DG2>
-void det2_for_each_mod(
-    const DG1 &det_geom1, const DG2 &det_geom2,
-    std::function<void(
-        const XY &,
-        const decltype(std::declval<DG1>().getModGeom(std::declval<XY>())) &,
-        const decltype(std::declval<DG2>().getModGeom(std::declval<XY>())) &)>
-        f) {
+template <class DG1, class DG2, typename BinaryFunction>
+BinaryFunction det_for_each_mod(const DG1 &det_geom1, const DG2 &det_geom2,
+                                BinaryFunction f) {
     for (int mody = 0; mody < det_geom1.det_mods.y; ++mody) {
         for (int modx = 0; modx < det_geom1.det_mods.x; ++modx) {
             XY mod = {modx, mody};
@@ -498,51 +479,59 @@ void det2_for_each_mod(
             f(mod, mod_geom1, mod_geom2);
         }
     }
+
+    return f;
 }
 
 // Helper detector iterator
 
-template <class DG>
-void det_for_each_chip(const DG &det_geom,
-                       std::function<void(const XY &, const MapView &)> f) {
-    det_for_each_mod(det_geom, [&](auto &mod, auto &mod_geom) {
-        mod_for_each_recv(mod_geom, [&](auto &recv, auto &recv_geom) {
-            recv_for_each_iface(recv_geom, [&](auto &iface, auto &iface_geom) {
-                iface_for_each_chip(
-                    iface_geom, [&](auto &chip, auto &chip_view) {
+template <class DG, typename UnaryFunction>
+UnaryFunction det_for_each_chip(const DG &det_geom, UnaryFunction f) {
+    det_for_each_mod(det_geom, [&](auto const &mod, auto const &mod_geom) {
+        mod_for_each_recv(
+            mod_geom, [&](auto const &recv, auto const &recv_geom) {
+                recv_for_each_iface(recv_geom, [&](auto const &iface,
+                                                   auto const &iface_geom) {
+                    iface_for_each_chip(iface_geom, [&](auto const &chip,
+                                                        auto const &chip_view) {
                         auto first_chip =
                             (iface_geom.iface_idx * iface_geom.iface_chips);
                         f(first_chip + chip, chip_view);
                     });
+                });
             });
-        });
     });
+
+    return f;
 }
 
-template <class DG>
-void det_for_each_pixel(const DG &det_geom,
-                        std::function<void(const MapView &, const XY &)> f) {
-    det_for_each_chip(det_geom, [&](auto &chip, auto &chip_view) {
+template <class DG, typename UnaryFunction>
+UnaryFunction det_for_each_pixel(const DG &det_geom, UnaryFunction f) {
+    det_for_each_chip(det_geom, [&](auto const &chip, auto const &chip_view) {
         view_for_each_pixel(chip_view, f);
     });
+
+    return f;
 }
 
-template <class DG1, class DG2>
-void det2_for_each_chip(
-    const DG1 &det_geom1, const DG2 &det_geom2,
-    std::function<void(const XY &, const MapView &, const MapView &)> f) {
-    det2_for_each_mod(
-        det_geom1, det_geom2, [&](auto &mod, auto &mod_geom1, auto &mod_geom2) {
-            mod2_for_each_recv(
+template <class DG1, class DG2, typename BinaryFunction>
+BinaryFunction det_for_each_chip(const DG1 &det_geom1, const DG2 &det_geom2,
+                                 BinaryFunction f) {
+    det_for_each_mod(
+        det_geom1, det_geom2,
+        [&](auto const &mod, auto const &mod_geom1, auto const &mod_geom2) {
+            mod_for_each_recv(
                 mod_geom1, mod_geom2,
-                [&](auto &recv, auto &recv_geom1, auto &recv_geom2) {
-                    recv2_for_each_iface(
+                [&](auto const &recv, auto const &recv_geom1,
+                    auto const &recv_geom2) {
+                    recv_for_each_iface(
                         recv_geom1, recv_geom2,
-                        [&](auto &iface, auto &iface_geom1, auto &iface_geom2) {
-                            iface2_for_each_chip(
+                        [&](auto const &iface, auto const &iface_geom1,
+                            auto const &iface_geom2) {
+                            iface_for_each_chip(
                                 iface_geom1, iface_geom2,
-                                [&](auto &chip, auto &chip_view1,
-                                    auto &chip_view2) {
+                                [&](auto const &chip, auto const &chip_view1,
+                                    auto const &chip_view2) {
                                     auto first_chip = (iface_geom1.iface_idx *
                                                        iface_geom1.iface_chips);
                                     f(first_chip + chip, chip_view1,
@@ -551,16 +540,20 @@ void det2_for_each_chip(
                         });
                 });
         });
+
+    return f;
 }
 
-template <class DG1, class DG2>
-void det2_for_each_pixel(
-    const DG1 &det_geom1, const DG2 &det_geom2,
-    std::function<void(const MapView &, const MapView &, const XY &)> f) {
-    det2_for_each_chip(det_geom1, det_geom2,
-                       [&](auto &chip, auto &chip_view1, auto &chip_view2) {
-                           view2_for_each_pixel(chip_view1, chip_view2, f);
-                       });
+template <class DG1, class DG2, typename BinaryFunction>
+BinaryFunction det_for_each_pixel(const DG1 &det_geom1, const DG2 &det_geom2,
+                                  BinaryFunction f) {
+    det_for_each_chip(
+        det_geom1, det_geom2,
+        [&](auto const &chip, auto const &chip_view1, auto const &chip_view2) {
+            view_for_each_pixel(chip_view1, chip_view2, f);
+        });
+
+    return f;
 }
 
 // Detector geometry data: stores all geometry for a particular detector
@@ -615,321 +608,5 @@ constexpr AnyModGapFilling AnyModGapFillingFromModPos(const DG &det_geom,
     return {GetValidVariant<AnyGapFilling>(has_gap.x),
             GetValidVariant<AnyGapFilling>(has_gap.y)};
 }
-
-// Pixel types
-template <typename T> struct PixelIterator {
-    using pointer_type = std::add_pointer_t<T>;
-    pointer_type ptr{nullptr};
-
-    PixelIterator(pointer_type p) : ptr(p) {}
-
-    T value() { return *ptr; }
-
-    PixelIterator &operator++() { return ++ptr, *this; }
-    PixelIterator &operator--() { return --ptr, *this; }
-    PixelIterator operator++(int) {
-        PixelIterator x(*this);
-        operator++();
-        return x;
-    }
-    PixelIterator operator--(int) {
-        PixelIterator x(*this);
-        operator--();
-        return x;
-    }
-};
-
-struct Pixel4Iterator {
-    using pointer_type = std::add_pointer_t<uint8_t>;
-    pointer_type ptr{nullptr};
-    bool low{false};
-
-    Pixel4Iterator(uint8_t *p) : ptr(p) {}
-
-    Pixel4Iterator &operator++() {
-        if (!(low = !low))
-            ++ptr;
-        return *this;
-    }
-    Pixel4Iterator &operator--() {
-        if ((low = !low))
-            --ptr;
-        return *this;
-    }
-    Pixel4Iterator operator++(int) {
-        Pixel4Iterator x(*this);
-        operator++();
-        return x;
-    }
-    Pixel4Iterator operator--(int) {
-        Pixel4Iterator x(*this);
-        operator--();
-        return x;
-    }
-
-    uint8_t value() { return low ? low_bits(*ptr) : high_bits(*ptr); }
-
-    static uint8_t low_bits(uint8_t v) { return v & 15; }
-    static uint8_t high_bits(uint8_t v) { return v >> 4; }
-};
-
-template <int Bpp, class V> struct Pixel {
-    using bits_per_pixel = std::integral_constant<int, Bpp>;
-    using iterator =
-        std::conditional_t<Bpp == 4, Pixel4Iterator, PixelIterator<V>>;
-
-    using val_type = V;
-    using pointer_type = typename iterator::pointer_type;
-
-    static constexpr float depth() { return float(Bpp) / 8; }
-};
-
-using Pixel4 = Pixel<4, uint8_t>;
-using Pixel8 = Pixel<8, uint8_t>;
-using Pixel16 = Pixel<16, uint16_t>;
-using Pixel32 = Pixel<32, uint32_t>;
-
-using AnyPixel = std::variant<Pixel4, Pixel8, Pixel16, Pixel32>;
-
-inline AnyPixel AnyPixelFromBpp(int bpp) {
-    switch (bpp) {
-    case 4:
-        return Pixel4();
-    case 8:
-        return Pixel8();
-    case 16:
-        return Pixel16();
-    case 32:
-        return Pixel32();
-    default:
-        throw std::runtime_error("Invalid Bpp: " + std::to_string(bpp));
-    }
-};
-
-// Alignment helpers
-constexpr int AlignCeil(int x, int align) {
-    int missalign = x % align;
-    return x + (!missalign ? 0 : (align - missalign));
-}
-
-constexpr int AlignFloor(int x, int align) { return x - (x % align); }
-
-/*
-// Image strides
-template <class Pixel, class Size, int RowSize = Pixel::depth() * Size::x(),
-          int Align = 1>
-struct DefaultPixel2DArray {
-    using pixel = Pixel;
-    using size = Size;
-    static constexpr int row_size = RowSize;
-    static constexpr int stride = AlignCeil<row_size, Align>();
-
-    template <int X, int Y> constexpr auto calcPixelByteOffset(XY<X, Y> pos) {
-        return Y * stride + X * Pixel::depth();
-    }
-};
-
-// Image/View: 2D pixel array in memory
-
-template <class Image, class MapView> struct ImageView {
-    using image = Image;
-    using pixel = typename image::pixel;
-    using pixel_pointer = typename pixel::pointer_type;
-    using map_view = MapView;
-
-    template <class Pos> constexpr auto calcPixelByteOffset(Pos pos) {
-        return image::pixel_array::calcPixelByteOffset(pos);
-    }
-
-    struct iterator {
-        typename pixel::iterator it;
-        int col{0};
-
-        auto operator++() {
-            ++it;
-            constexpr int cols = map_view::size::x();
-            if (++col == cols) {
-                char *p = reinterpret_cast<char *>(it.ptr);
-                p += image::stride - cols * pixel::depth;
-                it.ptr = reinterpret_cast<pixel_pointer>(p);
-                col = 0;
-            }
-            return *this;
-        }
-    };
-
-    image *im{nullptr};
-
-    template <class MapSubView> auto getSubView(MapSubView map_sub_view) {
-        return ImageView<Image, MapSubView>{im};
-    }
-
-    template <class Pos = XY0> auto getIterator(Pos pos = XY0()) {
-        char *p = im->buffer + calcPixelByteOffset(pos);
-        return iterator{reinterpret_cast<pixel_pointer>(p)};
-    }
-};
-
-template <class Geom, class Pixel,
-          class Pixel2DArray = DefaultPixel2DArray<Pixel, typename Geom::size>>
-struct Image {
-    using geom = Geom;
-    using pixel = Pixel;
-    using pixel_array = Pixel2DArray;
-    using stride = typename pixel_array::stride;
-
-    using view = ImageView<Image, typename Geom::view>;
-
-    char *buffer{nullptr};
-
-    auto getView() { return view{this}; }
-};
-*/
-
-namespace Eiger {
-
-// Eiger definitions and helpers
-constexpr XY ChipPixels{256, 256};
-constexpr XY ChipGap{2, 2};
-constexpr XY IfaceChips{2, 1};
-constexpr XY RecvIfaces{2, 1};
-struct ModRecvFlip {
-    // Eiger top recv is vertically flipped
-    static constexpr auto getRecvFlip(const XY &recv_idx) {
-        return (recv_idx == XY{0, 0}) ? VertFlip : NoFlip;
-    }
-};
-constexpr XY ModRecvs{1, 2};
-constexpr XY ModGap{9, 36};
-
-template <int MX, int MY, class Fmt> struct TiledDetGeom {
-    constexpr auto operator()() {
-        return Geom::DetGeom<Fmt, ModRecvFlip>(ChipPixels, ChipGap, IfaceChips,
-                                               RecvIfaces, ModRecvs, ModGap,
-                                               XY{MX, MY});
-    }
-};
-
-template <int MX, int MY>
-using GeomDataBase = DetGeomData<MX, MY, TiledDetGeom>;
-
-template <int MX, int MY> struct GeomData : GeomDataBase<MX, MY> {
-    using B = GeomDataBase<MX, MY>;
-
-    struct RawIfaceGeom {
-        static constexpr auto geom =
-            B::raw_geom.getModGeom(XY0).getRecvGeom(XY0).getIfaceGeom(XY0);
-    };
-
-    template <int Idx> struct RecvGeom {
-        static constexpr auto geom =
-            B::asm_wg_geom.getModGeom(XY0).getRecvGeom(XY{0, Idx});
-    };
-};
-
-using Eiger500kGeom = GeomData<1, 1>;
-using Eiger2MGeom = GeomData<1, 4>;
-
-using AnyDetGeom = std::variant<Eiger500kGeom, Eiger2MGeom>;
-
-constexpr auto AnyDetGeomFromDetSize(const XY &det_size) {
-    auto idx = GetDetCollectIdxFromDetSize<AnyDetGeom>(det_size);
-    if (idx < std::variant_size_v<AnyDetGeom>)
-        return GetValidVariant<AnyDetGeom>(idx);
-    else
-        throw std::runtime_error(
-            "Invalid detector size: " + std::to_string(det_size.x) + "," +
-            std::to_string(det_size.y));
-}
-
-using AnyRecvIdx = std::variant<std::integral_constant<int, 0>,
-                                std::integral_constant<int, 1>>;
-
-constexpr auto AnyRecvIdxFromRecvIdx(int recv_idx) {
-    return GetValidVariant<AnyRecvIdx>(recv_idx);
-}
-
-}; // namespace Eiger
-
-namespace Jungfrau {
-
-// Jungfrau definitions and helpers
-constexpr XY ChipPixels{256, 256};
-constexpr XY ChipGap{2, 2};
-template <int NbUDPIfaces> constexpr XY IfaceChips{4, 2 / NbUDPIfaces};
-template <int NbUDPIfaces> constexpr XY RecvIfaces{1, NbUDPIfaces};
-using ModRecvFlip = DefaultModRecvFlip;
-constexpr XY ModRecvs{1, 1};
-constexpr XY ModGap{9, 36};
-
-template <int NbUDPIfaces> struct TiledDetGeom {
-    template <int MX, int MY, class Fmt> struct Generator {
-        constexpr auto operator()() {
-            return Geom::DetGeom<Fmt, ModRecvFlip>(
-                ChipPixels, ChipGap, IfaceChips<NbUDPIfaces>,
-                RecvIfaces<NbUDPIfaces>, ModRecvs, ModGap, XY{MX, MY});
-        }
-    };
-};
-
-template <int NbUDPIfaces, int MX, int MY>
-using GeomDataBase =
-    DetGeomData<MX, MY, TiledDetGeom<NbUDPIfaces>::template Generator>;
-
-template <int NbUDPIfaces, int MX, int MY>
-struct GeomData : GeomDataBase<NbUDPIfaces, MX, MY> {
-    using B = GeomDataBase<NbUDPIfaces, MX, MY>;
-
-    static constexpr int num_udp_ifaces = NbUDPIfaces;
-
-    template <int Idx> struct RawIfaceGeom {
-        static constexpr auto geom =
-            B::raw_geom.getModGeom(XY0).getRecvGeom(XY0).getIfaceGeom(
-                XY{0, Idx});
-    };
-
-    struct RecvGeom {
-        static constexpr auto geom =
-            B::asm_wg_geom.getModGeom(XY0).getRecvGeom(XY0);
-    };
-
-    template <int Idx> struct IfaceGeom {
-        static constexpr auto geom = RecvGeom::geom.getIfaceGeom(XY{0, Idx});
-    };
-};
-
-template <int NbUDPIfaces> using Jungfrau500kGeom = GeomData<NbUDPIfaces, 1, 1>;
-template <int NbUDPIfaces> using Jungfrau1MGeom = GeomData<NbUDPIfaces, 1, 2>;
-template <int NbUDPIfaces> using Jungfrau1MWGeom = GeomData<NbUDPIfaces, 2, 1>;
-template <int NbUDPIfaces> using Jungfrau4MGeom = GeomData<NbUDPIfaces, 2, 4>;
-template <int NbUDPIfaces> using Jungfrau16MGeom = GeomData<NbUDPIfaces, 4, 8>;
-
-template <int NbUDPIfaces>
-using AnyDetGeom =
-    std::variant<Jungfrau500kGeom<NbUDPIfaces>, Jungfrau1MGeom<NbUDPIfaces>,
-                 Jungfrau1MWGeom<NbUDPIfaces>, Jungfrau4MGeom<NbUDPIfaces>,
-                 Jungfrau16MGeom<NbUDPIfaces>>;
-
-template <int NbUDPIfaces>
-constexpr auto AnyDetGeomFromDetSize(const XY &det_size) {
-    using AnyDet = AnyDetGeom<NbUDPIfaces>;
-    auto idx = GetDetCollectIdxFromDetSize<AnyDet>(det_size);
-    if (idx < std::variant_size_v<AnyDet>)
-        return GetValidVariant<AnyDet>(idx);
-    else
-        throw std::runtime_error(
-            "Invalid detector size: " + std::to_string(det_size.x) + "," +
-            std::to_string(det_size.y));
-}
-
-using AnyNbUDPIfaces = std::variant<std::integral_constant<int, 1>,
-                                    std::integral_constant<int, 2>>;
-
-constexpr auto AnyNbUDPIfacesFromNbUDPIfaces(int num_udp_ifaces) {
-    return GetValidVariant<AnyNbUDPIfaces>(num_udp_ifaces - 1);
-}
-
-}; // namespace Jungfrau
-
 }; // namespace Geom
 }; // namespace sls

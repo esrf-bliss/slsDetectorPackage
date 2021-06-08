@@ -25,7 +25,8 @@ struct MasterAttributes;
 class DataProcessor : private virtual slsDetectorDefs, public ThreadObject {
 
   public:
-    using DefaultFrameAssemblerPtr = FrameAssembler::DefaultFrameAssemblerPtr;
+    using DefaultFrameAssemblerPtr =
+        sls::FrameAssembler::DefaultFrameAssemblerPtr;
 
     /**
      * Constructor

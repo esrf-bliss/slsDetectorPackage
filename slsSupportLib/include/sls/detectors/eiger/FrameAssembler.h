@@ -1,22 +1,20 @@
+#pragma once
 /************************************************
- * @file FrameAssemblerEiger.hxx
+ * @file Eiger/FrameAssembler.h
  * @short helper classes assembling Eiger frames
  * from udp packets
- * DO NOT INCLUDE THIS FILE DIRECTLY IN YOUR CODE
- * include "FrameAssembler.h" instead
  ***********************************************/
 
-namespace FrameAssembler {
+#include "sls/FrameAssembler.h"
+#include "sls/detectors/eiger/Packet.h"
+
+#include <type_traits>
+
+namespace sls {
 namespace Eiger {
+namespace FrameAssembler {
 
-// Import Eiger definitions
-constexpr auto NbIfaces = ::Eiger::NbIfaces;
-
-using TenGigaDisable = ::Eiger::TenGigaDisable;
-using TenGigaEnable = ::Eiger::TenGigaEnable;
-
-template <class Pixel, class TenGiga>
-using Packet = ::Eiger::Packet<Pixel, TenGiga>;
+using namespace sls::FrameAssembler;
 
 /**
  *@short Eiger frame assembler in std mode: port interleaving
@@ -40,8 +38,7 @@ class FrameAssembler : public MPFrameAssembler {
 
     FrameAssembler(int offset) : data_offset(offset) {}
 
-    Result assembleFrame(AnyPacketBlockList &&blocks, RecvHeader *recv_header,
-                         char *buf) override;
+    Result assembleFrame(AnyPacketBlockList blocks, char *buf) override;
 
   private:
     Helper helper;
@@ -53,5 +50,8 @@ MPFrameAssemblerPtr CreateFrameAssembler(uint32_t src_dr, bool tg_enable,
                                          XY det_ifaces, XY mod_pos,
                                          int recv_idx);
 
-} // namespace Eiger
 } // namespace FrameAssembler
+} // namespace Eiger
+} // namespace sls
+
+#include "sls/detectors/eiger/FrameAssembler.cxx"

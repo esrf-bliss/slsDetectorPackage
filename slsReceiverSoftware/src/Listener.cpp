@@ -113,9 +113,10 @@ void Listener::CreateUDPSockets() {
     auto packetContainer = fifo->GetPacketContainer();
 
     try {
-        packetStream = CreatePacketStream(udpSocket, generalData, index,
-                                          cpuMask, GetThreadId(),
-                                          *frameDiscardMode, packetContainer);
+        packetStream = CreatePacketStream(
+            udpSocket, generalData->myDetectorType, generalData->tgEnable,
+            generalData->numUDPInterfaces, generalData->dynamicRange, index,
+            cpuMask, *frameDiscardMode, packetContainer);
         LOG(logINFO) << index << ": PacketStream for port " << *udpPortNumber;
     } catch (...) {
         throw sls::RuntimeError("Could not create PacketStream on port " +

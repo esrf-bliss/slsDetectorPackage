@@ -3,7 +3,7 @@
 
 using sls::Pattern;
 
-TEST_CASE("Pattern is default constructable and has zeroed fields") {
+TEST_CASE("Pattern is default constructible and has zeroed fields") {
     Pattern p;
     for (int i = 0; i != MAX_PATTERN_LENGTH; ++i)
         REQUIRE(p.data()->word[i] == 0);

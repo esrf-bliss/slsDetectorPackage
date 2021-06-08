@@ -1703,7 +1703,7 @@ ClientInterface::CreateFrameAssembler(AssemblerType asm_type) {
     return impl()->CreateFrameAssembler(asm_type);
 }
 
-AnyPacketBlockList ClientInterface::GetFramePacketBlocks() {
+sls::AnyPacketBlockList ClientInterface::GetFramePacketBlocks() {
     return impl()->GetFramePacketBlocks();
 }
 

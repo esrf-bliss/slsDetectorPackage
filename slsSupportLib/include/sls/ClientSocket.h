@@ -44,4 +44,4 @@ class GuiSocket : public ClientSocket {
     GuiSocket(struct sockaddr_in addr) : ClientSocket("Gui", addr){};
 };
 
-}; // namespace sls
+} // namespace sls

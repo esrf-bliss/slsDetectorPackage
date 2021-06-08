@@ -9,9 +9,9 @@
  *@short creates & manages a listener thread each
  */
 
-#include "PacketStream.h"
 #include "ThreadObject.h"
 #include "receiver_defs.h"
+#include "sls/PacketStream.h"
 #include "sls/UdpRxSocket.h"
 #include <atomic>
 #include <memory>
@@ -162,7 +162,7 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
     bool *silentMode;
 
     /** packet stream **/
-    AnyPacketStreamPtr packetStream;
+    std::shared_ptr<AnyPacketStream> packetStream;
 
     /** if the udp socket is connected */
     std::atomic<bool> udpSocketAlive{false};

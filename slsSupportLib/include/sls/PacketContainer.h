@@ -4,7 +4,7 @@
  * @short low-level udp packet container classes
  ***********************************************/
 
-#include "sls/Packet.h"
+#include "sls/PacketTypedefs.h"
 #include "sls/logger.h"
 
 #include <condition_variable>
@@ -13,8 +13,7 @@
 #include <queue>
 #include <variant>
 
-#include "GeneralData.h"
-#include "MmappedRegion.h"
+#include "sls/MmappedRegion.h"
 
 /**
  *@short container managing packet blocks to/from stream
@@ -29,36 +28,26 @@ template <class P> class PacketContainer {
     ~PacketContainer();
 
     using Packet = P;
-    using Block = PacketBlock<Packet>;
-    using BlockPtr = PacketBlockPtr<Packet>;
+    using Block = sls::PacketBlock<Packet>;
+    using BlockPtr = sls::PacketBlockPtr<Packet>;
     using BlockLayout = typename Block::Layout;
 
     using Ptr = std::shared_ptr<PacketContainer>;
 
-    class StreamIface {
-      public:
-        StreamIface(Ptr c) : pc(c) {}
-
-        void prepare() { pc->prepare(); }
-
-        BlockPtr getFreePacketBlock() { return pc->getFreePacketBlock(); }
-        void putReadyPacketBlock(BlockPtr &&block) {
-            pc->putReadyPacketBlock(std::move(block));
-        }
-
-        void stop() { pc->stop(); }
-        void cleanup() { pc->cleanup(); }
-
-      private:
-        Ptr pc;
-    };
-
     BlockPtr getReadyPacketBlock(uint64_t frame = uint64_t(-1));
 
-    bool hasPendingPacket();
+    unsigned int getPendingPackets();
 
     void clearBuffers();
     long long getMemorySize();
+
+    void prepare();
+
+    BlockPtr getFreePacketBlock();
+    void putReadyPacketBlock(BlockPtr block);
+
+    void stop();
+    void cleanUp();
 
   private:
     friend class StreamIface;
@@ -69,15 +58,8 @@ template <class P> class PacketContainer {
     using MapIterator = typename PacketBlockMap::iterator;
     using FramePacketBlock = typename PacketBlockMap::value_type;
 
-    void prepare();
-
-    BlockPtr getFreePacketBlock();
-    void putReadyPacketBlock(BlockPtr &&block);
     void releaseReadyPacketBlocks();
     void waitUsedPacketBlocks();
-
-    void stop();
-    void cleanup();
 
     const unsigned int num_frames;
     MmappedBlockRegion packet_buffer_array;
@@ -91,20 +73,17 @@ template <class P> class PacketContainer {
     bool stopped;
 };
 
-// TODO: Automatic definition from AnyPacketBlockPtr
-#define EigerPacketContainersFor(P)                                            \
-    PacketContainer<::Eiger::Packet<P, ::Eiger::TenGigaDisable>>,              \
-        PacketContainer<::Eiger::Packet<P, ::Eiger::TenGigaEnable>>
-
 using AnyPacketContainer =
-    std::variant<EigerPacketContainersFor(sls::Geom::Pixel4),
-                 EigerPacketContainersFor(sls::Geom::Pixel8),
-                 EigerPacketContainersFor(sls::Geom::Pixel16),
-                 EigerPacketContainersFor(sls::Geom::Pixel32),
-                 PacketContainer<::Jungfrau::Packet<1>>,
-                 PacketContainer<::Jungfrau::Packet<2>>>;
-
-#undef EigerPacketContainersFor
+    std::variant<PacketContainer<sls::EigerPacketPixel4TenGigaDisable>,
+                 PacketContainer<sls::EigerPacketPixel4TenGigaEnable>,
+                 PacketContainer<sls::EigerPacketPixel8TenGigaDisable>,
+                 PacketContainer<sls::EigerPacketPixel8TenGigaEnable>,
+                 PacketContainer<sls::EigerPacketPixel16TenGigaDisable>,
+                 PacketContainer<sls::EigerPacketPixel16TenGigaEnable>,
+                 PacketContainer<sls::EigerPacketPixel32TenGigaDisable>,
+                 PacketContainer<sls::EigerPacketPixel32TenGigaEnable>,
+                 PacketContainer<sls::JungfrauPacketOneIface>,
+                 PacketContainer<sls::JungfrauPacketTwoIface>>;
 
 using AnyPacketContainerPtr = std::shared_ptr<AnyPacketContainer>;
 
@@ -115,6 +94,8 @@ PacketContainerPtrFromAny(AnyPacketContainerPtr any_pc) {
 }
 
 AnyPacketContainerPtr
-CreatePacketContainer(GeneralDataPtr d, unsigned long node_mask, int max_node);
+CreatePacketContainer(slsDetectorDefs::detectorType det_type, bool tg_enable,
+                      int num_udp_ifaces, uint32_t dr, int frames,
+                      unsigned long node_mask, int max_node);
 
 #include "PacketContainer.cxx"

@@ -2,6 +2,7 @@ target_sources(tests PRIVATE
                 ${CMAKE_CURRENT_SOURCE_DIR}/test-bit_utils.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/test-container_utils.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/test-network_utils.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/test-Packet.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/test-string_utils.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/test-Timer.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/test-sls_detector_defs.cpp
@@ -14,3 +15,8 @@ target_sources(tests PRIVATE
                 ${CMAKE_CURRENT_SOURCE_DIR}/test-ZmqSocket.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/test-Geometry.cpp
                 )
+
+# find_package(Catch2 REQUIRED)
+# add_executable(test_packet test-Packet.cpp)
+# target_link_libraries(test_packet PRIVATE Catch2::Catch2)
+# target_include_directories(test_packet PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include)

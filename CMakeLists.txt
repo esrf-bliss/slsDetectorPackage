@@ -4,6 +4,9 @@ set(PROJECT_VERSION 5.1.0)
 include(CheckIPOSupported)
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
+# Additional compile definitions
+add_compile_definitions(NO_WARN_X86_INTRINSICS)
+
 cmake_policy(SET CMP0074 NEW)
 include(cmake/project_version.cmake)
 
@@ -19,10 +22,6 @@ endif()
 string(TOUPPER "${PROJECT_NAME}" PROJECT_NAME_UPPER)
 string(TOLOWER "${PROJECT_NAME}" PROJECT_NAME_LOWER)
 
-# Set targets export name (used by slsDetectorPackage and dependencies)
-set(TARGETS_EXPORT_NAME "${PROJECT_NAME_LOWER}-targets")
-#set(namespace "${PROJECT_NAME}::")
-
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
 
 
@@ -30,6 +29,12 @@ set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
 set(SLS_MASTER_PROJECT OFF)
 if (CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
     set(SLS_MASTER_PROJECT ON)
+endif()
+
+# Set targets export name (used by slsDetectorPackage and dependencies)
+if(SLS_MASTER_PROJECT)
+  set(TARGETS_EXPORT_NAME "${PROJECT_NAME_LOWER}-targets")
+  #set(namespace "${PROJECT_NAME}::")
 endif()
 
 option (SLS_USE_HDF5 "HDF5 File format" OFF)
@@ -66,6 +71,7 @@ message(STATUS "SLS_LTO_AVAILABLE:" ${SLS_LTO_AVAILABLE})
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+
 if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   message(STATUS "No build type selected, default to Release")
   set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type (default Release)" FORCE)
@@ -75,7 +81,7 @@ endif()
 #Add two fake libraries to manage options
 add_library(slsProjectOptions INTERFACE)
 add_library(slsProjectWarnings INTERFACE)
-target_compile_features(slsProjectOptions INTERFACE cxx_std_11)
+#target_compile_features(slsProjectOptions INTERFACE cxx_std_17)
 target_compile_options(slsProjectWarnings INTERFACE 
                                             -Wall
                                             -Wextra
@@ -195,8 +201,6 @@ if (SLS_USE_TESTS)
 endif(SLS_USE_TESTS)
 
 
-
-
 # Common functionallity to detector and receiver
 add_subdirectory(slsSupportLib)
 
@@ -230,9 +234,9 @@ if (SLS_USE_CTBGUI)
     add_subdirectory(ctbGui)
 endif(SLS_USE_CTBGUI)
 
-configure_file( .clang-tidy  
-    ${CMAKE_BINARY_DIR}/.clang-tidy  
-)
+#configure_file( .clang-tidy  
+#    ${CMAKE_BINARY_DIR}/.clang-tidy  
+#)
 
 if (SLS_BUILD_EXAMPLES)
     add_subdirectory(sample)
@@ -247,7 +251,7 @@ if(SLS_USE_MOENCH)
     add_subdirectory(slsDetectorCalibration/moenchExecutables)
 endif(SLS_USE_MOENCH)
 
-if(1)
+if(SLS_MASTER_PROJECT)
     # Set install dir CMake packages
     set(CMAKE_INSTALL_DIR "share/cmake/${PROJECT_NAME}")
     # Set the list of exported targets
