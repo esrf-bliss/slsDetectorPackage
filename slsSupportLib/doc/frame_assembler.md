@@ -54,7 +54,16 @@ class FrameAssembler {
     virtual bool assembleFrame(AnyPacketBlockPtr &&block, RecvHeader *header,
                                char *buf) = 0;
 
-    virtual int getImageSize() = 0;
+    virtual FrameDims getAssembledFrameDims = 0;
+};
+```
+
+with
+
+```
+struct FrameDims {
+    slsDetectorDefs::xy dim;
+    int size;
 };
 ```
 

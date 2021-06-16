@@ -114,10 +114,13 @@ Implementation::CreateFrameAssembler(AssemblerType asm_type) {
         return XY{mod_idx / det_mods.y, mod_idx % det_mods.y};
     };
     if (asm_type == AsmRaw) {
+        auto port_geom = GetPortGeometry();
+        auto recv_ifaces = port_geom[X] * port_geom[Y];
+        auto det_recvs = det_ifaces.area() / recv_ifaces;
         if (dst_dr == 4)
             dst_dr = 8;
-        fa = std::make_unique<RawFrameAssembler>(d, recv_idx, nb_ports, src_dr,
-                                                 dst_dr);
+        fa = std::make_unique<RawFrameAssembler>(d, recv_idx, det_recvs,
+                                                 nb_ports, src_dr, dst_dr);
     } else if (d == slsDetectorDefs::EIGER) {
         using namespace sls::Eiger::Geom;
         auto mod_pos = getModPos(RecvIfaces, ModRecvs);

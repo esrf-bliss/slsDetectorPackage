@@ -19,7 +19,7 @@ constexpr auto RawIfaceGeom = Eiger::RawIfaceGeom;
  * GeomHelper
  */
 
-// P: Pixel Type, FP: Frame discard policy, GD: Geom data, MGX/Y: Module gap X/Y
+// P: Pixel Type, TG: Ten Giga, GD: Geom data, MGX/Y: Module gap X/Y
 template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
 struct GeomHelper {
 
@@ -368,6 +368,14 @@ Result FrameAssembler<P, TG, GD, MGX, MGY, Idx>::assembleFrame(
         helper.assemblePackets(b, buf + data_offset);
 
     return Result{NbIfaces, mask};
+}
+
+template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
+FrameDims FrameAssembler<P, TG, GD, MGX, MGY, Idx>::getAssembledFrameDims() {
+    constexpr auto geom_size = GD::asm_wg_geom.size;
+    slsDetectorDefs::xy det_size{int(geom_size.x), int(geom_size.y)};
+    auto nb_pixels = det_size.x * det_size.y;
+    return {det_size, int(nb_pixels * DP::depth())};
 }
 
 inline MPFrameAssemblerPtr CreateFrameAssembler(uint32_t src_dr, bool tg_enable,

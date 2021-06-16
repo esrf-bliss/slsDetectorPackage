@@ -13,7 +13,16 @@ namespace FrameAssembler {
 using namespace sls::Geom;
 
 /**
- *@short Default frame assembler in Listener
+ *@short Dimensions of (assembled) frames
+ */
+
+struct FrameDims {
+    slsDetectorDefs::xy dim;
+    int size;
+};
+
+/**
+ *@short Default frame assembler in DataProcessor
  */
 
 class DefaultFrameAssemblerBase {
@@ -21,8 +30,7 @@ class DefaultFrameAssemblerBase {
     virtual ~DefaultFrameAssemblerBase() {}
 
     virtual bool assembleFrame(AnyPacketBlockPtr block, char *buf) = 0;
-
-    virtual int getImageSize() = 0;
+    virtual FrameDims getAssembledFrameDims() = 0;
 };
 using DefaultFrameAssemblerPtr = std::shared_ptr<DefaultFrameAssemblerBase>;
 
@@ -44,12 +52,17 @@ class DefaultFrameAssembler : public DefaultFrameAssemblerBase {
     using Block = PacketBlock<Packet>;
     using BlockPtr = PacketBlockPtr<Packet>;
 
+    DefaultFrameAssembler(slsDetectorDefs::xy iface_dims)
+        : iface_size(iface_dims) {}
+
     bool assembleFrame(AnyPacketBlockPtr block, char *buf) override;
 
-    int getImageSize() override;
+    FrameDims getAssembledFrameDims() override;
 
   protected:
     void expand4Bits(char *dst, char *src, int src_size);
+
+    slsDetectorDefs::xy iface_size;
 };
 
 DefaultFrameAssemblerPtr
@@ -76,6 +89,7 @@ class MPFrameAssembler {
     virtual ~MPFrameAssembler() {}
 
     virtual Result assembleFrame(AnyPacketBlockList blocks, char *buf) = 0;
+    virtual FrameDims getAssembledFrameDims() = 0;
 };
 
 using MPFrameAssemblerPtr = std::unique_ptr<MPFrameAssembler>;
@@ -88,21 +102,24 @@ class RawFrameAssembler : public MPFrameAssembler {
 
   public:
     RawFrameAssembler(slsDetectorDefs::detectorType det_type, int recv_idx,
-                      int num_udp_ifaces, uint32_t src_dr,
-                      uint32_t dst_dr = 0) {
+                      int det_recvs, int num_udp_ifaces, uint32_t src_dr,
+                      uint32_t dst_dr = 0)
+        : nb_recvs(det_recvs) {
         for (int i = 0; i < num_udp_ifaces; ++i)
             assembler.emplace_back(CreateDefaultFrameAssembler(
                 det_type, num_udp_ifaces, src_dr, dst_dr));
-        int iface_size = assembler[0]->getImageSize();
+        int iface_size = assembler[0]->getAssembledFrameDims().size;
         data_offset = assembler.size() * iface_size * recv_idx;
     }
 
     Result assembleFrame(AnyPacketBlockList blocks, char *buf) override;
+    FrameDims getAssembledFrameDims() override;
 
   private:
     using DefaultFrameAssemblerList = std::vector<DefaultFrameAssemblerPtr>;
 
     DefaultFrameAssemblerList assembler;
+    int nb_recvs;
     int data_offset;
 };
 

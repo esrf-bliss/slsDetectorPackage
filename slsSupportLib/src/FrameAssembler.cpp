@@ -18,8 +18,9 @@ using namespace sls::FrameAssembler;
  */
 
 template <class Packet, class DP>
-int DefaultFrameAssembler<Packet, DP>::getImageSize() {
-    return PacketData::FrameLen / SP::depth() * DP::depth();
+FrameDims DefaultFrameAssembler<Packet, DP>::getAssembledFrameDims() {
+    auto nb_pixels = iface_size.x * iface_size.y;
+    return {iface_size, int(nb_pixels * DP::depth())};
 }
 
 template <class Packet, class DP>
@@ -101,6 +102,22 @@ bool DefaultFrameAssembler<Packet, DP>::assembleFrame(AnyPacketBlockPtr block,
     return true;
 }
 
+template <class DetGeom, class Packet, class DP = typename Packet::Data::Pixel>
+DefaultFrameAssemblerPtr DefaultFrameAssemblerFactory() {
+    using Assembler = DefaultFrameAssembler<Packet, DP>;
+    constexpr auto mod_geom = DetGeom::raw_geom.getModGeom(XY0);
+    constexpr auto recv_geom = mod_geom.getRecvGeom(XY0);
+    constexpr auto iface_size = recv_geom.getIfaceGeom(XY0).size;
+    slsDetectorDefs::xy iface_dims{int(iface_size.x), int(iface_size.y)};
+    return std::make_shared<Assembler>(iface_dims);
+}
+
+template <class NbUDPIfaces> auto JungfrauFrameAssemblerFactory() {
+    using Packet = sls::Jungfrau::Packet<NbUDPIfaces>;
+    using DG = sls::Jungfrau::Geom::Jungfrau500kGeom<NbUDPIfaces>;
+    return DefaultFrameAssemblerFactory<DG, Packet>();
+}
+
 DefaultFrameAssemblerPtr sls::FrameAssembler::CreateDefaultFrameAssembler(
     slsDetectorDefs::detectorType det_type, bool tg_enable, int num_udp_ifaces,
     uint32_t src_dr, uint32_t dst_dr) {
@@ -111,30 +128,27 @@ DefaultFrameAssemblerPtr sls::FrameAssembler::CreateDefaultFrameAssembler(
     auto any_dst_pixel = AnyPixelFromBpp(dst_dr);
 
     return std::visit(
-        [&](auto src_pixel, auto dst_pixel) -> DefaultFrameAssemblerPtr {
+        [&](auto src_pixel, auto dst_pixel) {
             using SP = decltype(src_pixel);
             using DP = decltype(dst_pixel);
 
             if (det_type == slsDetectorDefs::EIGER) {
                 auto any_tg = Eiger::AnyTenGigaFromTgEnable(tg_enable);
                 return std::visit(
-                    [&](auto tg) -> DefaultFrameAssemblerPtr {
+                    [&](auto tg) {
                         using TG = decltype(tg);
                         using Packet = Eiger::Packet<SP, TG>;
-                        using Assembler = DefaultFrameAssembler<Packet, DP>;
-                        return std::make_shared<Assembler>();
+                        using DG = Eiger::Geom::Eiger500kGeom;
+                        return DefaultFrameAssemblerFactory<DG, Packet, DP>();
                     },
                     any_tg);
             } else if (det_type == slsDetectorDefs::JUNGFRAU) {
-                if (num_udp_ifaces == 1) {
-                    using Packet = Jungfrau::Packet<Jungfrau::Geom::OneIface>;
-                    using Assembler = DefaultFrameAssembler<Packet>;
-                    return std::make_shared<Assembler>();
-                } else {
-                    using Packet = Jungfrau::Packet<Jungfrau::Geom::TwoIface>;
-                    using Assembler = DefaultFrameAssembler<Packet>;
-                    return std::make_shared<Assembler>();
-                }
+                if (num_udp_ifaces == 1)
+                    return JungfrauFrameAssemblerFactory<
+                        Jungfrau::Geom::OneIface>();
+                else
+                    return JungfrauFrameAssemblerFactory<
+                        Jungfrau::Geom::TwoIface>();
             } else
                 throw sls::RuntimeError("Detector not supported: " +
                                         std::to_string(det_type));
@@ -158,7 +172,16 @@ Result RawFrameAssembler::assembleFrame(AnyPacketBlockList blocks, char *buf) {
         res.valid_data[i] =
             assembler[i]->assembleFrame(std::move(blocks[i]), buf);
         if (buf)
-            buf += assembler[i]->getImageSize();
+            buf += assembler[i]->getAssembledFrameDims().size;
     }
     return res;
+}
+
+FrameDims RawFrameAssembler::getAssembledFrameDims() {
+    const int NbIfaces = assembler.size();
+    auto dims = assembler[0]->getAssembledFrameDims();
+    auto det_ifaces = NbIfaces * nb_recvs;
+    dims.dim.y *= det_ifaces;
+    dims.size *= det_ifaces;
+    return dims;
 }

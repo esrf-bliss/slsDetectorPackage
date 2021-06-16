@@ -39,6 +39,7 @@ class FrameAssembler : public MPFrameAssembler {
     FrameAssembler(int offset) : data_offset(offset) {}
 
     Result assembleFrame(AnyPacketBlockList blocks, char *buf) override;
+    FrameDims getAssembledFrameDims() override;
 
   private:
     Helper helper;

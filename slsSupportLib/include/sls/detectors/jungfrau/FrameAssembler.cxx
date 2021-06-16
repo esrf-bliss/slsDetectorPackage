@@ -183,6 +183,14 @@ Result FrameAssembler<GD, MGX, MGY>::assembleFrame(AnyPacketBlockList blocks,
     return Result{NbIfaces, mask};
 }
 
+template <class GD, bool MGX, bool MGY>
+FrameDims FrameAssembler<GD, MGX, MGY>::getAssembledFrameDims() {
+    constexpr auto geom_size = GD::asm_wg_geom.size;
+    slsDetectorDefs::xy det_size{int(geom_size.x), int(geom_size.y)};
+    auto nb_pixels = det_size.x * det_size.y;
+    return {det_size, int(nb_pixels * Pixel::depth())};
+}
+
 inline MPFrameAssemblerPtr CreateFrameAssembler(int mod_ifaces, XY det_ifaces,
                                                 XY mod_pos) {
 
