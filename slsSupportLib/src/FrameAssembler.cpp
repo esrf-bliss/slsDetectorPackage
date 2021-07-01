@@ -59,12 +59,12 @@ void DefaultFrameAssembler<Packet, DP>::expand4Bits(char *dst, char *src,
 }
 
 template <class Packet, class DP>
-bool DefaultFrameAssembler<Packet, DP>::assembleFrame(AnyPacketBlockPtr block,
-                                                      char *buf) {
+bool DefaultFrameAssembler<Packet, DP>::assembleFrame(
+    const AnyPacketBlockPtr &block, char *buf) {
     if (!std::holds_alternative<BlockPtr>(block))
         throw std::runtime_error("Invalid packet block");
 
-    BlockPtr b = std::get<BlockPtr>(std::move(block));
+    auto &b = std::get<BlockPtr>(block);
     if (!b || (b->getValidPackets() == 0))
         return false;
     else if (!buf)
@@ -83,7 +83,7 @@ bool DefaultFrameAssembler<Packet, DP>::assembleFrame(AnyPacketBlockPtr block,
     auto valid_packet_mask = b->getValidPacketMask();
     for (int i = 0; i < packets_per_frame; ++i) {
         // copy packet
-        Packet packet = (*b)[i];
+        auto packet = (*b)[i];
         char *dst = buf + i * dst_dsize;
         bool last_packet = (i == (packets_per_frame - 1));
         uint32_t copy_dsize = last_packet ? last_dsize : src_dsize;
@@ -160,7 +160,8 @@ DefaultFrameAssemblerPtr sls::FrameAssembler::CreateDefaultFrameAssembler(
  * RawFrameAssembler
  */
 
-Result RawFrameAssembler::assembleFrame(AnyPacketBlockList blocks, char *buf) {
+Result RawFrameAssembler::assembleFrame(const AnyPacketBlockList &blocks,
+                                        char *buf) {
     const int NbIfaces = assembler.size();
     if (blocks.size() != std::size_t(NbIfaces))
         throw std::runtime_error("Invalid packet block list");
@@ -169,8 +170,7 @@ Result RawFrameAssembler::assembleFrame(AnyPacketBlockList blocks, char *buf) {
         buf += data_offset;
     Result res{NbIfaces, 0};
     for (int i = 0; i < NbIfaces; ++i) {
-        res.valid_data[i] =
-            assembler[i]->assembleFrame(std::move(blocks[i]), buf);
+        res.valid_data[i] = assembler[i]->assembleFrame(blocks[i], buf);
         if (buf)
             buf += assembler[i]->getAssembledFrameDims().size;
     }

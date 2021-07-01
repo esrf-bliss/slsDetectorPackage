@@ -127,7 +127,7 @@ template <class P> class PacketBlock {
 
     PacketBlock(LayoutPtr &&l) : layout(std::move(l)){};
 
-    Packet operator[](unsigned int i) { return Packet(&(*layout)[i]); }
+    Packet operator[](unsigned int i) const { return Packet(&(*layout)[i]); }
 
     void setValid(unsigned int i, bool valid) {
         Packet p = (*this)[i];
@@ -144,13 +144,13 @@ template <class P> class PacketBlock {
         setValid(p.number(), true);
     }
 
-    bool hasFullFrame() { return getValidPackets() == NbPackets; }
+    bool hasFullFrame() const { return getValidPackets() == NbPackets; }
 
-    int getValidPackets() { return valid_packet_mask.count(); }
+    int getValidPackets() const { return valid_packet_mask.count(); }
 
-    const sls_bitset &getValidPacketMask() { return valid_packet_mask; }
+    const sls_bitset &getValidPacketMask() const { return valid_packet_mask; }
 
-    NetworkHeader *getNetworkHeader() { return header; }
+    NetworkHeader *getNetworkHeader() const { return header; }
 
     uint64_t getFrameNumber() const {
         return header ? header->frameNumber : -1;

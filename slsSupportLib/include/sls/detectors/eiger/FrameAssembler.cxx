@@ -31,6 +31,8 @@ struct GeomHelper {
     using DstPixel = std::conditional_t<std::is_same_v<P, Pixel4>, Pixel8, P>;
 
     using BlockPtr = PacketBlockPtr<Packet<SrcPixel, TG>>;
+    using ConstBlockPtr =
+        std::add_pointer_t<std::add_const_t<typename BlockPtr::element_type>>;
 
     using PacketData = typename Packet<SrcPixel, TG>::Data;
 
@@ -102,7 +104,7 @@ template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
 struct Expand4BitsHelper : GeomHelper<P, TG, GD, MGX, MGY, Idx> {
 
     using H = GeomHelper<P, TG, GD, MGX, MGY, Idx>;
-    using BlockPtr = typename H::BlockPtr;
+    using ConstBlockPtr = typename H::ConstBlockPtr;
 
 #define SCI static constexpr int
 
@@ -135,16 +137,16 @@ struct Expand4BitsHelper : GeomHelper<P, TG, GD, MGX, MGY, Idx> {
 
         Worker(Expand4BitsHelper &helper) : h(helper){};
 
-        int load_packet(BlockPtr block[NbIfaces], int packet);
+        int load_packet(ConstBlockPtr block[NbIfaces], int packet);
         void load_dst128(char *buf);
         void load_shift_store128();
         void pad_dst128();
         void sync_dst128();
 
-        void assemblePackets(BlockPtr block[NbIfaces], char *buf);
+        void assemblePackets(ConstBlockPtr block[NbIfaces], char *buf);
     };
 
-    void assemblePackets(BlockPtr block[NbIfaces], char *buf) {
+    void assemblePackets(ConstBlockPtr block[NbIfaces], char *buf) {
         Worker w(*this);
         w.assemblePackets(block, buf);
     }
@@ -152,7 +154,7 @@ struct Expand4BitsHelper : GeomHelper<P, TG, GD, MGX, MGY, Idx> {
 
 template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
 int Expand4BitsHelper<P, TG, GD, MGX, MGY, Idx>::Worker::load_packet(
-    BlockPtr block[NbIfaces], int packet) {
+    ConstBlockPtr block[NbIfaces], int packet) {
     Packet<P, TG> p0 = (*block[0])[packet];
     Packet<P, TG> p1 = (*block[1])[packet];
     s[0] = (const __m128i *)(p0.data() + h.src_offset);
@@ -258,7 +260,7 @@ void Expand4BitsHelper<P, TG, GD, MGX, MGY, Idx>::Worker::sync_dst128() {
 
 template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
 void Expand4BitsHelper<P, TG, GD, MGX, MGY, Idx>::Worker::assemblePackets(
-    BlockPtr block[NbIfaces], char *buf) {
+    ConstBlockPtr block[NbIfaces], char *buf) {
     if constexpr (MGX) {
         LOG(logERROR) << "Expand4BitsHelper not supported in horiz. tile";
         return;
@@ -297,14 +299,14 @@ template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
 struct CopyHelper : GeomHelper<P, TG, GD, MGX, MGY, Idx> {
 
     using H = GeomHelper<P, TG, GD, MGX, MGY, Idx>;
-    using BlockPtr = typename H::BlockPtr;
+    using ConstBlockPtr = typename H::ConstBlockPtr;
 
-    void assemblePackets(BlockPtr block[NbIfaces], char *buf);
+    void assemblePackets(ConstBlockPtr block[NbIfaces], char *buf);
 };
 
 template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
 void CopyHelper<P, TG, GD, MGX, MGY, Idx>::assemblePackets(
-    BlockPtr block[NbIfaces], char *buf) {
+    ConstBlockPtr block[NbIfaces], char *buf) {
     H h;
     int packet = h.src_first_packet;
     char *d = buf;
@@ -351,15 +353,14 @@ void CopyHelper<P, TG, GD, MGX, MGY, Idx>::assemblePackets(
 
 template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
 Result FrameAssembler<P, TG, GD, MGX, MGY, Idx>::assembleFrame(
-    AnyPacketBlockList blocks, char *buf) {
-
+    const AnyPacketBlockList &blocks, char *buf) {
     if (blocks.size() != std::size_t(NbIfaces) ||
         !std::holds_alternative<BlockPtr>(blocks[0]) ||
         !std::holds_alternative<BlockPtr>(blocks[1]))
         throw std::runtime_error("Invalid packet block list");
 
-    BlockPtr b[NbIfaces] = {std::get<BlockPtr>(std::move(blocks[0])),
-                            std::get<BlockPtr>(std::move(blocks[1]))};
+    ConstBlockPtr b[NbIfaces] = {std::get<BlockPtr>(blocks[0]).get(),
+                                 std::get<BlockPtr>(blocks[1]).get()};
     PortsMask mask;
     for (int i = 0; i < NbIfaces; ++i)
         mask[i] = (b[i] && (b[i]->getValidPackets() > 0));

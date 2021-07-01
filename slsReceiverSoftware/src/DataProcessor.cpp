@@ -282,7 +282,7 @@ int DataProcessor::AssembleAnImage(FifoFrame *frame) {
     recv_header->detHeader.row = row;
     recv_header->detHeader.column = column;
 
-    bool ok = frameAssembler->assembleFrame(std::move(block), buf);
+    bool ok = frameAssembler->assembleFrame(block, buf);
     if (!ok)
         return -1;
 

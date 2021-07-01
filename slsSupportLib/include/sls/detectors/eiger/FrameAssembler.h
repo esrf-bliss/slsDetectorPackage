@@ -35,10 +35,11 @@ class FrameAssembler : public MPFrameAssembler {
                            CopyHelper<P, TG, GD, MGX, MGY, Idx>>;
     using DP = typename Helper::DstPixel;
     using BlockPtr = typename Helper::BlockPtr;
+    using ConstBlockPtr = typename Helper::ConstBlockPtr;
 
     FrameAssembler(int offset) : data_offset(offset) {}
 
-    Result assembleFrame(AnyPacketBlockList blocks, char *buf) override;
+    Result assembleFrame(const AnyPacketBlockList &blocks, char *buf) override;
     FrameDims getAssembledFrameDims() override;
 
   private:

@@ -30,6 +30,8 @@ template <class GD, bool MGX, bool MGY, int Idx> struct GeomHelper {
     using NbUDPIfaces = typename GD::num_udp_ifaces;
 
     using BlockPtr = PacketBlockPtr<Packet<NbUDPIfaces>>;
+    using ConstBlockPtr =
+        std::add_pointer_t<std::add_const_t<typename BlockPtr::element_type>>;
 
     using PacketData = typename Packet<NbUDPIfaces>::Data;
 
@@ -89,13 +91,14 @@ template <class GD, bool MGX, bool MGY, int Idx>
 struct CopyHelper : GeomHelper<GD, MGX, MGY, Idx> {
 
     using H = GeomHelper<GD, MGX, MGY, Idx>;
-    using BlockPtr = typename H::BlockPtr;
+    using ConstBlockPtr = typename H::ConstBlockPtr;
 
-    static void assemblePackets(BlockPtr block, char *buf);
+    static void assemblePackets(ConstBlockPtr block, char *buf);
 };
 
 template <class GD, bool MGX, bool MGY, int Idx>
-void CopyHelper<GD, MGX, MGY, Idx>::assemblePackets(BlockPtr block, char *buf) {
+void CopyHelper<GD, MGX, MGY, Idx>::assemblePackets(ConstBlockPtr block,
+                                                    char *buf) {
     H h;
     char *d = buf;
     int line = 0;
@@ -147,26 +150,28 @@ void CopyHelper<GD, MGX, MGY, Idx>::assemblePackets(BlockPtr block, char *buf) {
 
 template <class GD, bool MGX, bool MGY>
 template <int Idx>
-bool FrameAssembler<GD, MGX, MGY>::assembleIface(AnyPacketBlockPtr block,
+bool FrameAssembler<GD, MGX, MGY>::assembleIface(const AnyPacketBlockPtr &block,
                                                  char *buf) {
     using Helper = CopyHelper<GD, MGX, MGY, Idx>;
     using BlockPtr = typename Helper::BlockPtr;
+    using ConstBlockPtr = typename Helper::ConstBlockPtr;
 
     if (!std::holds_alternative<BlockPtr>(block))
         throw std::runtime_error("Invalid packet block");
 
-    BlockPtr b = std::get<BlockPtr>(std::move(block));
+    ConstBlockPtr b = std::get<BlockPtr>(block).get();
     if (!b || (b->getValidPackets() == 0))
         return false;
 
     auto offset = buf ? (data_offset + Helper::dst_iface_offset) : 0;
-    Helper::assemblePackets(std::move(b), buf + offset);
+    Helper::assemblePackets(b, buf + offset);
     return true;
 }
 
 template <class GD, bool MGX, bool MGY>
-Result FrameAssembler<GD, MGX, MGY>::assembleFrame(AnyPacketBlockList blocks,
-                                                   char *buf) {
+Result
+FrameAssembler<GD, MGX, MGY>::assembleFrame(const AnyPacketBlockList &blocks,
+                                            char *buf) {
     if (blocks.size() != std::size_t(NbIfaces))
         throw std::runtime_error("Invalid packet block list");
 
@@ -174,9 +179,9 @@ Result FrameAssembler<GD, MGX, MGY>::assembleFrame(AnyPacketBlockList blocks,
     for (int i = 0; i < NbIfaces; ++i) {
         bool ok;
         if (i == 0)
-            ok = assembleIface<0>(std::move(blocks[0]), buf);
+            ok = assembleIface<0>(blocks[0], buf);
         else if constexpr (NbIfaces == 2)
-            ok = assembleIface<1>(std::move(blocks[1]), buf);
+            ok = assembleIface<1>(blocks[1], buf);
         mask.set(i, ok);
     }
 

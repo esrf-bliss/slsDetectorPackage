@@ -29,7 +29,7 @@ class DefaultFrameAssemblerBase {
   public:
     virtual ~DefaultFrameAssemblerBase() {}
 
-    virtual bool assembleFrame(AnyPacketBlockPtr block, char *buf) = 0;
+    virtual bool assembleFrame(const AnyPacketBlockPtr &block, char *buf) = 0;
     virtual FrameDims getAssembledFrameDims() = 0;
 };
 using DefaultFrameAssemblerPtr = std::shared_ptr<DefaultFrameAssemblerBase>;
@@ -55,7 +55,7 @@ class DefaultFrameAssembler : public DefaultFrameAssemblerBase {
     DefaultFrameAssembler(slsDetectorDefs::xy iface_dims)
         : iface_size(iface_dims) {}
 
-    bool assembleFrame(AnyPacketBlockPtr block, char *buf) override;
+    bool assembleFrame(const AnyPacketBlockPtr &block, char *buf) override;
 
     FrameDims getAssembledFrameDims() override;
 
@@ -88,7 +88,8 @@ class MPFrameAssembler {
   public:
     virtual ~MPFrameAssembler() {}
 
-    virtual Result assembleFrame(AnyPacketBlockList blocks, char *buf) = 0;
+    virtual Result assembleFrame(const AnyPacketBlockList &blocks,
+                                 char *buf) = 0;
     virtual FrameDims getAssembledFrameDims() = 0;
 };
 
@@ -112,7 +113,7 @@ class RawFrameAssembler : public MPFrameAssembler {
         data_offset = assembler.size() * iface_size * recv_idx;
     }
 
-    Result assembleFrame(AnyPacketBlockList blocks, char *buf) override;
+    Result assembleFrame(const AnyPacketBlockList &blocks, char *buf) override;
     FrameDims getAssembledFrameDims() override;
 
   private:

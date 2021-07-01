@@ -29,11 +29,12 @@ class FrameAssembler : public MPFrameAssembler {
 
     FrameAssembler(int offset) : data_offset(offset) {}
 
-    Result assembleFrame(AnyPacketBlockList blocks, char *buf) override;
+    Result assembleFrame(const AnyPacketBlockList &blocks, char *buf) override;
     FrameDims getAssembledFrameDims() override;
 
   private:
-    template <int Idx> bool assembleIface(AnyPacketBlockPtr block, char *buf);
+    template <int Idx>
+    bool assembleIface(const AnyPacketBlockPtr &block, char *buf);
 
     int data_offset;
 };
