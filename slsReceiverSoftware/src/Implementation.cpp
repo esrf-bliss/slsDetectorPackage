@@ -70,9 +70,12 @@ void Implementation::SetupFifoStructure() {
     frameAssembler.reset();
     for (unsigned int i = 0; int(i) < numThreads; ++i) {
         // create fifo structure
+        sls::CPUAffinity::NUMAMask numa_mask;
         try {
-            fifo.push_back(sls::make_unique<Fifo>(i, generalData, fifoDepth,
-                                                  fifoNodeMask, maxNode));
+            if (i < listener.size())
+                numa_mask = listener[i]->GetFifoNUMAMask();
+            fifo.push_back(
+                sls::make_unique<Fifo>(i, generalData, fifoDepth, numa_mask));
         } catch (...) {
             fifo.clear();
             fifoDepth = 0;
@@ -90,9 +93,15 @@ void Implementation::SetupFifoStructure() {
             dataStreamer[i]->SetFifo(f);
 
         size_t framesize = f->GetFifoFrameSize();
+        std::string numa_str;
+        if (numa_mask.count() > 0) {
+            std::ostringstream os;
+            os << " - NUMA mask: " << numa_mask;
+            numa_str = os.str();
+        }
         LOG(logINFO) << "Memory Allocated for Fifo " << i << ": "
                      << (double)(framesize * fifoDepth) / (double)(1024 * 1024)
-                     << " MB";
+                     << " MB" << numa_str;
     }
     LOG(logINFO) << numThreads << " Fifo structure(s) reconstructed";
 }
@@ -1727,22 +1736,15 @@ void Implementation::registerCallBackRawDataModifyReady(
                                                pRawDataReady);
 }
 
-void Implementation::setThreadCPUAffinity(const CPUMaskList &cpu_masks) {
-    if (int(cpu_masks.size()) != numThreads)
-        throw sls::RuntimeError("Invalid cpu_masks size: " +
-                                std::to_string(cpu_masks.size()));
+void Implementation::setListenersCPUAffinity(
+    const FixedCPUSetAffinityList &cpu_affinities) {
+    if (int(cpu_affinities.size()) != numThreads)
+        throw sls::RuntimeError("Invalid cpu_affinities size: " +
+                                std::to_string(cpu_affinities.size()));
     else if (!activated)
         throw sls::RuntimeError("Receiver not activated");
     for (int i = 0; i < numThreads; ++i)
-        listener[i]->SetThreadCPUAffinity(cpu_masks[i]);
-}
-
-void Implementation::setBufferNodeAffinity(unsigned long buffer_node_mask,
-                                           int max_node) {
-    fifoNodeMask = buffer_node_mask;
-    maxNode = max_node;
-    LOG(logINFO) << "Node mask: " << std::hex << std::showbase
-                 << buffer_node_mask << std::dec << ", max_node: " << max_node;
+        listener[i]->SetThreadCPUAffinity(cpu_affinities[i]);
 }
 
 sls::AnyPacketBlockList Implementation::GetFramePacketBlocks() {

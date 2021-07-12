@@ -23,11 +23,12 @@ class bad_mmap_alloc : public std::bad_alloc {
 
 template <typename T> class MmappedRegion {
   public:
-    MmappedRegion(size_t size = 0, unsigned long node_mask = 0,
+    MmappedRegion(size_t size = 0, const unsigned long *node_mask = nullptr,
                   int max_node = 0);
     ~MmappedRegion();
 
-    void alloc(size_t size, unsigned long node_mask = 0, int max_node = 0);
+    void alloc(size_t size, const unsigned long *node_mask = nullptr,
+               int max_node = 0);
     void release();
     T *getPtr() { return ptr; }
 

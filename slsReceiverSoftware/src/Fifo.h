@@ -20,6 +20,8 @@
 class Fifo : private virtual slsDetectorDefs {
 
   public:
+    using NUMAMask = sls::CPUAffinity::NUMAMask;
+
     /**
      * Constructor
      * Calls CreateFifos that creates fifos and allocates memory
@@ -27,13 +29,12 @@ class Fifo : private virtual slsDetectorDefs {
      * @param gd Pointer to GeneralData
      * @param depth fifo depth
      */
-    Fifo(int ind, GeneralDataPtr gd, uint32_t depth, unsigned long node_mask,
-         int max_node);
+    Fifo(int ind, GeneralDataPtr gd, uint32_t depth, const NUMAMask &numa_mask);
 
     /**
      * Set fifo node affinity mask
      */
-    void SetNodeAffinity(unsigned long fifo_node_mask, int max_node);
+    void SetNodeAffinity(const NUMAMask &numa_mask);
 
     /**
      * Destructor
@@ -97,7 +98,7 @@ class Fifo : private virtual slsDetectorDefs {
      * Create Fifos, allocate memory & push addresses into fifo
      * @param gd Pointer to GeneralData
      */
-    void CreateFifos(GeneralDataPtr gd, unsigned long node_mask, int max_node);
+    void CreateFifos(GeneralDataPtr gd, const NUMAMask &numa_mask);
 
     /**
      * Destroy Fifos and deallocate memory

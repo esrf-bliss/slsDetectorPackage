@@ -1,4 +1,5 @@
 #pragma once
+#include "sls/CPUAffinity.h"
 #include "sls/FrameAssembler.h"
 #include "sls/sls_detector_defs.h"
 #include <memory>
@@ -12,6 +13,8 @@ using namespace FrameAssembler;
 class Receiver : private virtual slsDetectorDefs {
 
   public:
+    using FixedCPUSetAffinityList = sls::CPUAffinity::FixedCPUSetAffinityList;
+
     /**
      * Constructor
      * Starts up a Receiver server. Reads configuration file, options, and
@@ -94,16 +97,11 @@ class Receiver : private virtual slsDetectorDefs {
     void setPassiveMode(bool passive);
 
     /**
-     * Set thread CPU Affinity: a list of CPU masks affecting the
-     * Listener PacketStream writing threads, one per port
+     * Set Listeners' thread CPU & NUMA Affinities:
+     * a per-port list of CPU affinities affecting the PacketStream writing
+     * threads and their allocated (PacketContainer) memory
      */
-    void setThreadCPUAffinity(const CPUMaskList &cpu_masks);
-
-    /**
-     * Set the NUMA node affinity for PacketStream buffers
-     * max_node is the maximum valid node in the bitmask
-     */
-    void setBufferNodeAffinity(unsigned long buffer_node_mask, int max_node);
+    void setListenersCPUAffinity(const FixedCPUSetAffinityList &cpu_affinities);
 
     /**
      * Create the FrameAssembler for the current detector configuration

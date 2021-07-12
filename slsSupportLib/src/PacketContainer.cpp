@@ -18,7 +18,7 @@ template <class P, class... Args> auto PCFactory(Args &&...args) {
 AnyPacketContainerPtr
 CreatePacketContainer(slsDetectorDefs::detectorType det_type, bool tg_enable,
                       int num_udp_ifaces, uint32_t dr, int frames,
-                      unsigned long node_mask, int max_node) {
+                      const sls::CPUAffinity::NUMAMask &numa_mask) {
 
     auto any_pixel = sls::AnyPixelFromBpp(dr);
 
@@ -26,7 +26,7 @@ CreatePacketContainer(slsDetectorDefs::detectorType det_type, bool tg_enable,
         [&](auto pixel) {
             using P = decltype(pixel);
 
-#define args frames, node_mask, max_node
+#define args frames, numa_mask
 
             if (det_type == slsDetectorDefs::EIGER) {
                 auto any_tg = sls::Eiger::AnyTenGigaFromTgEnable(tg_enable);

@@ -13,10 +13,11 @@
  */
 
 template <class PC, class SD, class FP>
-PacketStream<PC, SD, FP>::PacketStream(UdpRxSocketPtr s, cpu_set_t cpu_mask,
+PacketStream<PC, SD, FP>::PacketStream(UdpRxSocketPtr s,
+                                       AnyCPUAffinity cpu_affinity,
                                        AnyPacketContainerPtr any_pc)
     : socket(s), packet_cont(PacketContainerPtrFromAny<Packet>(any_pc)),
-      cpu_aff_mask(cpu_mask) {
+      any_cpu_affinity(cpu_affinity) {
     packet_cont->prepare();
     thread = std::make_unique<WriterThread>(*this);
 }
@@ -108,15 +109,7 @@ class PacketStream<PC, SD, FP>::WriterThread {
     }
 
     void threadFunction() {
-        cpu_set_t &cpu_aff_mask = ps.cpu_aff_mask;
-        if (CPU_COUNT(&cpu_aff_mask) != 0) {
-            int size = sizeof(cpu_aff_mask);
-            int ret = sched_setaffinity(0, size, &cpu_aff_mask);
-            if (ret != 0) {
-                LOG(logERROR) << "Could not set writer thread "
-                              << "cpu affinity mask";
-            }
-        }
+        setThreadAffinity();
         {
             std::lock_guard<std::mutex> l(ps.mutex);
             running = true;
@@ -138,6 +131,20 @@ class PacketStream<PC, SD, FP>::WriterThread {
     }
 
   private:
+    void setThreadAffinity() {
+        using FixedCPUSetAffinity = sls::CPUAffinity::FixedCPUSetAffinityMask;
+        if (std::holds_alternative<FixedCPUSetAffinity>(ps.any_cpu_affinity)) {
+            auto cpu_mask = std::get<FixedCPUSetAffinity>(ps.any_cpu_affinity);
+            if (cpu_mask.count() > 0) {
+                try {
+                    cpu_mask.apply_to_this_thread();
+                } catch (sls::RuntimeError &e) {
+                    LOG(logERROR) << "Could not set writer thread "
+                                  << "cpu affinity mask: " << e.what();
+                }
+            }
+        }
+    }
     bool checkBlock() {
         if (!block)
             block = std::move(ps.getEmptyBlock());

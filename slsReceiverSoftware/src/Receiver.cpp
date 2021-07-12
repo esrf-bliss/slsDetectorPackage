@@ -149,13 +149,9 @@ void Receiver::setPassiveMode(bool passive) {
     tcpipInterface->setPassiveMode(passive);
 }
 
-void Receiver::setThreadCPUAffinity(const CPUMaskList &cpu_masks) {
-    tcpipInterface->setThreadCPUAffinity(cpu_masks);
-}
-
-void Receiver::setBufferNodeAffinity(unsigned long buffer_node_mask,
-                                     int max_node) {
-    tcpipInterface->setBufferNodeAffinity(buffer_node_mask, max_node);
+void Receiver::setListenersCPUAffinity(
+    const FixedCPUSetAffinityList &cpu_affinities) {
+    tcpipInterface->setListenersCPUAffinity(cpu_affinities);
 }
 
 MPFrameAssemblerPtr Receiver::CreateFrameAssembler(AssemblerType asm_type) {

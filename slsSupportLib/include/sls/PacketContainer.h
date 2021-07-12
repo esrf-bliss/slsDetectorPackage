@@ -4,6 +4,7 @@
  * @short low-level udp packet container classes
  ***********************************************/
 
+#include "sls/CPUAffinity.h"
 #include "sls/PacketTypedefs.h"
 #include "sls/logger.h"
 
@@ -24,7 +25,9 @@
 template <class P> class PacketContainer {
 
   public:
-    PacketContainer(int frames, unsigned long node_mask, int max_node);
+    using NUMAMask = sls::CPUAffinity::NUMAMask;
+
+    PacketContainer(int frames, const NUMAMask &numa_mask);
     ~PacketContainer();
 
     using Packet = P;
@@ -96,6 +99,6 @@ PacketContainerPtrFromAny(AnyPacketContainerPtr any_pc) {
 AnyPacketContainerPtr
 CreatePacketContainer(slsDetectorDefs::detectorType det_type, bool tg_enable,
                       int num_udp_ifaces, uint32_t dr, int frames,
-                      unsigned long node_mask, int max_node);
+                      const sls::CPUAffinity::NUMAMask &numa_mask);
 
 #include "PacketContainer.cxx"
