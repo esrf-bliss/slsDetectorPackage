@@ -28,6 +28,7 @@ template <class GD, bool MGX, bool MGY, int Idx> struct GeomHelper {
 #define SCI static constexpr int
 
     using NbUDPIfaces = typename GD::num_udp_ifaces;
+    SCI single_udp_iface = (NbUDPIfaces::NbIfaces == 1);
 
     using BlockPtr = PacketBlockPtr<Packet<NbUDPIfaces>>;
     using ConstBlockPtr =
@@ -67,7 +68,9 @@ template <class GD, bool MGX, bool MGY, int Idx> struct GeomHelper {
     SCI dst_iface_line_size = dst_iface_cols * dst_pixel_size;
     SCI cg_cols_size = chip_gap_pixels.x * dst_pixel_size;
     SCI mg_cols_size = mod_gap_pixels.x * dst_pixel_size;
-    SCI src_first_line = IfaceView1.calcViewOrigin().y;
+    SCI correct_src_first_line = (single_udp_iface && flipped);
+    SCI src_first_line_offset = correct_src_first_line ? chip_gap_pixels.y : 0;
+    SCI src_first_line = IfaceView1.calcViewOrigin().y - src_first_line_offset;
     SCI src_first_packet = src_first_line / packet_lines;
     SCA first_packet_view = getPacketView(src_first_packet);
     SCA first_packet_offset = first_packet_view.calcViewOrigin();
@@ -76,7 +79,7 @@ template <class GD, bool MGX, bool MGY, int Idx> struct GeomHelper {
     SCI dst_iface_pos = RecvGeom.getIfacePos(XY{0, Idx}).y;
     SCI dst_iface_offset = dst_iface_pos * dst_iface_step;
     SCA fill_mod_gap_cols = MGX;
-    SCA bottom_iface = ((NbUDPIfaces::NbIfaces == 1) || (dst_iface_pos == 1));
+    SCA bottom_iface = (single_udp_iface || (dst_iface_pos == 1));
     SCA fill_mod_gap_lines = (MGY && bottom_iface);
 
 #undef SCI
