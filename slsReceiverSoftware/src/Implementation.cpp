@@ -1745,6 +1745,7 @@ void Implementation::setListenersCPUAffinity(
         throw sls::RuntimeError("Receiver not activated");
     for (int i = 0; i < numThreads; ++i)
         listener[i]->SetThreadCPUAffinity(cpu_affinities[i]);
+    SetupFifoStructure();
 }
 
 sls::AnyPacketBlockList Implementation::GetFramePacketBlocks() {
