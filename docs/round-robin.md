@@ -40,12 +40,15 @@ i:j|udp_dstip2 <Rij_ip2>    # for Jungfrau only
 i:j|udp_dstport <Rij_port>
 i:j|udp_dstport2 <Rij_port2>
 i:j|rx_tcpport <Rij_client_port>
+
+#receiver
+j|rx_hostname <Rj_host>   # i could potentially be specified as well
 ```
 
 Such example requires two new features:
 
 1. The `roundrobinrecvs` parameter specifies the number of receivers that the module needs to send the data to, which defaults to `1`
-2. An extended syntax allowing an additional Round Robin index `j` that specifies the receiver the parameter applies to. The proposal is to add an extra `j|` optional token between the module index and the parameter name. Another separator character like `,` could be used as well, as long as it is not `:`. The use of different separators for `i` and `j` is to be able to determine which is specified when only one of them is provided.
+2. An extended syntax allowing an additional Round Robin index `j` that specifies the receiver the parameter applies to. The proposal is to add an extra `j|` optional token between the module index and the parameter name. Another separator character like `,` could be used as well, as long as it is not `:` (nor `-`). The use of different separators for `i` and `j` (and detector ID) is to be able to determine which is specified when not all are provided.
 
 ## *slsDetectorPackage* API
 The following changes are proposed to the *slsDetectorPackage* API in order to implement this feature.
