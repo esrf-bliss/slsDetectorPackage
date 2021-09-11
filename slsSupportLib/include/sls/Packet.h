@@ -8,6 +8,7 @@
 #include "sls/sls_detector_defs.h"
 
 #include <memory>
+#include <functional>
 
 namespace sls {
 
