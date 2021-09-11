@@ -204,6 +204,7 @@ inline MPFrameAssemblerPtr CreateFrameAssembler(int mod_ifaces, XY det_ifaces,
 
     auto any_nb_ifaces = Geom::AnyNbUDPIfacesFromNbUDPIfaces(mod_ifaces);
 
+/*
     return std::visit(
         [&](auto nb_ifaces) {
             using NbUDPIfaces = decltype(nb_ifaces);
@@ -233,6 +234,8 @@ inline MPFrameAssemblerPtr CreateFrameAssembler(int mod_ifaces, XY det_ifaces,
                 any_det_geom);
         },
         any_nb_ifaces);
+*/
+    return nullptr;
 }
 
 } // namespace FrameAssembler

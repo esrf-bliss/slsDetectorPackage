@@ -39,9 +39,9 @@ target_include_directories(slsReceiverObject PUBLIC
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
 )
 
-target_compile_options(slsReceiverObject PRIVATE
-    "-Wno-address-of-packed-member"
-)
+#target_compile_options(slsReceiverObject PRIVATE
+#    "-Wno-address-of-packed-member"
+#)
 
 target_link_libraries(slsReceiverObject 
   PUBLIC

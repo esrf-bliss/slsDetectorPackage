@@ -77,7 +77,7 @@ target_link_libraries(slsSupportObject
 message("ZeroMQ_INCLUDE_DIR: ${ZeroMQ_INCLUDE_DIR}")
 message("ZeroMQ_LIBRARY: ${ZeroMQ_LIBRARY}")
 
-target_compile_options(slsSupportObject PRIVATE "-Wno-address-of-packed-member")
+#target_compile_options(slsSupportObject PRIVATE "-Wno-address-of-packed-member")
 
 if (SLS_USE_TESTS)
     add_subdirectory(tests)
