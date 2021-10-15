@@ -304,6 +304,22 @@ class Implementation : private virtual slsDetectorDefs {
 
     /**************************************************
      *                                                *
+     *    Thread Helpers                              *
+     *                                                *
+     * ************************************************/
+
+    template <class T> bool IsValidThread(const T &t) const { return bool(t); }
+
+    template <class T, class I>
+    bool HasValidThread(const std::vector<T> &v, I i) const {
+        return (static_cast<std::size_t>(i) < v.size()) && IsValidThread(v[i]);
+    }
+
+    void CreateThreads();
+    void DestroyThreads();
+
+    /**************************************************
+     *                                                *
      *    Class Members                               *
      *                                                *
      * ************************************************/

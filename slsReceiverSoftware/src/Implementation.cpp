@@ -64,7 +64,8 @@ void Implementation::SetLocalNetworkParameters() {
 
 void Implementation::SetThreadPriorities() {
     for (const auto &it : listener)
-        it->SetThreadPriority(LISTENER_PRIORITY);
+        if (IsValidThread(it))
+            it->SetThreadPriority(LISTENER_PRIORITY);
 }
 
 void Implementation::SetupFifoStructure() {
@@ -74,7 +75,7 @@ void Implementation::SetupFifoStructure() {
         // create fifo structure
         sls::CPUAffinity::NUMAMask numa_mask;
         try {
-            if (i < listener.size())
+            if (HasValidThread(listener, i))
                 numa_mask = listener[i]->GetFifoNUMAMask();
             fifo.push_back(
                 sls::make_unique<Fifo>(i, generalData, fifoDepth, numa_mask));
@@ -87,11 +88,11 @@ void Implementation::SetupFifoStructure() {
         }
         // set the listener & dataprocessor threads to point to the right fifo
         Fifo *f = fifo[i].get();
-        if (i < listener.size())
+        if (HasValidThread(listener, i))
             listener[i]->SetFifo(f);
-        if (i < dataProcessor.size())
+        if (HasValidThread(dataProcessor, i))
             dataProcessor[i]->SetFifo(f);
-        if (i < dataStreamer.size())
+        if (HasValidThread(dataStreamer, i))
             dataStreamer[i]->SetFifo(f);
 
         size_t framesize = f->GetFifoFrameSize();
@@ -158,6 +159,85 @@ Implementation::CreateFrameAssembler(AssemblerType asm_type) {
 
 /**************************************************
  *                                                 *
+ *   Threads
+ *                                                 *
+ * ************************************************/
+
+void Implementation::CreateThreads() {
+    for (int i = 0; i < numThreads; ++i) {
+        auto fifo_ptr = fifo[i].get();
+        try {
+            if (!(activated && detectorDataStream[i])) {
+                listener.push_back(nullptr);
+                dataProcessor.push_back(nullptr);
+                dataStreamer.push_back(nullptr);
+                continue;
+            }
+
+            // listener threads
+            listener.push_back(std::make_shared<Listener>(
+                i, detType, fifo_ptr, &status, &udpPortNum[i], &eth[i],
+                &udpSocketBufferSize, &actualUDPSocketBufferSize,
+                &frameDiscardMode, &silentMode));
+            listener[i]->SetGeneralData(generalData);
+
+            if (passiveMode) {
+                dataProcessor.push_back(nullptr);
+                dataStreamer.push_back(nullptr);
+                continue;
+            }
+
+            // dataprocessor threads
+            dataProcessor.push_back(sls::make_unique<DataProcessor>(
+                i, detType, fifo_ptr, &numberOfTotalFrames, &framesPerFile,
+                &dataStreamEnable, &streamingFrequency, &streamingTimerInMs,
+                &streamingStartFnum, &framePadding, &silentMode, &ctbDbitList,
+                &ctbDbitOffset, &ctbAnalogDataBytes, &hdf5Lib));
+            dataProcessor[i]->SetGeneralData(generalData);
+
+            if (!dataStreamEnable) {
+                dataStreamer.push_back(nullptr);
+                continue;
+            }
+
+            // streamer threads
+            bool flip = flipRows;
+            int nm[2] = {numMods[0], numMods[1]};
+            if (quadEnable) {
+                flip = (i == 1 ? true : false);
+                nm[0] = 1;
+                nm[1] = 2;
+            }
+            dataStreamer.push_back(sls::make_unique<DataStreamer>(
+                i, fifo[i].get(), &dynamicRange, &roi, &fileIndex, flip,
+                (int *)nm, &quadEnable, &numberOfTotalFrames));
+            dataStreamer[i]->SetGeneralData(generalData);
+            dataStreamer[i]->CreateZmqSockets(&numThreads, streamingPort,
+                                              streamingSrcIP, streamingHwm);
+            dataStreamer[i]->SetAdditionalJsonHeader(additionalJsonHeader);
+        } catch (...) {
+            DestroyThreads();
+            dataStreamEnable = false;
+            throw sls::RuntimeError(
+                "Could not create listener/dataprocessor/streamer threads "
+                "(index:" +
+                std::to_string(i) + ")");
+        }
+    }
+
+    listenerStatistics.resize(numThreads);
+
+    SetThreadPriorities();
+}
+
+void Implementation::DestroyThreads() {
+    listener.clear();
+    dataProcessor.clear();
+    dataStreamer.clear();
+}
+
+/**************************************************
+ *                                                 *
  *   Configuration Parameters                      *
  *                                                 *
  * ************************************************/
@@ -220,42 +300,7 @@ void Implementation::setDetectorType(const detectorType d) {
 
     SetLocalNetworkParameters();
     SetupFifoStructure();
-
-    // create threads
-    for (int i = 0; i < numThreads; ++i) {
-
-        try {
-            if (!(activated && detectorDataStream[i]))
-                continue;
-            auto fifo_ptr = fifo[i].get();
-            listener.push_back(std::make_shared<Listener>(
-                i, detType, fifo_ptr, &status, &udpPortNum[i], &eth[i],
-                &udpSocketBufferSize, &actualUDPSocketBufferSize,
-                &frameDiscardMode, &silentMode));
-            if (passiveMode)
-                continue;
-            dataProcessor.push_back(sls::make_unique<DataProcessor>(
-                i, detType, fifo_ptr, &numberOfTotalFrames, &framesPerFile,
-                &dataStreamEnable, &streamingFrequency, &streamingTimerInMs,
-                &streamingStartFnum, &framePadding, &silentMode, &ctbDbitList,
-                &ctbDbitOffset, &ctbAnalogDataBytes, &hdf5Lib));
-        } catch (...) {
-            listener.clear();
-            dataProcessor.clear();
-            throw sls::RuntimeError(
-                "Could not create listener/dataprocessor threads (index:" +
-                std::to_string(i) + ")");
-        }
-    }
-
-    listenerStatistics.resize(numThreads);
-
-    // set up writer and callbacks
-    for (const auto &it : listener)
-        it->SetGeneralData(generalData);
-    for (const auto &it : dataProcessor)
-        it->SetGeneralData(generalData);
-    SetThreadPriorities();
+    CreateThreads();
 
     LOG(logDEBUG) << " Detector type set to " << sls::ToString(d);
 }
@@ -287,9 +332,9 @@ void Implementation::setDetectorSize(const int *size) {
         nm[0] = 1;
         nm[1] = 2;
     }
-    for (const auto &it : dataStreamer) {
-        it->SetNumberofModules(nm);
-    }
+    for (const auto &it : dataStreamer)
+        if (IsValidThread(it))
+            it->SetNumberofModules(nm);
 
     LOG(logINFO) << log_message;
 }
@@ -305,15 +350,16 @@ void Implementation::setModulePositionId(const int id) {
     streamingPort = DEFAULT_ZMQ_RX_PORTNO + modulePos * port_geom[X];
 
     for (const auto &it : dataProcessor)
-        it->SetupFileWriter(fileWriteEnable, masterFileWriteEnable,
-                            fileFormatType, modulePos);
+        if (IsValidThread(it))
+            it->SetupFileWriter(fileWriteEnable, masterFileWriteEnable,
+                                fileFormatType, modulePos);
     assert(numMods[1] != 0);
-    for (unsigned int i = 0; i < dataProcessor.size(); ++i) {
+    for (int i = 0; i < numThreads; ++i) {
         uint16_t row = 0, col = 0;
-        PortGeometry port_geom = GetPortGeometry();
         row = (modulePos % numMods[1]) * port_geom[Y];     // row
         col = (modulePos / numMods[1]) * port_geom[X] + i; // col
-        dataProcessor[i]->SetHardCodedPosition(row, col);
+        if (HasValidThread(dataProcessor, i))
+            dataProcessor[i]->SetHardCodedPosition(row, col);
     }
 }
 
@@ -369,13 +415,20 @@ std::array<pid_t, NUM_RX_THREAD_IDS> Implementation::getThreadIds() const {
     int id = 0;
     retval[id++] = parentThreadId;
     retval[id++] = tcpThreadId;
-    retval[id++] = activated ? listener[0]->GetThreadId() : 0;
-    retval[id++] = !passiveMode ? dataProcessor[0]->GetThreadId() : 0;
-    retval[id++] = dataStreamEnable ? dataStreamer[0]->GetThreadId() : 0;
+    retval[id++] = HasValidThread(listener, 0) ? listener[0]->GetThreadId() : 0;
+    retval[id++] =
+        HasValidThread(dataProcessor, 0) ? dataProcessor[0]->GetThreadId() : 0;
+    retval[id++] =
+        HasValidThread(dataStreamer, 0) ? dataStreamer[0]->GetThreadId() : 0;
     if (numThreads == 2) {
-        retval[id++] = activated ? listener[1]->GetThreadId() : 0;
-        retval[id++] = !passiveMode ? dataProcessor[1]->GetThreadId() : 0;
-        retval[id++] = dataStreamEnable ? dataStreamer[1]->GetThreadId() : 0;
+        retval[id++] =
+            HasValidThread(listener, 1) ? listener[1]->GetThreadId() : 0;
+        retval[id++] = HasValidThread(dataProcessor, 1)
+                           ? dataProcessor[1]->GetThreadId()
+                           : 0;
+        retval[id++] = HasValidThread(dataStreamer, 1)
+                           ? dataStreamer[1]->GetThreadId()
+                           : 0;
     }
     return retval;
 }
@@ -404,8 +457,9 @@ void Implementation::setFileFormat(const fileFormat f) {
             throw sls::RuntimeError("Unknown file format");
         }
         for (const auto &it : dataProcessor)
-            it->SetupFileWriter(fileWriteEnable, masterFileWriteEnable,
-                                fileFormatType, modulePos);
+            if (IsValidThread(it))
+                it->SetupFileWriter(fileWriteEnable, masterFileWriteEnable,
+                                    fileFormatType, modulePos);
     }
 
     LOG(logINFO) << "File Format: " << sls::ToString(fileFormatType);
@@ -441,8 +495,9 @@ void Implementation::setFileWriteEnable(const bool b) {
     if (fileWriteEnable != b) {
         fileWriteEnable = b;
         for (const auto &it : dataProcessor)
-            it->SetupFileWriter(fileWriteEnable, masterFileWriteEnable,
-                                fileFormatType, modulePos);
+            if (IsValidThread(it))
+                it->SetupFileWriter(fileWriteEnable, masterFileWriteEnable,
+                                    fileFormatType, modulePos);
     }
     LOG(logINFO) << "File Write Enable: "
                  << (fileWriteEnable ? "enabled" : "disabled");
@@ -456,8 +511,9 @@ void Implementation::setMasterFileWriteEnable(const bool b) {
     if (masterFileWriteEnable != b) {
         masterFileWriteEnable = b;
         for (const auto &it : dataProcessor)
-            it->SetupFileWriter(fileWriteEnable, masterFileWriteEnable,
-                                fileFormatType, modulePos);
+            if (IsValidThread(it))
+                it->SetupFileWriter(fileWriteEnable, masterFileWriteEnable,
+                                    fileFormatType, modulePos);
     }
     LOG(logINFO) << "Master File Write Enable: "
                  << (masterFileWriteEnable ? "enabled" : "disabled");
@@ -488,23 +544,24 @@ slsDetectorDefs::runStatus Implementation::getStatus() const { return status; }
 uint64_t Implementation::getFramesCaught() const {
     uint64_t min = -1;
     for (const auto &it : listener)
-        min = std::min(min, it->GetNumCompleteFramesCaught());
+        if (IsValidThread(it))
+            min = std::min(min, it->GetNumFramesCaught());
     return min;
 }
 
 uint64_t Implementation::getAcquisitionIndex() const {
-    if (passiveMode)
-        return 0;
-
     uint64_t min = -1;
     uint32_t flagsum = 0;
+    uint32_t active_processors = 0;
 
-    for (const auto &it : dataProcessor) {
-        flagsum += it->GetStartedFlag();
-        min = std::min(min, it->GetCurrentFrameIndex());
-    }
+    for (const auto &it : dataProcessor)
+        if (IsValidThread(it)) {
+            flagsum += it->GetStartedFlag();
+            min = std::min(min, it->GetCurrentFrameIndex());
+            ++active_processors;
+        }
     // no data processed
-    if (flagsum != dataProcessor.size())
+    if (!active_processors || (flagsum != active_processors))
         return 0;
     return min;
 }
@@ -513,16 +570,18 @@ double Implementation::getProgress() const {
     // get minimum of processed frame indices
     uint64_t currentFrameIndex = -1;
     uint32_t flagsum = 0;
+    uint32_t active_processors = 0;
 
-    for (const auto &it : dataProcessor) {
-        flagsum += it->GetStartedFlag();
-        currentFrameIndex =
-            std::min(currentFrameIndex, it->GetProcessedIndex());
-    }
+    for (const auto &it : dataProcessor)
+        if (IsValidThread(it)) {
+            flagsum += it->GetStartedFlag();
+            currentFrameIndex =
+                std::min(currentFrameIndex, it->GetProcessedIndex());
+            ++active_processors;
+        }
     // no data processed
-    if (flagsum != dataProcessor.size()) {
+    if (flagsum != active_processors)
         currentFrameIndex = -1;
-    }
 
     return (100.00 *
             ((double)(currentFrameIndex + 1) / (double)numberOfTotalFrames));
@@ -543,7 +602,8 @@ std::vector<uint64_t> Implementation::getNumMissingPackets() const {
             totnp = ((readNRows * np) / generalData->maxRowsPerReadout);
         }
         totnp *= numberOfTotalFrames;
-        mp[i] = listener[i]->GetNumMissingPacket(stoppedFlag, totnp);
+        if (HasValidThread(listener, i))
+            mp[i] = listener[i]->GetNumMissingPacket(stoppedFlag, totnp);
     }
     return mp;
 }
@@ -611,18 +671,18 @@ void Implementation::stopReceiver() {
     while (running) {
         running = false;
         for (const auto &it : listener)
-            if (it->IsRunning())
+            if (IsValidThread(it) && it->IsRunning())
                 running = true;
 
         for (const auto &it : dataProcessor)
-            if (it->IsRunning())
+            if (IsValidThread(it) && it->IsRunning())
                 running = true;
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
 
 #ifdef HDF5C
     if (fileWriteEnable && fileFormatType == HDF5) {
-        if (modulePos == 0) {
+        if ((modulePos == 0) && HasValidThread(dataProcessor, 0)) {
             // more than 1 file, create virtual file
             if (dataProcessor[0]->GetFilesInAcquisition() > 1 ||
                 (numMods[X] * numMods[Y]) > 1) {
@@ -649,7 +709,7 @@ void Implementation::stopReceiver() {
     while (running) {
         running = false;
         for (const auto &it : dataStreamer)
-            if (it->IsRunning())
+            if (IsValidThread(it) && it->IsRunning())
                 running = true;
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
@@ -720,13 +780,17 @@ void Implementation::startReadout() {
         // wait for incoming delayed packets
         int totalPacketsReceived = 0;
         int previousValue = -1;
+        int active_listeners = 0;
         for (const auto &it : listener)
-            totalPacketsReceived += it->GetPacketsCaught();
+            if (IsValidThread(it)) {
+                totalPacketsReceived += it->GetPacketsCaught();
+                ++active_listeners;
+            }
 
         // wait for all packets
         const int numPacketsToReceive = numberOfTotalFrames *
                                         generalData->packetsPerFrame *
-                                        listener.size();
+                                        active_listeners;
         if (totalPacketsReceived != numPacketsToReceive) {
             while (totalPacketsReceived != previousValue) {
                 LOG(logDEBUG3)
@@ -738,7 +802,8 @@ void Implementation::startReadout() {
                 previousValue = totalPacketsReceived;
                 totalPacketsReceived = 0;
                 for (const auto &it : listener)
-                    totalPacketsReceived += it->GetPacketsCaught();
+                    if (IsValidThread(it))
+                        totalPacketsReceived += it->GetPacketsCaught();
 
                 LOG(logDEBUG3) << "\tupdated:  totalPacketsReceived:"
                                << totalPacketsReceived;
@@ -749,12 +814,14 @@ void Implementation::startReadout() {
 
         // store listener statistics
         for (int i = 0; i < numThreads; ++i) {
-            const auto &l = listener[i];
             ListenerStatistics &ls = listenerStatistics[i];
             ls.packets_missing = missing_packets[i];
-            ls.packets_caught = l->GetPacketsCaught();
-            ls.frames_caught = l->GetNumCompleteFramesCaught();
-            ls.last_frame = l->GetLastFrameIndexCaught();
+            if (HasValidThread(listener, i)) {
+                const auto &l = listener[i];
+                ls.packets_caught = l->GetPacketsCaught();
+                ls.frames_caught = l->GetNumFramesCaught();
+                ls.last_frame = l->GetLastFrameIndexCaught();
+            }
         }
 
         status = TRANSMITTING;
@@ -768,37 +835,41 @@ void Implementation::startReadout() {
 
 void Implementation::shutDownUDPSockets() {
     for (const auto &it : listener)
-        it->ShutDownUDPSocket();
+        if (IsValidThread(it))
+            it->ShutDownUDPSocket();
     frameAssembler.reset();
 }
 
 void Implementation::restreamStop() {
     for (const auto &it : dataStreamer)
-        it->RestreamStop();
+        if (IsValidThread(it))
+            it->RestreamStop();
     LOG(logINFO) << "Restreaming Dummy Header via ZMQ successful";
 }
 
 void Implementation::ResetParametersforNewAcquisition() {
     for (const auto &it : listener)
-        it->ResetParametersforNewAcquisition();
+        if (IsValidThread(it))
+            it->ResetParametersforNewAcquisition();
     for (auto &it : listenerStatistics)
         it.reset();
     for (const auto &it : dataProcessor)
-        it->ResetParametersforNewAcquisition();
+        if (IsValidThread(it))
+            it->ResetParametersforNewAcquisition();
 
-    if (dataStreamEnable) {
-        std::ostringstream os;
-        os << filePath << '/' << fileName;
-        std::string fnametostream = os.str();
-        for (const auto &it : dataStreamer)
+    std::ostringstream os;
+    os << filePath << '/' << fileName;
+    std::string fnametostream = os.str();
+    for (const auto &it : dataStreamer)
+        if (IsValidThread(it))
             it->ResetParametersforNewAcquisition(fnametostream);
-    }
 }
 
 void Implementation::CreateUDPSockets() {
     try {
         for (const auto &it : listener)
-            it->CreateUDPSockets();
+            if (IsValidThread(it))
+                it->CreateUDPSockets();
     } catch (const sls::RuntimeError &e) {
         shutDownUDPSockets();
         throw sls::RuntimeError("Could not create UDP Socket(s).");
@@ -889,17 +960,19 @@ void Implementation::SetupWriter() {
     }
 
     try {
-        for (unsigned int i = 0; i < dataProcessor.size(); ++i) {
-            dataProcessor[i]->CreateFirstFiles(
-                masterAttributes.get(), filePath, fileName, fileIndex,
-                overwriteEnable, silentMode, modulePos, numThreads,
-                udpPortNum[i], framesPerFile, numberOfTotalFrames,
-                dynamicRange);
+        for (int i = 0; i < numThreads; ++i) {
+            if (HasValidThread(dataProcessor, i))
+                dataProcessor[i]->CreateFirstFiles(
+                    masterAttributes.get(), filePath, fileName, fileIndex,
+                    overwriteEnable, silentMode, modulePos, numThreads,
+                    udpPortNum[i], framesPerFile, numberOfTotalFrames,
+                    dynamicRange);
         }
     } catch (const sls::RuntimeError &e) {
         shutDownUDPSockets();
         for (const auto &it : dataProcessor)
-            it->CloseFiles();
+            if (IsValidThread(it))
+                it->CloseFiles();
         throw sls::RuntimeError("Could not create first data file.");
     }
 }
@@ -908,18 +981,21 @@ void Implementation::StartRunning() {
 
     // set running mask and post semaphore to start the inner loop in execution
     // thread
-    for (const auto &it : listener) {
-        it->StartRunning();
-        it->Continue();
-    }
-    for (const auto &it : dataProcessor) {
-        it->StartRunning();
-        it->Continue();
-    }
-    for (const auto &it : dataStreamer) {
-        it->StartRunning();
-        it->Continue();
-    }
+    for (const auto &it : listener)
+        if (IsValidThread(it)) {
+            it->StartRunning();
+            it->Continue();
+        }
+    for (const auto &it : dataProcessor)
+        if (IsValidThread(it)) {
+            it->StartRunning();
+            it->Continue();
+        }
+    for (const auto &it : dataStreamer)
+        if (IsValidThread(it)) {
+            it->StartRunning();
+            it->Continue();
+        }
 }
 
 /**************************************************
@@ -941,9 +1017,7 @@ void Implementation::setNumberofUDPInterfaces(const int n) {
         numMods[Y] /= prev_geom[Y];
 
         // clear all threads and fifos
-        listener.clear();
-        dataProcessor.clear();
-        dataStreamer.clear();
+        DestroyThreads();
         fifo.clear();
 
         // set local variables
@@ -956,68 +1030,7 @@ void Implementation::setNumberofUDPInterfaces(const int n) {
         SetupFifoStructure();
 
         // create threads
-        for (int i = 0; i < numThreads; ++i) {
-            // listener and dataprocessor threads
-            try {
-                if (!(activated && detectorDataStream[i]))
-                    continue;
-                auto fifo_ptr = fifo[i].get();
-                listener.push_back(std::make_shared<Listener>(
-                    i, detType, fifo_ptr, &status, &udpPortNum[i], &eth[i],
-                    &udpSocketBufferSize, &actualUDPSocketBufferSize,
-                    &frameDiscardMode, &silentMode));
-                listener[i]->SetGeneralData(generalData);
-                if (passiveMode)
-                    continue;
-                dataProcessor.push_back(sls::make_unique<DataProcessor>(
-                    i, detType, fifo_ptr, &numberOfTotalFrames, &framesPerFile,
-                    &dataStreamEnable, &streamingFrequency, &streamingTimerInMs,
-                    &streamingStartFnum, &framePadding, &silentMode,
-                    &ctbDbitList, &ctbDbitOffset, &ctbAnalogDataBytes,
-                    &hdf5Lib));
-                dataProcessor[i]->SetGeneralData(generalData);
-            } catch (...) {
-                listener.clear();
-                dataProcessor.clear();
-                throw sls::RuntimeError(
-                    "Could not create listener/dataprocessor threads (index:" +
-                    std::to_string(i) + ")");
-            }
-            // streamer threads
-            if (dataStreamEnable) {
-                try {
-                    bool flip = flipRows;
-                    int nm[2] = {numMods[0], numMods[1]};
-                    if (quadEnable) {
-                        flip = (i == 1 ? true : false);
-                        nm[0] = 1;
-                        nm[1] = 2;
-                    }
-                    dataStreamer.push_back(sls::make_unique<DataStreamer>(
-                        i, fifo[i].get(), &dynamicRange, &roi, &fileIndex, flip,
-                        (int *)nm, &quadEnable, &numberOfTotalFrames));
-                    dataStreamer[i]->SetGeneralData(generalData);
-                    dataStreamer[i]->CreateZmqSockets(
-                        &numThreads, streamingPort, streamingSrcIP,
-                        streamingHwm);
-                    dataStreamer[i]->SetAdditionalJsonHeader(
-                        additionalJsonHeader);
-
-                } catch (...) {
-                    if (dataStreamEnable) {
-                        dataStreamer.clear();
-                        dataStreamEnable = false;
-                    }
-                    throw sls::RuntimeError(
-                        "Could not create datastreamer threads (index:" +
-                        std::to_string(i) + ")");
-                }
-            }
-        }
-
-        listenerStatistics.resize(numThreads);
-
-        SetThreadPriorities();
+        CreateThreads();
 
         // update (from 1 to 2 interface) & also for printout
         setDetectorSize(numMods);
@@ -1027,13 +1040,15 @@ void Implementation::setNumberofUDPInterfaces(const int n) {
         // update call backs
         if (rawDataReadyCallBack) {
             for (const auto &it : dataProcessor)
-                it->registerCallBackRawDataReady(rawDataReadyCallBack,
-                                                 pRawDataReady);
+                if (IsValidThread(it))
+                    it->registerCallBackRawDataReady(rawDataReadyCallBack,
+                                                     pRawDataReady);
         }
         if (rawDataModifyReadyCallBack) {
             for (const auto &it : dataProcessor)
-                it->registerCallBackRawDataModifyReady(
-                    rawDataModifyReadyCallBack, pRawDataReady);
+                if (IsValidThread(it))
+                    it->registerCallBackRawDataModifyReady(
+                        rawDataModifyReadyCallBack, pRawDataReady);
         }
 
         // test socket buffer size with current set up
@@ -1087,9 +1102,10 @@ void Implementation::setUDPSocketBufferSize(const int s) {
             " do not match listener size " + std::to_string(listSize));
     }
 
-    for (auto &l : listener) {
-        l->CreateDummySocketForUDPSocketBufferSize(size);
-    }
+    for (auto &it : listener)
+        if (IsValidThread(it))
+            it->CreateDummySocketForUDPSocketBufferSize(size);
+
     // custom and didnt set, throw error
     if (s != 0 && udpSocketBufferSize != s) {
         throw sls::RuntimeError("Could not set udp socket buffer size. (No "
@@ -1110,39 +1126,9 @@ bool Implementation::getDataStreamEnable() const { return dataStreamEnable; }
 
 void Implementation::setDataStreamEnable(const bool enable) {
     if (dataStreamEnable != enable) {
+        DestroyThreads();
         dataStreamEnable = enable;
-
-        // data sockets have to be created again as the client ones are
-        dataStreamer.clear();
-
-        if (enable) {
-            for (int i = 0; i < numThreads; ++i) {
-                try {
-                    bool flip = flipRows;
-                    int nm[2] = {numMods[0], numMods[1]};
-                    if (quadEnable) {
-                        flip = (i == 1 ? true : false);
-                        nm[0] = 1;
-                        nm[1] = 2;
-                    }
-                    dataStreamer.push_back(sls::make_unique<DataStreamer>(
-                        i, fifo[i].get(), &dynamicRange, &roi, &fileIndex, flip,
-                        (int *)nm, &quadEnable, &numberOfTotalFrames));
-                    dataStreamer[i]->SetGeneralData(generalData);
-                    dataStreamer[i]->CreateZmqSockets(
-                        &numThreads, streamingPort, streamingSrcIP,
-                        streamingHwm);
-                    dataStreamer[i]->SetAdditionalJsonHeader(
-                        additionalJsonHeader);
-                } catch (...) {
-                    dataStreamer.clear();
-                    dataStreamEnable = false;
-                    throw sls::RuntimeError(
-                        "Could not set data stream enable.");
-                }
-            }
-            SetThreadPriorities();
-        }
+        CreateThreads();
     }
     LOG(logINFO) << "Data Send to Gui: " << dataStreamEnable;
 }
@@ -1207,9 +1193,9 @@ void Implementation::setAdditionalJsonHeader(
     const std::map<std::string, std::string> &c) {
 
     additionalJsonHeader = c;
-    for (const auto &it : dataStreamer) {
-        it->SetAdditionalJsonHeader(c);
-    }
+    for (const auto &it : dataStreamer)
+        if (IsValidThread(it))
+            it->SetAdditionalJsonHeader(c);
     LOG(logINFO) << "Additional JSON Header: "
                  << sls::ToString(additionalJsonHeader);
 }
@@ -1250,9 +1236,9 @@ void Implementation::setAdditionalJsonParameter(const std::string &key,
         LOG(logINFO) << "Adding additional json parameter (" << key << ") to "
                      << value;
     }
-    for (const auto &it : dataStreamer) {
-        it->SetAdditionalJsonHeader(additionalJsonHeader);
-    }
+    for (const auto &it : dataStreamer)
+        if (IsValidThread(it))
+            it->SetAdditionalJsonHeader(additionalJsonHeader);
     LOG(logINFO) << "Additional JSON Header: "
                  << sls::ToString(additionalJsonHeader);
 }
@@ -1550,15 +1536,17 @@ void Implementation::setFlipRows(bool enable) {
     flipRows = enable;
 
     if (!quadEnable) {
-        for (const auto &it : dataStreamer) {
-            it->SetFlipRows(flipRows);
-        }
+        for (const auto &it : dataStreamer)
+            if (IsValidThread(it))
+                it->SetFlipRows(flipRows);
     }
     // quad
     else {
         if (dataStreamer.size() == 2) {
-            dataStreamer[0]->SetFlipRows(false);
-            dataStreamer[1]->SetFlipRows(true);
+            if (dataStreamer[0])
+                dataStreamer[0]->SetFlipRows(false);
+            if (dataStreamer[1])
+                dataStreamer[1]->SetFlipRows(true);
         }
     }
     LOG(logINFO) << "Flip Rows: " << flipRows;
@@ -1571,18 +1559,21 @@ void Implementation::setQuad(const bool b) {
         quadEnable = b;
 
         if (!quadEnable) {
-            for (const auto &it : dataStreamer) {
-                it->SetNumberofModules(numMods);
-                it->SetFlipRows(flipRows);
-            }
+            for (const auto &it : dataStreamer)
+                if (IsValidThread(it)) {
+                    it->SetNumberofModules(numMods);
+                    it->SetFlipRows(flipRows);
+                }
         } else {
             int size[2] = {1, 2};
-            for (const auto &it : dataStreamer) {
-                it->SetNumberofModules(size);
-            }
+            for (const auto &it : dataStreamer)
+                if (IsValidThread(it))
+                    it->SetNumberofModules(size);
             if (dataStreamer.size() == 2) {
-                dataStreamer[0]->SetFlipRows(false);
-                dataStreamer[1]->SetFlipRows(true);
+                if (dataStreamer[0])
+                    dataStreamer[0]->SetFlipRows(false);
+                if (dataStreamer[1])
+                    dataStreamer[1]->SetFlipRows(true);
             }
         }
     }
@@ -1592,7 +1583,11 @@ void Implementation::setQuad(const bool b) {
 bool Implementation::getActivate() const { return activated; }
 
 void Implementation::setActivate(bool enable) {
-    activated = enable;
+    if (activated != enable) {
+        DestroyThreads();
+        activated = enable;
+        CreateThreads();
+    }
     LOG(logINFO) << "Activation: " << (activated ? "enabled" : "disabled");
 }
 
@@ -1604,7 +1599,11 @@ bool Implementation::getDetectorDataStream(const portPosition port) const {
 void Implementation::setDetectorDataStream(const portPosition port,
                                            const bool enable) {
     int index = (port == LEFT ? 0 : 1);
-    detectorDataStream[index] = enable;
+    if (detectorDataStream[index] != enable) {
+        DestroyThreads();
+        detectorDataStream[index] = enable;
+        CreateThreads();
+    }
     LOG(logINFO) << "Detector datastream (" << sls::ToString(port)
                  << " Port): " << sls::ToString(detectorDataStream[index]);
 }
@@ -1722,7 +1721,9 @@ void Implementation::registerCallBackRawDataReady(
     rawDataReadyCallBack = func;
     pRawDataReady = arg;
     for (const auto &it : dataProcessor)
-        it->registerCallBackRawDataReady(rawDataReadyCallBack, pRawDataReady);
+        if (IsValidThread(it))
+            it->registerCallBackRawDataReady(rawDataReadyCallBack,
+                                             pRawDataReady);
 }
 
 void Implementation::registerCallBackRawDataModifyReady(
@@ -1730,8 +1731,9 @@ void Implementation::registerCallBackRawDataModifyReady(
     rawDataModifyReadyCallBack = func;
     pRawDataReady = arg;
     for (const auto &it : dataProcessor)
-        it->registerCallBackRawDataModifyReady(rawDataModifyReadyCallBack,
-                                               pRawDataReady);
+        if (IsValidThread(it))
+            it->registerCallBackRawDataModifyReady(rawDataModifyReadyCallBack,
+                                                   pRawDataReady);
 }
 
 void Implementation::setListenersCPUAffinity(
@@ -1742,7 +1744,8 @@ void Implementation::setListenersCPUAffinity(
     else if (!activated)
         throw sls::RuntimeError("Receiver not activated");
     for (int i = 0; i < numThreads; ++i)
-        listener[i]->SetThreadCPUAffinity(cpu_affinities[i]);
+        if (HasValidThread(listener, i))
+            listener[i]->SetThreadCPUAffinity(cpu_affinities[i]);
     SetupFifoStructure();
 }
 
