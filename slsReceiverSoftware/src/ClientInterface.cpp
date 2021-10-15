@@ -1689,13 +1689,9 @@ int ClientInterface::set_streaming_hwm(Interface &socket) {
 /** Passive mode functions */
 void ClientInterface::setPassiveMode(bool passive) { passiveMode = passive; }
 
-void ClientInterface::setThreadCPUAffinity(const CPUMaskList &cpu_masks) {
-    impl()->setThreadCPUAffinity(cpu_masks);
-}
-
-void ClientInterface::setBufferNodeAffinity(unsigned long buffer_node_mask,
-                                            int max_node) {
-    impl()->setBufferNodeAffinity(buffer_node_mask, max_node);
+void ClientInterface::setListenersCPUAffinity(
+    const FixedCPUSetAffinityList &cpu_affinities) {
+    impl()->setListenersCPUAffinity(cpu_affinities);
 }
 
 MPFrameAssemblerPtr

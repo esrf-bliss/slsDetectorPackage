@@ -26,7 +26,6 @@ Listener::Listener(int ind, detectorType dtype, Fifo *f,
       udpPortNumber(portno), eth(e), udpSocketBufferSize(us),
       actualUDPSocketBufferSize(as), frameDiscardMode(fdp), silentMode(sm) {
     LOG(logDEBUG) << "Listener " << ind << " created";
-    CPU_ZERO(&cpuMask);
 }
 
 Listener::~Listener() = default;
@@ -75,8 +74,17 @@ void Listener::SetFifo(Fifo *f) { fifo = f; }
 
 void Listener::ResetParametersforNewAcquisition() { StopRunning(); }
 
-void Listener::SetThreadCPUAffinity(const cpu_set_t &cpu_mask) {
-    cpuMask = cpu_mask;
+void Listener::SetThreadCPUAffinity(AnyCPUAffinity cpu_affinity) {
+    cpuAffinity = cpu_affinity;
+}
+
+Listener::NUMAMask Listener::GetFifoNUMAMask() {
+    using FixedCPUSetAffinity = sls::CPUAffinity::FixedCPUSetAffinityMask;
+    if (std::holds_alternative<FixedCPUSetAffinity>(cpuAffinity)) {
+        auto cpu_mask = std::get<FixedCPUSetAffinity>(cpuAffinity);
+        return cpu_mask.get_numa_mask();
+    }
+    return {};
 }
 
 void Listener::SetGeneralData(GeneralData *g) { generalData = g; }
@@ -116,7 +124,7 @@ void Listener::CreateUDPSockets() {
         packetStream = CreatePacketStream(
             udpSocket, generalData->myDetectorType, generalData->tgEnable,
             generalData->numUDPInterfaces, generalData->dynamicRange, index,
-            cpuMask, *frameDiscardMode, packetContainer);
+            cpuAffinity, *frameDiscardMode, packetContainer);
         LOG(logINFO) << index << ": PacketStream for port " << *udpPortNumber;
     } catch (...) {
         throw sls::RuntimeError("Could not create PacketStream on port " +

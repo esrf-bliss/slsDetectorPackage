@@ -10,6 +10,7 @@
 #include <mutex>
 #include <variant>
 
+#include "CPUAffinity.h"
 #include "PacketContainer.h"
 #include "Stats.h"
 
@@ -67,7 +68,9 @@ template <class PC, class SD, class FP> class PacketStream {
     using BlockLayout = typename PacketContainer::BlockLayout;
     static constexpr int FramePackets = Block::NbPackets;
 
-    PacketStream(UdpRxSocketPtr s, cpu_set_t cpu_mask,
+    using AnyCPUAffinity = sls::CPUAffinity::AnyCPUAffinity;
+
+    PacketStream(UdpRxSocketPtr s, AnyCPUAffinity cpu_affinity,
                  AnyPacketContainerPtr any_pc);
     ~PacketStream();
 
@@ -101,7 +104,7 @@ template <class PC, class SD, class FP> class PacketStream {
     int packet_len;
     typename PacketContainer::Ptr packet_cont;
     bool stopped{false};
-    cpu_set_t cpu_aff_mask;
+    AnyCPUAffinity any_cpu_affinity;
     XYStat packet_delay_stat{1e6};
     std::unique_ptr<WriterThread> thread;
 };
@@ -148,7 +151,7 @@ using AnyPacketStream = std::variant<
 std::shared_ptr<AnyPacketStream>
 CreatePacketStream(UdpRxSocketPtr s, slsDetectorDefs::detectorType det_type,
                    bool tg_enable, int num_udp_ifaces, uint32_t dr, int idx,
-                   cpu_set_t cpu_mask, FramePolicy fp,
-                   AnyPacketContainerPtr any_pc);
+                   sls::CPUAffinity::AnyCPUAffinity cpu_affinity,
+                   FramePolicy fp, AnyPacketContainerPtr any_pc);
 
 #include "PacketStream.cxx"

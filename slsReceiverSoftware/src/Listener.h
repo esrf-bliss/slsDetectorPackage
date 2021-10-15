@@ -22,6 +22,9 @@ class Fifo;
 class Listener : private virtual slsDetectorDefs, public ThreadObject {
 
   public:
+    using NUMAMask = sls::CPUAffinity::NUMAMask;
+    using AnyCPUAffinity = sls::CPUAffinity::AnyCPUAffinity;
+
     using Ptr = std::shared_ptr<Listener>;
 
     /**
@@ -114,7 +117,12 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
     /**
      * Set receiver threads CPU affinity mask
      */
-    void SetThreadCPUAffinity(const cpu_set_t &cpu_mask);
+    void SetThreadCPUAffinity(AnyCPUAffinity cpu_affinity);
+
+    /**
+     * Get the fifo buffer NUMA affinity mask
+     */
+    NUMAMask GetFifoNUMAMask();
 
   private:
     /**
@@ -168,5 +176,5 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
     std::atomic<bool> udpSocketAlive{false};
 
     /** frame assembler CPU affinity **/
-    cpu_set_t cpuMask;
+    AnyCPUAffinity cpuAffinity;
 };

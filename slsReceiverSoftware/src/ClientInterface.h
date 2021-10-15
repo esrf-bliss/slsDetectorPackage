@@ -1,9 +1,11 @@
 #pragma once
 #include "Implementation.h"
 #include "receiver_defs.h"
+#include "sls/CPUAffinity.h"
 #include "sls/ServerSocket.h"
 #include "sls/sls_detector_defs.h"
 #include "sls/sls_detector_funcs.h"
+
 class ServerInterface;
 
 #include <atomic>
@@ -23,6 +25,8 @@ class ClientInterface : private virtual slsDetectorDefs {
     std::atomic<bool> killTcpThread{false};
 
   public:
+    using FixedCPUSetAffinityList = sls::CPUAffinity::FixedCPUSetAffinityList;
+
     virtual ~ClientInterface();
     ClientInterface(int portNumber = -1);
     int64_t getReceiverVersion();
@@ -51,8 +55,7 @@ class ClientInterface : private virtual slsDetectorDefs {
 
     /** Passive mode functions */
     void setPassiveMode(bool passive);
-    void setThreadCPUAffinity(const CPUMaskList &cpu_masks);
-    void setBufferNodeAffinity(unsigned long buffer_node_mask, int max_node);
+    void setListenersCPUAffinity(const FixedCPUSetAffinityList &cpu_affinities);
     MPFrameAssemblerPtr CreateFrameAssembler(AssemblerType asm_type);
     sls::AnyPacketBlockList GetFramePacketBlocks();
     void clearAllBuffers();

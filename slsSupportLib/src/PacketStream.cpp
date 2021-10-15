@@ -19,8 +19,8 @@ template <class PS, class... Args> auto PSFactory(Args &&...args) {
 std::shared_ptr<AnyPacketStream>
 CreatePacketStream(UdpRxSocketPtr s, slsDetectorDefs::detectorType det_type,
                    bool tg_enable, int num_udp_ifaces, uint32_t dr, int idx,
-                   cpu_set_t cpu_mask, FramePolicy fp,
-                   AnyPacketContainerPtr any_pc) {
+                   sls::CPUAffinity::AnyCPUAffinity cpu_affinity,
+                   FramePolicy fp, AnyPacketContainerPtr any_pc) {
 
     auto any_pixel = sls::AnyPixelFromBpp(dr);
     auto any_fp = AnyFramePolicyFromFP(fp);
@@ -30,7 +30,7 @@ CreatePacketStream(UdpRxSocketPtr s, slsDetectorDefs::detectorType det_type,
             using P = decltype(pixel);
             using FP = decltype(fp);
 
-#define args s, cpu_mask, any_pc
+#define args s, cpu_affinity, any_pc
 
             if (det_type == slsDetectorDefs::EIGER) {
                 auto any_tg = sls::Eiger::AnyTenGigaFromTgEnable(tg_enable);

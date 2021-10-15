@@ -1,10 +1,12 @@
 #pragma once
 #include "receiver_defs.h"
+#include "sls/CPUAffinity.h"
 #include "sls/FrameAssembler.h"
 #include "sls/PacketTypedefs.h"
 #include "sls/container_utils.h"
 #include "sls/logger.h"
 #include "sls/network_utils.h"
+
 class GeneralData;
 class Listener;
 class DataProcessor;
@@ -25,6 +27,8 @@ using namespace sls::FrameAssembler;
 
 class Implementation : private virtual slsDetectorDefs {
   public:
+    using FixedCPUSetAffinityList = sls::CPUAffinity::FixedCPUSetAffinityList;
+
     explicit Implementation(const detectorType d, bool passive);
     virtual ~Implementation();
 
@@ -266,8 +270,7 @@ class Implementation : private virtual slsDetectorDefs {
      *    Passive mode
      *                                                *
      * ************************************************/
-    void setThreadCPUAffinity(const CPUMaskList &cpu_masks);
-    void setBufferNodeAffinity(unsigned long buffer_node_mask, int max_node);
+    void setListenersCPUAffinity(const FixedCPUSetAffinityList &cpu_affinities);
     MPFrameAssemblerPtr CreateFrameAssembler(AssemblerType asm_type);
     sls::AnyPacketBlockList GetFramePacketBlocks();
     void clearAllBuffers();
@@ -407,10 +410,6 @@ class Implementation : private virtual slsDetectorDefs {
 
     /** Listener Statistics */
     std::vector<ListenerStatistics> listenerStatistics;
-
-    /** Fifo node affinity **/
-    unsigned long fifoNodeMask{0};
-    int maxNode{0};
 
     /** Frame memory assembler in passive mode */
     bool passiveMode;

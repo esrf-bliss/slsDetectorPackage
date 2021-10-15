@@ -21,9 +21,9 @@ template <class Duration> Seconds ToSeconds(const Duration &d) {
  */
 
 template <class P>
-PacketContainer<P>::PacketContainer(int frames, unsigned long node_mask,
-                                    int max_node)
+PacketContainer<P>::PacketContainer(int frames, const NUMAMask &numa_mask)
     : num_frames(frames) {
+    auto &&[node_mask, max_node] = numa_mask.get_os_mask();
     packet_buffer_array.alloc(num_frames, node_mask, max_node);
     BlockLayout *p = packet_buffer_array.getPtr();
     for (unsigned int i = 0; i < num_frames; ++i, ++p)

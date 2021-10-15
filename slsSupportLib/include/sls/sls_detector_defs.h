@@ -22,7 +22,6 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
-#include <sched.h>
 #include <string>
 #include <vector>
 #else
@@ -150,8 +149,6 @@ class slsDetectorDefs {
     };
 
 #define MAX_NUM_PORTS 2
-
-    typedef std::vector<cpu_set_t> CPUMaskList;
 #endif
     enum frameDiscardPolicy {
         NO_DISCARD,
