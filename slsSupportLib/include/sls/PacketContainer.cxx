@@ -103,7 +103,7 @@ template <class P>
 void PacketContainer<P>::putReadyPacketBlock(BlockPtr block) {
     std::lock_guard<std::mutex> l(block_mutex);
     packet_block_map.emplace(
-        FramePacketBlock(block->getFrameNumber(), std::move(block)));
+        FramePacketBlock(block->getRecvFrameNumber(), std::move(block)));
     block_cond.notify_all();
 }
 

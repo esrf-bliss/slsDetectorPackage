@@ -166,4 +166,8 @@ AnyPacketBlockList Receiver::GetFramePacketBlocks() {
 
 void Receiver::clearAllBuffers() { tcpipInterface->clearAllBuffers(); }
 
+void Receiver::setRoundRobin(int nb_rr_recvs, int rr_idx) {
+    tcpipInterface->setRoundRobin(nb_rr_recvs, rr_idx);
+}
+
 } // namespace sls

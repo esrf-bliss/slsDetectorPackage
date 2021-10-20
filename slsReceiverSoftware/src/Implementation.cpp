@@ -179,7 +179,7 @@ void Implementation::CreateThreads() {
             listener.push_back(std::make_shared<Listener>(
                 i, detType, fifo_ptr, &status, &udpPortNum[i], &eth[i],
                 &udpSocketBufferSize, &actualUDPSocketBufferSize,
-                &frameDiscardMode, &silentMode));
+                &frameDiscardMode, &silentMode, rrNbRecvs, rrRecvIdx));
             listener[i]->SetGeneralData(generalData);
 
             if (passiveMode) {
@@ -602,7 +602,7 @@ std::vector<uint64_t> Implementation::getNumMissingPackets() const {
         if (readNRows != (int)generalData->maxRowsPerReadout) {
             totnp = ((readNRows * np) / generalData->maxRowsPerReadout);
         }
-        totnp *= numberOfTotalFrames;
+        totnp *= numberOfTotalFrames / rrNbRecvs;
         if (HasValidThread(listener, i))
             mp[i] = listener[i]->GetNumMissingPacket(stoppedFlag, totnp);
     }
@@ -791,7 +791,7 @@ void Implementation::startReadout() {
         // wait for all packets
         const int numPacketsToReceive = numberOfTotalFrames *
                                         generalData->packetsPerFrame *
-                                        active_listeners;
+                                        active_listeners / rrNbRecvs;
         if (totalPacketsReceived != numPacketsToReceive) {
             while (totalPacketsReceived != previousValue) {
                 LOG(logDEBUG3)
@@ -1278,6 +1278,9 @@ void Implementation::updateTotalNumberOfFrames() {
         numFrames * repeats * (int64_t)(numberOfAdditionalStorageCells + 1);
     if (numberOfTotalFrames == 0) {
         throw sls::RuntimeError("Invalid total number of frames to receive: 0");
+    } else if (numberOfTotalFrames % rrNbRecvs != 0) {
+        throw sls::RuntimeError("Total number of frames is not a multiple of "
+                                "Round-Robin number of recvs");
     }
     LOG(logINFO) << "Total Number of Frames: " << numberOfTotalFrames;
 }
@@ -1767,7 +1770,7 @@ sls::AnyPacketBlockList Implementation::GetFramePacketBlocks() {
                 if (b) {
                     ++valid_ports;
                     if (frame == uint64_t(-1))
-                        frame = (*b)[0].frame();
+                        frame = b->getRecvFrameNumber();
                 }
             },
             blocks.back());
@@ -1783,6 +1786,26 @@ sls::AnyPacketBlockList Implementation::GetFramePacketBlocks() {
 void Implementation::clearAllBuffers() {
     for (const auto &f : fifo)
         f->ClearAllBuffers();
+}
+
+void Implementation::setRoundRobin(int nb_rr_recvs, int rr_idx) {
+    if ((nb_rr_recvs < 1) || (rr_idx < 0) || (rr_idx >= nb_rr_recvs))
+        throw sls::RuntimeError("Invalid Round-Robin params: "
+                                "nb_recvs=" +
+                                std::to_string(nb_rr_recvs) +
+                                ", "
+                                "recv_idx=" +
+                                std::to_string(rr_idx));
+    else if (!passiveMode && (nb_rr_recvs > 1))
+        throw sls::RuntimeError("Round-Robin supported in passive mode");
+    if ((nb_rr_recvs == rrNbRecvs) && (rr_idx == rrRecvIdx))
+	return;
+    DestroyThreads();
+    rrNbRecvs = nb_rr_recvs;
+    rrRecvIdx = rr_idx;
+    LOG(logINFO) << "Round-Robin: NbRecvs=" << rrNbRecvs << ", "
+                 << "RecvIdx=" << rrRecvIdx;
+    CreateThreads();
 }
 
 /* statistics */

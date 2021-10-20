@@ -61,6 +61,7 @@ class ClientInterface : private virtual slsDetectorDefs {
     MPFrameAssemblerPtr CreateFrameAssembler(AssemblerType asm_type);
     sls::AnyPacketBlockList GetFramePacketBlocks();
     void clearAllBuffers();
+    void setRoundRobin(int nb_rr_recvs, int rr_idx);
 
   private:
     void startTCPServer();
@@ -204,4 +205,8 @@ class ClientInterface : private virtual slsDetectorDefs {
 
     /** Passive Receiver **/
     std::atomic<bool> passiveMode{false};
+
+    /** Round-Robin **/
+    int rrNbRecvs{1};
+    int rrRecvIdx{0};
 };

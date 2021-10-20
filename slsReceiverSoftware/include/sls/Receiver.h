@@ -120,6 +120,11 @@ class Receiver : private virtual slsDetectorDefs {
      */
     void clearAllBuffers();
 
+    /**
+     * Round-robin
+     */
+    void setRoundRobin(int nb_rr_recvs, int rr_idx);
+
   private:
     std::unique_ptr<ClientInterface> tcpipInterface;
 };
