@@ -7,8 +7,8 @@
 #include "sls/Align.h"
 #include "sls/sls_detector_defs.h"
 
-#include <memory>
 #include <functional>
+#include <memory>
 
 namespace sls {
 
