@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #pragma once
 
 /************************************************
@@ -69,7 +71,6 @@ enum detFuncs {
     F_GET_ROI,
     F_LOCK_SERVER,
     F_GET_LAST_CLIENT_IP,
-    F_SET_PORT,
     F_ENABLE_TEN_GIGA,
     F_SET_ALL_TRIMBITS,
     F_SET_PATTERN_IO_CONTROL,
@@ -124,8 +125,8 @@ enum detFuncs {
     F_GET_QUAD,
     F_SET_INTERRUPT_SUBFRAME,
     F_GET_INTERRUPT_SUBFRAME,
-    F_SET_READ_N_LINES,
-    F_GET_READ_N_LINES,
+    F_SET_READ_N_ROWS,
+    F_GET_READ_N_ROWS,
     F_SET_POSITION,
     F_SET_SOURCE_UDP_MAC,
     F_GET_SOURCE_UDP_MAC,
@@ -164,8 +165,6 @@ enum detFuncs {
     F_GET_MAX_CLOCK_PHASE_SHIFT,
     F_SET_CLOCK_DIVIDER,
     F_GET_CLOCK_DIVIDER,
-    F_SET_PIPELINE,
-    F_GET_PIPELINE,
     F_SET_ON_CHIP_DAC,
     F_GET_ON_CHIP_DAC,
     F_SET_INJECT_CHANNEL,
@@ -205,8 +204,8 @@ enum detFuncs {
     F_GET_SCAN_ERROR_MESSAGE,
     F_GET_CDS_GAIN,
     F_SET_CDS_GAIN,
-    F_GET_FILTER,
-    F_SET_FILTER,
+    F_GET_FILTER_RESISTOR,
+    F_SET_FILTER_RESISTOR,
     F_GET_ADC_CONFIGURATION,
     F_SET_ADC_CONFIGURATION,
     F_GET_BAD_CHANNELS,
@@ -215,12 +214,45 @@ enum detFuncs {
     F_VALIDATE_UDP_CONFIG,
     F_GET_BURSTS_LEFT,
     F_START_READOUT,
-    F_SET_DEFAULT_DACS,
+    F_RESET_TO_DEFAULT_DACS,
     F_IS_VIRTUAL,
     F_GET_PATTERN,
     F_LOAD_DEFAULT_PATTERN,
     F_GET_ALL_THRESHOLD_ENERGY,
     F_GET_MASTER,
+    F_GET_CSR,
+    F_SET_GAIN_CAPS,
+    F_GET_GAIN_CAPS,
+    F_GET_DATASTREAM,
+    F_SET_DATASTREAM,
+    F_GET_VETO_STREAM,
+    F_SET_VETO_STREAM,
+    F_GET_VETO_ALGORITHM,
+    F_SET_VETO_ALGORITHM,
+    F_GET_CHIP_VERSION,
+    F_GET_DEFAULT_DAC,
+    F_SET_DEFAULT_DAC,
+    F_GET_GAIN_MODE,
+    F_SET_GAIN_MODE,
+    F_GET_COMP_DISABLE_TIME,
+    F_SET_COMP_DISABLE_TIME,
+    F_GET_FLIP_ROWS,
+    F_SET_FLIP_ROWS,
+    F_GET_NUM_FILTER_CELLS,
+    F_SET_NUM_FILTER_CELLS,
+    F_SET_ADC_PIPELINE,
+    F_GET_ADC_PIPELINE,
+    F_SET_DBIT_PIPELINE,
+    F_GET_DBIT_PIPELINE,
+    F_GET_MODULE_ID,
+    F_GET_DEST_UDP_LIST,
+    F_SET_DEST_UDP_LIST,
+    F_GET_NUM_DEST_UDP,
+    F_CLEAR_ALL_UDP_DEST,
+    F_GET_UDP_FIRST_DEST,
+    F_SET_UDP_FIRST_DEST,
+    F_GET_READOUT_SPEED,
+    F_SET_READOUT_SPEED,
 
     NUM_DET_FUNCTIONS,
     RECEIVER_ENUM_START = 256, /**< detector function should not exceed this
@@ -229,7 +261,6 @@ enum detFuncs {
     F_EXEC_RECEIVER_COMMAND,
     F_LOCK_RECEIVER,
     F_GET_LAST_RECEIVER_CLIENT_IP,
-    F_SET_RECEIVER_PORT,
     F_GET_RECEIVER_VERSION,
     F_RECEIVER_SET_ROI,
     F_RECEIVER_SET_NUM_FRAMES,
@@ -271,7 +302,8 @@ enum detFuncs {
     F_SET_RECEIVER_STREAMING,
     F_GET_RECEIVER_STREAMING,
     F_RECEIVER_STREAMING_TIMER,
-    F_SET_FLIPPED_DATA_RECEIVER,
+    F_GET_FLIP_ROWS_RECEIVER,
+    F_SET_FLIP_ROWS_RECEIVER,
     F_SET_RECEIVER_FILE_FORMAT,
     F_GET_RECEIVER_FILE_FORMAT,
     F_SET_RECEIVER_STREAMING_PORT,
@@ -292,8 +324,6 @@ enum detFuncs {
     F_GET_RECEIVER_DISCARD_POLICY,
     F_SET_RECEIVER_PADDING,
     F_GET_RECEIVER_PADDING,
-    F_SET_RECEIVER_DEACTIVATED_PADDING,
-    F_GET_RECEIVER_DEACTIVATED_PADDING,
     F_RECEIVER_SET_READOUT_MODE,
     F_RECEIVER_SET_ADC_MASK,
     F_SET_RECEIVER_DBIT_LIST,
@@ -301,7 +331,7 @@ enum detFuncs {
     F_SET_RECEIVER_DBIT_OFFSET,
     F_GET_RECEIVER_DBIT_OFFSET,
     F_SET_RECEIVER_QUAD,
-    F_SET_RECEIVER_READ_N_LINES,
+    F_SET_RECEIVER_READ_N_ROWS,
     F_SET_RECEIVER_UDP_IP,
     F_SET_RECEIVER_UDP_IP2,
     F_SET_RECEIVER_UDP_PORT,
@@ -325,6 +355,7 @@ enum detFuncs {
     F_GET_RECEIVER_STREAMING_HWM,
     F_SET_RECEIVER_STREAMING_HWM,
     F_RECEIVER_SET_ALL_THRESHOLD,
+    F_RECEIVER_SET_DATASTREAM,
 
     NUM_REC_FUNCTIONS
 };
@@ -396,7 +427,6 @@ const char* getFunctionNameFromEnum(enum detFuncs func) {
 	case F_GET_ROI:							return "F_GET_ROI";
 	case F_LOCK_SERVER:						return "F_LOCK_SERVER";
 	case F_GET_LAST_CLIENT_IP:				return "F_GET_LAST_CLIENT_IP";
-	case F_SET_PORT:						return "F_SET_PORT";
 	case F_ENABLE_TEN_GIGA:					return "F_ENABLE_TEN_GIGA";
 	case F_SET_ALL_TRIMBITS:				return "F_SET_ALL_TRIMBITS";
 	case F_SET_PATTERN_IO_CONTROL:			return "F_SET_PATTERN_IO_CONTROL";
@@ -451,8 +481,8 @@ const char* getFunctionNameFromEnum(enum detFuncs func) {
 	case F_GET_QUAD:						return "F_GET_QUAD";
 	case F_SET_INTERRUPT_SUBFRAME:			return "F_SET_INTERRUPT_SUBFRAME";
 	case F_GET_INTERRUPT_SUBFRAME:			return "F_GET_INTERRUPT_SUBFRAME";
-	case F_SET_READ_N_LINES:				return "F_SET_READ_N_LINES";
-	case F_GET_READ_N_LINES:				return "F_GET_READ_N_LINES";
+	case F_SET_READ_N_ROWS:				    return "F_SET_READ_N_ROWS";
+	case F_GET_READ_N_ROWS:				    return "F_GET_READ_N_ROWS";
 	case F_SET_POSITION:					return "F_SET_POSITION";
 	case F_SET_SOURCE_UDP_MAC:				return "F_SET_SOURCE_UDP_MAC";
 	case F_GET_SOURCE_UDP_MAC:				return "F_GET_SOURCE_UDP_MAC";
@@ -491,8 +521,6 @@ const char* getFunctionNameFromEnum(enum detFuncs func) {
 	case F_GET_MAX_CLOCK_PHASE_SHIFT:		return "F_GET_MAX_CLOCK_PHASE_SHIFT";
 	case F_SET_CLOCK_DIVIDER:				return "F_SET_CLOCK_DIVIDER";	
 	case F_GET_CLOCK_DIVIDER:				return "F_GET_CLOCK_DIVIDER";
-	case F_SET_PIPELINE:					return "F_SET_PIPELINE";
-	case F_GET_PIPELINE:					return "F_GET_PIPELINE";
 	case F_SET_ON_CHIP_DAC:					return "F_SET_ON_CHIP_DAC";
 	case F_GET_ON_CHIP_DAC:					return "F_GET_ON_CHIP_DAC";
 	case F_SET_INJECT_CHANNEL:				return "F_SET_INJECT_CHANNEL";
@@ -532,8 +560,8 @@ const char* getFunctionNameFromEnum(enum detFuncs func) {
     case F_GET_SCAN_ERROR_MESSAGE:          return "F_GET_SCAN_ERROR_MESSAGE"; 
     case F_GET_CDS_GAIN:                    return "F_GET_CDS_GAIN";
     case F_SET_CDS_GAIN:                    return "F_SET_CDS_GAIN";
-    case F_GET_FILTER:                      return "F_GET_FILTER";
-    case F_SET_FILTER:                      return "F_SET_FILTER";
+    case F_GET_FILTER_RESISTOR:             return "F_GET_FILTER_RESISTOR";
+    case F_SET_FILTER_RESISTOR:             return "F_SET_FILTER_RESISTOR";
     case F_SET_ADC_CONFIGURATION:           return "F_SET_ADC_CONFIGURATION";       
     case F_GET_ADC_CONFIGURATION:           return "F_GET_ADC_CONFIGURATION";       
     case F_GET_BAD_CHANNELS:                return "F_GET_BAD_CHANNELS";
@@ -542,20 +570,50 @@ const char* getFunctionNameFromEnum(enum detFuncs func) {
     case F_VALIDATE_UDP_CONFIG:             return "F_VALIDATE_UDP_CONFIG";                               
     case F_GET_BURSTS_LEFT:                 return "F_GET_BURSTS_LEFT";
     case F_START_READOUT:                   return "F_START_READOUT";
-    case F_SET_DEFAULT_DACS:                return "F_SET_DEFAULT_DACS";
+    case F_RESET_TO_DEFAULT_DACS:           return "F_RESET_TO_DEFAULT_DACS";
     case F_IS_VIRTUAL:                      return "F_IS_VIRTUAL";
     case F_GET_PATTERN:                     return "F_GET_PATTERN";
     case F_LOAD_DEFAULT_PATTERN:            return "F_LOAD_DEFAULT_PATTERN";
     case F_GET_ALL_THRESHOLD_ENERGY:        return "F_GET_ALL_THRESHOLD_ENERGY";
     case F_GET_MASTER:                      return "F_GET_MASTER";
-
+    case F_SET_GAIN_CAPS:                   return "F_SET_GAIN_CAPS";
+    case F_GET_GAIN_CAPS:                   return "F_GET_GAIN_CAPS";
+    case F_GET_DATASTREAM:                  return "F_GET_DATASTREAM";
+    case F_SET_DATASTREAM:                  return "F_SET_DATASTREAM";
+    case F_GET_VETO_STREAM:                 return "F_GET_VETO_STREAM";
+    case F_SET_VETO_STREAM:                 return "F_SET_VETO_STREAM";
+    case F_GET_VETO_ALGORITHM:              return "F_GET_VETO_ALGORITHM";    
+    case F_SET_VETO_ALGORITHM:              return "F_SET_VETO_ALGORITHM";
+    case F_GET_CHIP_VERSION:                return "F_GET_CHIP_VERSION";
+    case F_GET_DEFAULT_DAC:                 return "F_GET_DEFAULT_DAC";
+    case F_SET_DEFAULT_DAC:                 return "F_SET_DEFAULT_DAC";
+    case F_GET_GAIN_MODE:                   return "F_GET_GAIN_MODE";
+    case F_SET_GAIN_MODE:                   return "F_SET_GAIN_MODE";
+    case F_GET_COMP_DISABLE_TIME:           return "F_GET_COMP_DISABLE_TIME";
+    case F_SET_COMP_DISABLE_TIME:           return "F_SET_COMP_DISABLE_TIME";
+    case F_GET_FLIP_ROWS:                   return "F_GET_FLIP_ROWS";
+    case F_SET_FLIP_ROWS:                   return "F_SET_FLIP_ROWS";
+    case F_GET_NUM_FILTER_CELLS:            return "F_GET_NUM_FILTER_CELLS";
+    case F_SET_NUM_FILTER_CELLS:            return "F_SET_NUM_FILTER_CELLS";
+    case F_SET_ADC_PIPELINE:                return "F_SET_ADC_PIPELINE";
+    case F_GET_ADC_PIPELINE:                return "F_GET_ADC_PIPELINE";
+    case F_SET_DBIT_PIPELINE:               return "F_SET_DBIT_PIPELINE";
+    case F_GET_DBIT_PIPELINE:               return "F_GET_DBIT_PIPELINE";
+    case F_GET_MODULE_ID:                   return "F_GET_MODULE_ID";
+    case F_GET_DEST_UDP_LIST:               return "F_GET_DEST_UDP_LIST";
+    case F_SET_DEST_UDP_LIST:               return "F_SET_DEST_UDP_LIST";
+    case F_GET_NUM_DEST_UDP:                return "F_GET_NUM_DEST_UDP";
+    case F_CLEAR_ALL_UDP_DEST:              return "F_CLEAR_ALL_UDP_DEST";
+    case F_GET_UDP_FIRST_DEST:              return "F_GET_UDP_FIRST_DEST";
+    case F_SET_UDP_FIRST_DEST:              return "F_SET_UDP_FIRST_DEST";
+    case F_GET_READOUT_SPEED:               return "F_GET_READOUT_SPEED";
+    case F_SET_READOUT_SPEED:               return "F_SET_READOUT_SPEED";
     case NUM_DET_FUNCTIONS:              	return "NUM_DET_FUNCTIONS";
     case RECEIVER_ENUM_START:				return "RECEIVER_ENUM_START";
 
 	case F_EXEC_RECEIVER_COMMAND:			return "F_EXEC_RECEIVER_COMMAND";
 	case F_LOCK_RECEIVER: 					return "F_LOCK_RECEIVER";
 	case F_GET_LAST_RECEIVER_CLIENT_IP: 	return "F_GET_LAST_RECEIVER_CLIENT_IP";
-	case F_SET_RECEIVER_PORT: 				return "F_SET_RECEIVER_PORT";
 	case F_GET_RECEIVER_VERSION: 			return "F_GET_RECEIVER_VERSION";
 	case F_RECEIVER_SET_ROI: 				return "F_RECEIVER_SET_ROI";
 	case F_RECEIVER_SET_NUM_FRAMES:			return "F_RECEIVER_SET_NUM_FRAMES";
@@ -597,7 +655,8 @@ const char* getFunctionNameFromEnum(enum detFuncs func) {
 	case F_SET_RECEIVER_STREAMING:			return "F_SET_RECEIVER_STREAMING";
 	case F_GET_RECEIVER_STREAMING:			return "F_GET_RECEIVER_STREAMING";
 	case F_RECEIVER_STREAMING_TIMER:		return "F_RECEIVER_STREAMING_TIMER";
-	case F_SET_FLIPPED_DATA_RECEIVER:		return "F_SET_FLIPPED_DATA_RECEIVER";
+	case F_GET_FLIP_ROWS_RECEIVER:		    return "F_GET_FLIP_ROWS_RECEIVER";
+	case F_SET_FLIP_ROWS_RECEIVER:		    return "F_SET_FLIP_ROWS_RECEIVER";
 	case F_SET_RECEIVER_FILE_FORMAT:		return "F_SET_RECEIVER_FILE_FORMAT";
 	case F_GET_RECEIVER_FILE_FORMAT:		return "F_GET_RECEIVER_FILE_FORMAT";
 	case F_SET_RECEIVER_STREAMING_PORT: 	return "F_SET_RECEIVER_STREAMING_PORT";
@@ -618,8 +677,6 @@ const char* getFunctionNameFromEnum(enum detFuncs func) {
     case F_GET_RECEIVER_DISCARD_POLICY:		return "F_GET_RECEIVER_DISCARD_POLICY";
     case F_SET_RECEIVER_PADDING:			return "F_SET_RECEIVER_PADDING";
     case F_GET_RECEIVER_PADDING:			return "F_GET_RECEIVER_PADDING";
-    case F_SET_RECEIVER_DEACTIVATED_PADDING: return "F_SET_RECEIVER_DEACTIVATED_PADDING";
-    case F_GET_RECEIVER_DEACTIVATED_PADDING: return "F_GET_RECEIVER_DEACTIVATED_PADDING";
     case F_RECEIVER_SET_READOUT_MODE: 		return "F_RECEIVER_SET_READOUT_MODE";
 	case F_RECEIVER_SET_ADC_MASK:			return "F_RECEIVER_SET_ADC_MASK";
 	case F_SET_RECEIVER_DBIT_LIST:			return "F_SET_RECEIVER_DBIT_LIST";		
@@ -627,7 +684,7 @@ const char* getFunctionNameFromEnum(enum detFuncs func) {
 	case F_SET_RECEIVER_DBIT_OFFSET:		return "F_SET_RECEIVER_DBIT_OFFSET";
 	case F_GET_RECEIVER_DBIT_OFFSET:		return "F_GET_RECEIVER_DBIT_OFFSET";
 	case F_SET_RECEIVER_QUAD:				return "F_SET_RECEIVER_QUAD";
-	case F_SET_RECEIVER_READ_N_LINES:		return "F_SET_RECEIVER_READ_N_LINES";
+	case F_SET_RECEIVER_READ_N_ROWS:	    return "F_SET_RECEIVER_READ_N_ROWS";
 	case F_SET_RECEIVER_UDP_IP:				return "F_SET_RECEIVER_UDP_IP";
 	case F_SET_RECEIVER_UDP_IP2:			return "F_SET_RECEIVER_UDP_IP2";
 	case F_SET_RECEIVER_UDP_PORT:			return "F_SET_RECEIVER_UDP_PORT";
@@ -651,7 +708,7 @@ const char* getFunctionNameFromEnum(enum detFuncs func) {
     case F_GET_RECEIVER_STREAMING_HWM:      return "F_GET_RECEIVER_STREAMING_HWM";
     case F_SET_RECEIVER_STREAMING_HWM:      return "F_SET_RECEIVER_STREAMING_HWM";
     case F_RECEIVER_SET_ALL_THRESHOLD:      return "F_RECEIVER_SET_ALL_THRESHOLD";
-
+    case F_RECEIVER_SET_DATASTREAM:         return "F_RECEIVER_SET_DATASTREAM";
 
     case NUM_REC_FUNCTIONS: 				return "NUM_REC_FUNCTIONS";
 	default:								return "Unknown Function";

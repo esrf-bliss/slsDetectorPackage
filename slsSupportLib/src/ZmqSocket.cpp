@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #include "sls/ZmqSocket.h"
 #include "sls/logger.h"
 #include "sls/network_utils.h" //ip
@@ -26,7 +28,7 @@ ZmqSocket::ZmqSocket(const char *const hostname_or_ip,
     if (sockfd.contextDescriptor == nullptr)
         throw sls::ZmqSocketError("Could not create contextDescriptor");
 
-    // create publisher
+    // create subscriber
     sockfd.socketDescriptor = zmq_socket(sockfd.contextDescriptor, ZMQ_SUB);
     if (sockfd.socketDescriptor == nullptr) {
         PrintError();
@@ -160,7 +162,7 @@ int ZmqSocket::SendHeader(int index, zmqHeader header) {
                                     "\"version\":%u, "
 
                                     // additional stuff
-                                    "\"flippedDataX\":%u, "
+                                    "\"flipRows\":%u, "
                                     "\"quad\":%u"
 
         ;                                              //"}\n";
@@ -177,7 +179,7 @@ int ZmqSocket::SendHeader(int index, zmqHeader header) {
             header.detType, header.version,
 
             // additional stuff
-            header.flippedDataX, header.quad);
+            header.flipRows, header.quad);
 
     if (!header.addJsonHeader.empty()) {
         strcat(header_buffer.get(), ", ");
@@ -303,7 +305,7 @@ int ZmqSocket::ParseHeader(const int index, int length, char *buff,
     zHeader.detType = document["detType"].GetUint();
     zHeader.version = document["version"].GetUint();
 
-    zHeader.flippedDataX = document["flippedDataX"].GetUint();
+    zHeader.flipRows = document["flipRows"].GetUint();
     zHeader.quad = document["quad"].GetUint();
     zHeader.completeImage = document["completeImage"].GetUint();
 

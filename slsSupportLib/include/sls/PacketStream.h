@@ -81,6 +81,7 @@ template <class PC, class SD, class FP> class PacketStream {
     int getNumPacketsCaught();
     uint64_t getFirstFrameCaught();
     uint64_t getNumFramesCaught();
+    uint64_t getNumCompleteFramesCaught();
     uint64_t getLastFrameIndex();
 
     void printStats();
@@ -98,6 +99,7 @@ template <class PC, class SD, class FP> class PacketStream {
     int packets_caught{0};
     uint64_t first_frame{uint64_t(-1)};
     uint64_t frames_caught{0};
+    uint64_t complete_frames_caught{0};
     uint64_t last_frame{0};
     StreamData stream_data;
     int header_pad;

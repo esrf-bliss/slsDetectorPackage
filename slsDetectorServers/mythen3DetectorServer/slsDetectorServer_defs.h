@@ -1,9 +1,13 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #pragma once
 #include "sls/sls_detector_defs.h"
 
-#define REQRD_FRMWRE_VRSN (0x210201)
+#define REQRD_FRMWRE_VRSN (0x210910)
 #define KERNEL_DATE_VRSN  "Wed May 20 13:58:38 CEST 2020"
 #define ID_FILE           "detid_mythen3.txt"
+
+#define LINKED_SERVER_NAME "mythen3DetectorServer"
 
 #define CTRL_SRVR_INIT_TIME_US (300 * 1000)
 
@@ -21,7 +25,7 @@
 #define TYPE_FILE_NAME              ("/etc/devlinks/type")
 #define DAC_MAX_MV                  (2048)
 #define TYPE_MYTHEN3_MODULE_VAL     (93)
-#define TYPE_TOLERANCE              (10)
+#define TYPE_TOLERANCE              (5)
 #define TYPE_NO_MODULE_STARTING_VAL (800)
 #define MAX_EXT_SIGNALS             (8)
 
@@ -41,13 +45,6 @@
 #define DEFAULT_SETTINGS                 (STANDARD)
 #define DEFAULT_TRIMBIT_VALUE            (0)
 #define DEFAULT_COUNTER_DISABLED_VTH_VAL (2800)
-
-#define DEFAULT_STANDARD_VRPREAMP (1100)
-#define DEFAULT_FAST_VRPREAMP     (300)
-#define DEFAULT_HIGHGAIN_VRPREAMP (1300)
-#define DEFAULT_STANDARD_VRSHAPER (1280)
-#define DEFAULT_FAST_VRSHAPER     (1500)
-#define DEFAULT_HIGHGAIN_VRSHAPER (1100)
 
 #define DEFAULT_READOUT_C0 (10) //(100000000) // rdo_clk, 100 MHz
 #define DEFAULT_READOUT_C1 (10) //(100000000) // smp sample clk (x2), 100 MHz
@@ -118,6 +115,17 @@ enum DACINDEX {
         2800, /* vTrim */                                                      \
         800   /* VdcSh */                                                      \
     };
+
+#define NUMSETTINGS     (3)
+#define NSPECIALDACS    (2)
+#define SPECIALDACINDEX {M_VRPREAMP, M_VRSHAPER};
+#define SPECIAL_DEFAULT_STANDARD_DAC_VALS                                      \
+    { 1100, 1280 }
+#define SPECIAL_DEFAULT_FAST_DAC_VALS                                          \
+    { 300, 1500 }
+#define SPECIAL_DEFAULT_HIGHGAIN_DAC_VALS                                      \
+    { 1300, 1100 }
+
 enum CLKINDEX {
     READOUT_C0,
     READOUT_C1,
@@ -158,47 +166,3 @@ typedef struct udp_header_struct {
 #define UDP_IP_HEADER_LENGTH_BYTES (28)
 #define PACKETS_PER_FRAME_10G      (2)
 #define PACKETS_PER_FRAME_1G       (20)
-
-/** Signal Definitions */
-#define SIGNAL_TBLoad_1    (0)
-#define SIGNAL_TBLoad_2    (1)
-#define SIGNAL_TBLoad_3    (2)
-#define SIGNAL_TBLoad_4    (3)
-#define SIGNAL_TBLoad_5    (4)
-#define SIGNAL_TBLoad_6    (5)
-#define SIGNAL_TBLoad_7    (6)
-#define SIGNAL_TBLoad_8    (7)
-#define SIGNAL_TBLoad_9    (8)
-#define SIGNAL_TBLoad_10   (9)
-#define SIGNAL_AnaMode     (10)
-#define SIGNAL_CHSserialIN (11)
-#define SIGNAL_READOUT     (12)
-#define SIGNAL_pulse       (13)
-#define SIGNAL_EN1         (14)
-#define SIGNAL_EN2         (15)
-#define SIGNAL_EN3         (16)
-#define SIGNAL_clk         (17)
-#define SIGNAL_SRmode      (18)
-#define SIGNAL_serialIN    (19)
-#define SIGNAL_STO         (20)
-#define SIGNAL_STATLOAD    (21)
-#define SIGNAL_resStorage  (22)
-#define SIGNAL_resCounter  (23)
-#define SIGNAL_CHSclk      (24)
-#define SIGNAL_exposing    (25)
-
-//CHIP STARTUS REGISTER BITS
-#define CSR_spypads  0
-#define CSR_invpol  4
-#define CSR_dpulse  5
-#define CSR_interp  6
-#define CSR_C10pre  7 //#default
-#define CSR_pumprobe  8
-#define CSR_apulse  9
-#define CSR_C15sh  10 
-#define CSR_C30sh  11 //#default
-#define CSR_C50sh  12
-#define CSR_C225ACsh  13 // Connects 225fF SHAPER AC cap (1: 225 to shaper, 225 to GND. 0: 450 to shaper) 
-#define CSR_C15pre  14 
-
-#define CSR_default  (1<<CSR_C10pre )|(1<< CSR_C30sh)

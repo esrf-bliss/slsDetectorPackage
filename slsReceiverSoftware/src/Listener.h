@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #pragma once
 /************************************************
  * @file Listener.h
@@ -65,11 +67,18 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
     uint64_t GetFirstFrameCaught();
 
     /**
-     * Get Frames Complete Caught for each real time acquisition
+     * Get Frames Caught for each real time acquisition
      * (eg. for each scan)
      * @return number of frames caught for each scan
      */
     uint64_t GetNumFramesCaught();
+
+    /**
+     * Get Frames Complete Caught for each real time acquisition
+     * (eg. for each scan)
+     * @return number of complete frames caught for each scan
+     */
+    uint64_t GetNumCompleteFramesCaught();
 
     /**
      * Get Last Frame index caught

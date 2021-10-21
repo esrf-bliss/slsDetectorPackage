@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #pragma once
 #include "FebInterface.h"
 #include "slsDetectorServer_defs.h"
@@ -6,7 +8,7 @@
 // setup
 void Feb_Control_activate(int activate);
 void Feb_Control_FebControl();
-int Feb_Control_Init(int master, int normal, int module_num);
+int Feb_Control_Init(int master, int normal);
 int Feb_Control_OpenSerialCommunication();
 void Feb_Control_CloseSerialCommunication();
 int Feb_Control_CheckSetup();
@@ -40,6 +42,7 @@ unsigned int *Feb_Control_GetTrimbits();
 
 // acquisition
 int Feb_Control_AcquisitionInProgress();
+int Feb_Control_ProcessingInProgress();
 int Feb_Control_AcquisitionStartedBit();
 int Feb_Control_WaitForStartedFlag(int sleep_time_us, int prev_flag);
 int Feb_Control_WaitForFinishedFlag(int sleep_time_us, int tempLock);
@@ -55,7 +58,9 @@ int Feb_Control_PrepareForAcquisition();
 void Feb_Control_PrintAcquisitionSetup();
 int Feb_Control_StartAcquisition();
 int Feb_Control_StopAcquisition();
-int Feb_Control_SoftwareTrigger();
+int Feb_Control_IsReadyForTrigger(int *readyForTrigger);
+int Feb_Control_SendSoftwareTrigger();
+int Feb_Control_SoftwareTrigger(int block);
 
 // parameters
 int Feb_Control_SetDynamicRange(unsigned int four_eight_sixteen_or_thirtytwo);
@@ -84,8 +89,9 @@ int Feb_Control_SetTop(enum TOPINDEX ind, int left, int right);
 void Feb_Control_SetMasterVariable(int val);
 int Feb_Control_SetMaster(enum MASTERINDEX ind);
 int Feb_Control_SetQuad(int val);
-int Feb_Control_SetReadNLines(int value);
-int Feb_Control_GetReadNLines();
+int Feb_Control_SetChipSignalsToTrimQuad(int enable);
+int Feb_Control_SetReadNRows(int value);
+int Feb_Control_GetReadNRows();
 int Feb_Control_WriteRegister(uint32_t offset, uint32_t data);
 int Feb_Control_ReadRegister(uint32_t offset, uint32_t *retval);
 

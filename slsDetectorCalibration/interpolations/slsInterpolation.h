@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #ifndef SLS_INTERPOLATION_H
 #define SLS_INTERPOLATION_H
 
@@ -447,19 +449,6 @@ class slsInterpolation
       etax=(-l+r)/sum;
       etay=(-b+t)/sum;
     }
-    /* if (etax<-1 || etax>1 || etay<-1 || etay>1) { */
-    /*   cout << "**********" << etax << " " << etay << endl; */
-    /*    for (int ix=0; ix<3; ix++) { */
-    /*   for (int iy=0; iy<3; iy++) { */
-    /* 	cout << cl[iy+3*ix] << "\t" ; */
-
-    /*   } */
-    /*   cout << endl; */
-    /* } */
-    /*    cout << sum << " " << l << " " << r << " " << t << " " << b << endl; */
-
-    /* } */
-
 
     if (etax>=0 && etay>=0)
       return TOP_RIGHT;
@@ -476,6 +465,29 @@ class slsInterpolation
     for (int ix=0; ix<9; ix++) cli[ix]=cl[ix];
     
     return calcEta3(cli, etax, etay, sum);
+  }
+
+
+
+  static int calcEta3X(double *cl, double &etax, double &etay, double &sum) {
+    double l,r,t,b;
+    sum=cl[0]+cl[1]+cl[2]+cl[3]+cl[4]+cl[5]+cl[6]+cl[7]+cl[8];
+    if (sum>0) {
+      l=cl[3];
+      r=cl[5];
+      b=cl[1];
+      t=cl[7];
+      etax=(-l+r)/sum;
+      etay=(-b+t)/sum;
+    }
+    return -1;
+  }
+
+  static int calcEta3X(int *cl, double &etax, double &etay, double &sum) {
+    double cli[9];
+    for (int ix=0; ix<9; ix++) cli[ix]=cl[ix];
+    
+    return calcEta3X(cli, etax, etay, sum);
   }
 
 
@@ -535,21 +547,6 @@ class slsInterpolation
   /*   return -1; */
   /* } */
 
-
-
-  /* static int calcEta3X(double *cl, double &etax, double &etay, double &sum) { */
-  /*   double l,r,t,b; */
-  /*   sum=cl[0]+cl[1]+cl[2]+cl[3]+cl[4]+cl[5]+cl[6]+cl[7]+cl[8]; */
-  /*   if (sum>0) { */
-  /*     l=cl[3]; */
-  /*     r=cl[5]; */
-  /*     b=cl[1]; */
-  /*     t=cl[7]; */
-  /*     etax=(-l+r)/sum; */
-  /*     etay=(-b+t)/sum; */
-  /*   } */
-  /*   return -1; */
-  /* } */
 
 
   /* static int calcEta3X(int *cl, double &etax, double &etay, double &sum) { */

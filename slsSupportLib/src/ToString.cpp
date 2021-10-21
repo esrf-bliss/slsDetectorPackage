@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #include "sls/ToString.h"
 #include "sls/network_utils.h"
 
@@ -26,9 +28,9 @@ std::ostream &operator<<(std::ostream &os, const slsDetectorDefs::ROI &roi) {
 std::string ToString(const slsDetectorDefs::rxParameters &r) {
     std::ostringstream oss;
     oss << '[' << "detType:" << r.detType << std::endl
-        << "numberOfDetector.x:" << r.numberOfDetector.x << std::endl
-        << "numberOfDetector.y:" << r.numberOfDetector.y << std::endl
-        << "moduleId:" << r.moduleId << std::endl
+        << "numberOfModule.x:" << r.numberOfModule.x << std::endl
+        << "numberOfModule.y:" << r.numberOfModule.y << std::endl
+        << "moduleIndex:" << r.moduleIndex << std::endl
         << "hostname:" << r.hostname << std::endl
         << "udpInterfaces:" << r.udpInterfaces << std::endl
         << "udp_dstport:" << r.udp_dstport << std::endl
@@ -52,8 +54,10 @@ std::string ToString(const slsDetectorDefs::rxParameters &r) {
         << "subDeadTime:" << ToString(std::chrono::nanoseconds(r.subDeadTimeNs))
         << std::endl
         << "activate:" << r.activate << std::endl
+        << "leftDataStream:" << r.dataStreamLeft << std::endl
+        << "rightDataStream:" << r.dataStreamRight << std::endl
         << "quad:" << r.quad << std::endl
-        << "numLinesReadout:" << r.numLinesReadout << std::endl
+        << "readNRows:" << r.readNRows << std::endl
         << "thresholdEnergyeV:" << ToString(r.thresholdEnergyeV) << std::endl
         << "dynamicRange:" << r.dynamicRange << std::endl
         << "timMode:" << r.timMode << std::endl
@@ -109,6 +113,40 @@ std::string ToString(const slsDetectorDefs::scanParameters &r) {
 
 std::ostream &operator<<(std::ostream &os,
                          const slsDetectorDefs::scanParameters &r) {
+    return os << ToString(r);
+}
+
+std::string ToString(const slsDetectorDefs::currentSrcParameters &r) {
+    std::ostringstream oss;
+    if (r.fix < -1 || r.fix > 1 || r.normal < -1 || r.normal > 1) {
+        throw sls::RuntimeError(
+            "Invalid current source parameters. Cannot print.");
+    }
+    oss << '[';
+    if (r.enable) {
+        oss << "enabled";
+        // [jungfrau]
+        if (r.fix != -1) {
+            oss << (r.fix == 1 ? ", fix" : ", nofix");
+        }
+        // [jungfrau chip v1.1]
+        if (r.normal != -1) {
+            oss << ", " << ToStringHex(r.select, 16);
+            oss << (r.normal == 1 ? ", normal" : ", low");
+        }
+        // [jungfrau chip v1.0]
+        else {
+            oss << ", " << r.select;
+        }
+    } else {
+        oss << "disabled";
+    }
+    oss << ']';
+    return oss.str();
+}
+
+std::ostream &operator<<(std::ostream &os,
+                         const slsDetectorDefs::currentSrcParameters &r) {
     return os << ToString(r);
 }
 
@@ -168,16 +206,12 @@ std::string ToString(const defs::detectorSettings s) {
         return std::string("mediumgain");
     case defs::VERYHIGHGAIN:
         return std::string("veryhighgain");
-    case defs::DYNAMICHG0:
-        return std::string("dynamichg0");
+    case defs::HIGHGAIN0:
+        return std::string("highgain0");
     case defs::FIXGAIN1:
         return std::string("fixgain1");
     case defs::FIXGAIN2:
         return std::string("fixgain2");
-    case defs::FORCESWITCHG1:
-        return std::string("forceswitchg1");
-    case defs::FORCESWITCHG2:
-        return std::string("forceswitchg2");
     case defs::VERYLOWGAIN:
         return std::string("verylowgain");
     case defs::G1_HIGHGAIN:
@@ -196,6 +230,8 @@ std::string ToString(const defs::detectorSettings s) {
         return std::string("g4_hg");
     case defs::G4_LOWGAIN:
         return std::string("g4_lg");
+    case defs::GAIN0:
+        return std::string("gain0");
     case defs::UNDEFINED:
         return std::string("undefined");
     case defs::UNINITIALIZED:
@@ -213,6 +249,10 @@ std::string ToString(const defs::speedLevel s) {
         return std::string("half_speed");
     case defs::QUARTER_SPEED:
         return std::string("quarter_speed");
+    case defs::G2_108MHZ:
+        return std::string("108");
+    case defs::G2_144MHZ:
+        return std::string("144");
     default:
         return std::string("Unknown");
     }
@@ -519,6 +559,89 @@ std::string ToString(const defs::timingSourceType s) {
     }
 }
 
+std::string ToString(defs::M3_GainCaps s) {
+    std::ostringstream os;
+    if (s & defs::M3_C10pre)
+        os << "C10pre, ";
+    if (s & defs::M3_C15sh)
+        os << "C15sh, ";
+    if (s & defs::M3_C30sh)
+        os << "C30sh, ";
+    if (s & defs::M3_C50sh)
+        os << "C50sh, ";
+    if (s & defs::M3_C225ACsh)
+        os << "C225ACsh, ";
+    if (s & defs::M3_C15pre)
+        os << "C15pre, ";
+    auto rs = os.str();
+    rs.erase(rs.end() - 2);
+    return rs;
+}
+
+std::string ToString(const defs::portPosition s) {
+    switch (s) {
+    case defs::LEFT:
+        return std::string("left");
+    case defs::RIGHT:
+        return std::string("right");
+    case defs::TOP:
+        return std::string("top");
+    case defs::BOTTOM:
+        return std::string("bottom");
+    default:
+        return std::string("Unknown");
+    }
+}
+
+std::string ToString(const defs::streamingInterface s) {
+    std::ostringstream os;
+    std::string rs;
+    switch (s) {
+    case defs::streamingInterface::NONE:
+        return std::string("none");
+    default:
+        if ((s & defs::streamingInterface::LOW_LATENCY_LINK) !=
+            defs::streamingInterface::NONE)
+            os << "lll, ";
+        if ((s & defs::streamingInterface::ETHERNET_10GB) !=
+            defs::streamingInterface::NONE)
+            os << "10gbe, ";
+        auto rs = os.str();
+        rs.erase(rs.end() - 2, rs.end());
+        return rs;
+    }
+}
+
+std::string ToString(const defs::vetoAlgorithm s) {
+    switch (s) {
+    case defs::ALG_HITS:
+        return std::string("hits");
+    case defs::ALG_RAW:
+        return std::string("raw");
+    default:
+        return std::string("Unknown");
+    }
+}
+
+std::string ToString(const defs::gainMode s) {
+    switch (s) {
+    case defs::DYNAMIC:
+        return std::string("dynamic");
+    case defs::FORCE_SWITCH_G1:
+        return std::string("forceswitchg1");
+    case defs::FORCE_SWITCH_G2:
+        return std::string("forceswitchg2");
+    case defs::FIX_G1:
+        return std::string("fixg1");
+    case defs::FIX_G2:
+        return std::string("fixg2");
+    case defs::FIX_G0:
+        return std::string("fixg0");
+    default:
+        return std::string("Unknown");
+    }
+}
+
 const std::string &ToString(const std::string &s) { return s; }
 
 template <> defs::detectorType StringTo(const std::string &s) {
@@ -554,16 +677,12 @@ template <> defs::detectorSettings StringTo(const std::string &s) {
         return defs::MEDIUMGAIN;
     if (s == "veryhighgain")
         return defs::VERYHIGHGAIN;
-    if (s == "dynamichg0")
-        return defs::DYNAMICHG0;
+    if (s == "highgain0")
+        return defs::HIGHGAIN0;
     if (s == "fixgain1")
         return defs::FIXGAIN1;
     if (s == "fixgain2")
         return defs::FIXGAIN2;
-    if (s == "forceswitchg1")
-        return defs::FORCESWITCHG1;
-    if (s == "forceswitchg2")
-        return defs::FORCESWITCHG2;
     if (s == "verylowgain")
         return defs::VERYLOWGAIN;
     if (s == "g1_hg")
@@ -580,6 +699,8 @@ template <> defs::detectorSettings StringTo(const std::string &s) {
         return defs::G2_LOWCAP_LOWGAIN;
     if (s == "g4_hg")
         return defs::G4_HIGHGAIN;
+    if (s == "gain0")
+        return defs::GAIN0;
     if (s == "g4_lg")
         return defs::G4_LOWGAIN;
     throw sls::RuntimeError("Unknown setting " + s);
@@ -588,10 +709,20 @@ template <> defs::detectorSettings StringTo(const std::string &s) {
 template <> defs::speedLevel StringTo(const std::string &s) {
     if (s == "full_speed")
         return defs::FULL_SPEED;
+    if (s == "0")
+        return defs::FULL_SPEED;
     if (s == "half_speed")
+        return defs::HALF_SPEED;
+    if (s == "1")
         return defs::HALF_SPEED;
     if (s == "quarter_speed")
         return defs::QUARTER_SPEED;
+    if (s == "2")
+        return defs::QUARTER_SPEED;
+    if (s == "108")
+        return defs::G2_108MHZ;
+    if (s == "144")
+        return defs::G2_144MHZ;
     throw sls::RuntimeError("Unknown speed " + s);
 }
 
@@ -857,6 +988,71 @@ template <> defs::timingSourceType StringTo(const std::string &s) {
     if (s == "external")
         return defs::TIMING_EXTERNAL;
     throw sls::RuntimeError("Unknown timing source type " + s);
+}
+
+template <> defs::M3_GainCaps StringTo(const std::string &s) {
+    if (s == "C10pre")
+        return defs::M3_C10pre;
+    if (s == "C15sh")
+        return defs::M3_C15sh;
+    if (s == "C30sh")
+        return defs::M3_C30sh;
+    if (s == "C50sh")
+        return defs::M3_C50sh;
+    if (s == "C225ACsh")
+        return defs::M3_C225ACsh;
+    if (s == "C15pre")
+        return defs::M3_C15pre;
+    throw sls::RuntimeError("Unknown gain cap " + s);
+}
+
+template <> defs::portPosition StringTo(const std::string &s) {
+    if (s == "left")
+        return defs::LEFT;
+    if (s == "right")
+        return defs::RIGHT;
+    if (s == "top")
+        return defs::TOP;
+    if (s == "bottom")
+        return defs::BOTTOM;
+    throw sls::RuntimeError("Unknown port position " + s);
+}
+
+template <> defs::streamingInterface StringTo(const std::string &s) {
+    std::string rs = s;
+    if (s.find(',') != std::string::npos)
+        rs.erase(rs.find(','));
+    if (rs == "none")
+        return defs::streamingInterface::NONE;
+    if (rs == "lll")
+        return defs::streamingInterface::LOW_LATENCY_LINK;
+    if (rs == "10gbe")
+        return defs::streamingInterface::ETHERNET_10GB;
+    throw sls::RuntimeError("Unknown streamingInterface type " + s);
+}
+
+template <> defs::vetoAlgorithm StringTo(const std::string &s) {
+    if (s == "hits")
+        return defs::ALG_HITS;
+    if (s == "raw")
+        return defs::ALG_RAW;
+    throw sls::RuntimeError("Unknown veto algorithm " + s);
+}
+
+template <> defs::gainMode StringTo(const std::string &s) {
+    if (s == "dynamic")
+        return defs::DYNAMIC;
+    if (s == "forceswitchg1")
+        return defs::FORCE_SWITCH_G1;
+    if (s == "forceswitchg2")
+        return defs::FORCE_SWITCH_G2;
+    if (s == "fixg1")
+        return defs::FIX_G1;
+    if (s == "fixg2")
+        return defs::FIX_G2;
+    if (s == "fixg0")
+        return defs::FIX_G0;
+    throw sls::RuntimeError("Unknown gain mode " + s);
 }
 
 template <> uint32_t StringTo(const std::string &s) {

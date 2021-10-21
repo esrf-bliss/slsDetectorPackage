@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: LGPL-3.0-or-other
+# Copyright (C) 2021 Contributors to the SLS Detector Package
 add_executable(ctbDetectorServer_virtual
     slsDetectorFunctionList.c
     ../slsDetectorServer/src/slsDetectorServer.c
@@ -17,6 +19,8 @@ add_executable(ctbDetectorServer_virtual
     ../slsDetectorServer/src/MAX1932.c
     ../slsDetectorServer/src/programFpgaBlackfin.c
     ../slsDetectorServer/src/sharedMemory.c
+    ../slsDetectorServer/src/loadPattern.c
+    ../../slsSupportLib/src/md5.c
 )
 
 include_directories(

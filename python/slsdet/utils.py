@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: LGPL-3.0-or-other
+# Copyright (C) 2021 Contributors to the SLS Detector Package
 """
 Utility functions that are useful for testing and troubleshooting
 but not directly used in controlling the detector
@@ -41,7 +43,7 @@ def list_to_bitmask(values):
     return mask
 
 def make_bitmask(args):
-    if isinstance(args, list):
+    if isinstance(args, (list,tuple)):
         return list_to_bitmask(args)
     elif isinstance(args, dict):
         return {key: list_to_bitmask(value) for key, value in args.items()}

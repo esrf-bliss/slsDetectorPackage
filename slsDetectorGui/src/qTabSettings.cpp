@@ -1,6 +1,9 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #include "qTabSettings.h"
 #include "qDefs.h"
 #include "sls/ToString.h"
+#include "sls/bit_utils.h"
 #include <QStandardItemModel>
 
 qTabSettings::qTabSettings(QWidget *parent, sls::Detector *detector)
@@ -14,10 +17,21 @@ qTabSettings::~qTabSettings() {}
 
 void qTabSettings::SetupWidgetWindow() {
 
+    counters = std::vector<QCheckBox *>{chkCounter1, chkCounter2, chkCounter3};
+
     spinThreshold2->hide();
     spinThreshold3->hide();
     btnSetThreshold->hide();
     btnSetThreshold->setEnabled(false);
+    lblCounter->hide();
+    lblCounter->setEnabled(false);
+    chkCounter1->setEnabled(false);
+    chkCounter2->setEnabled(false);
+    chkCounter3->setEnabled(false);
+    chkCounter1->hide();
+    chkCounter2->hide();
+    chkCounter3->hide();
+
     // enabling according to det type
     slsDetectorDefs::detectorType detType = det->getDetectorType().squash();
     if (detType == slsDetectorDefs::MYTHEN3) {
@@ -32,6 +46,16 @@ void qTabSettings::SetupWidgetWindow() {
         spinThreshold3->setEnabled(true);
         btnSetThreshold->setEnabled(true);
         btnSetThreshold->show();
+
+        lblCounter->show();
+        lblCounter->setEnabled(true);
+        chkCounter1->setEnabled(true);
+        chkCounter2->setEnabled(true);
+        chkCounter3->setEnabled(true);
+        chkCounter1->show();
+        chkCounter2->show();
+        chkCounter3->show();
+
         // disable dr
         QStandardItemModel *model =
             qobject_cast<QStandardItemModel *>(comboDynamicRange->model());
@@ -49,6 +73,9 @@ void qTabSettings::SetupWidgetWindow() {
         comboDynamicRange->setEnabled(true);
         lblThreshold->setEnabled(true);
         spinThreshold->setEnabled(true);
+    } else if (detType == slsDetectorDefs::JUNGFRAU) {
+        lblGainMode->setEnabled(true);
+        comboGainMode->setEnabled(true);
     }
 
     // default settings for the disabled
@@ -61,75 +88,72 @@ void qTabSettings::SetupWidgetWindow() {
         spinThreshold2->setValue(-1);
         spinThreshold3->setValue(-1);
     }
+
+    // default for gain mode
+    if (comboGainMode->isEnabled()) {
+        SetupGainMode();
+    }
+
     Initialization();
     // default for the disabled
     GetDynamicRange();
     Refresh();
 }
 
+void qTabSettings::SetExportMode(bool exportMode) {
+    if (comboGainMode->isVisible()) {
+        ShowFixG0(exportMode);
+    }
+}
+
 void qTabSettings::SetupDetectorSettings() {
+    comboSettings->setCurrentIndex(UNINITIALIZED);
+
+    // enable only those available to detector
     QStandardItemModel *model =
         qobject_cast<QStandardItemModel *>(comboSettings->model());
+    const int numSettings = comboSettings->count();
     if (model) {
-        QModelIndex index[NUMSETTINGS];
-        QStandardItem *item[NUMSETTINGS];
-        for (int i = 0; i < NUMSETTINGS; ++i) {
+        std::vector<QModelIndex> index(numSettings);
+        std::vector<QStandardItem *> item(numSettings);
+        for (size_t i = 0; i < index.size(); ++i) {
             index[i] = model->index(i, comboSettings->modelColumn(),
                                     comboSettings->rootModelIndex());
             item[i] = model->itemFromIndex(index[i]);
             item[i]->setEnabled(false);
         }
-        switch (det->getDetectorType().squash()) {
-        case slsDetectorDefs::EIGER:
-            item[(int)STANDARD]->setEnabled(true);
-            item[(int)HIGHGAIN]->setEnabled(true);
-            item[(int)LOWGAIN]->setEnabled(true);
-            item[(int)VERYHIGHGAIN]->setEnabled(true);
-            item[(int)VERLOWGAIN]->setEnabled(true);
-            break;
-        case slsDetectorDefs::GOTTHARD:
-            item[(int)HIGHGAIN]->setEnabled(true);
-            item[(int)DYNAMICGAIN]->setEnabled(true);
-            item[(int)LOWGAIN]->setEnabled(true);
-            item[(int)MEDIUMGAIN]->setEnabled(true);
-            item[(int)VERYHIGHGAIN]->setEnabled(true);
-            break;
-        case slsDetectorDefs::JUNGFRAU:
-            item[(int)DYNAMICGAIN]->setEnabled(true);
-            item[(int)DYNAMICHG0]->setEnabled(true);
-            item[(int)FIXGAIN1]->setEnabled(true);
-            item[(int)FIXGAIN2]->setEnabled(true);
-            item[(int)FORCESWITCHG1]->setEnabled(true);
-            item[(int)FORCESWITCHG2]->setEnabled(true);
-            break;
-        case slsDetectorDefs::GOTTHARD2:
-            item[(int)DYNAMICGAIN]->setEnabled(true);
-            item[(int)FIXGAIN1]->setEnabled(true);
-            item[(int)FIXGAIN2]->setEnabled(true);
-            break;
-        case slsDetectorDefs::MOENCH:
-            item[(int)G1_HIGHGAIN]->setEnabled(true);
-            item[(int)G1_LOWGAIN]->setEnabled(true);
-            item[(int)G2_HIGHCAP_HIGHGAIN]->setEnabled(true);
-            item[(int)G2_HIGHCAP_LOWGAIN]->setEnabled(true);
-            item[(int)G2_LOWCAP_HIGHGAIN]->setEnabled(true);
-            item[(int)G2_LOWCAP_LOWGAIN]->setEnabled(true);
-            item[(int)G4_HIGHGAIN]->setEnabled(true);
-            item[(int)G4_LOWGAIN]->setEnabled(true);
-            break;
-        case slsDetectorDefs::MYTHEN3:
-            item[(int)STANDARD]->setEnabled(true);
-            item[(int)FAST]->setEnabled(true);
-            item[(int)HIGHGAIN]->setEnabled(true);
-            break;
-        default:
-            LOG(logDEBUG) << "Unknown detector type. Exiting GUI.";
-            qDefs::Message(qDefs::CRITICAL,
-                           "Unknown detector type. Exiting GUI.",
-                           "qTabSettings::SetupDetectorSettings");
-            exit(-1);
+        try {
+            auto res = det->getSettingsList();
+            for (auto it : res) {
+                item[(int)it]->setEnabled(true);
+            }
         }
+        CATCH_DISPLAY(std::string("Could not setup settings"),
+                      "qTabSettings::SetupDetectorSettings")
     }
+}
+
+void qTabSettings::SetupGainMode() {
+    comboGainMode->setCurrentIndex(DYNAMIC);
+    ShowFixG0(false);
+}
+
+void qTabSettings::ShowFixG0(bool expertMode) {
+    LOG(logINFO) << (expertMode ? "Showing" : "Hiding") << " FIX_G0";
+
+    // enable.disable Fix G0
+    QStandardItemModel *model =
+        qobject_cast<QStandardItemModel *>(comboGainMode->model());
+    const int numSettings = comboGainMode->count();
+    if (model) {
+        std::vector<QModelIndex> index(numSettings);
+        std::vector<QStandardItem *> item(numSettings);
+        index[FIX_G0] = model->index(FIX_G0, comboGainMode->modelColumn(),
+                                     comboGainMode->rootModelIndex());
+        item[FIX_G0] = model->itemFromIndex(index[FIX_G0]);
+        item[FIX_G0]->setEnabled(expertMode);
+    }
+    isVisibleFixG0 = expertMode;
 }
 
 void qTabSettings::Initialization() {
@@ -137,6 +161,10 @@ void qTabSettings::Initialization() {
     if (comboSettings->isEnabled())
         connect(comboSettings, SIGNAL(currentIndexChanged(int)), this,
                 SLOT(SetSettings(int)));
+    // Gain mode
+    if (comboGainMode->isEnabled())
+        connect(comboGainMode, SIGNAL(currentIndexChanged(int)), this,
+                SLOT(SetGainMode(int)));
 
     // Dynamic Range
     if (comboDynamicRange->isEnabled())
@@ -153,6 +181,16 @@ void qTabSettings::Initialization() {
     else if (spinThreshold->isEnabled())
         connect(spinThreshold, SIGNAL(valueChanged(int)), this,
                 SLOT(SetThresholdEnergy(int)));
+
+    // counters
+    if (lblCounter->isEnabled()) {
+        connect(chkCounter1, SIGNAL(toggled(bool)), this,
+                SLOT(SetCounterMask()));
+        connect(chkCounter2, SIGNAL(toggled(bool)), this,
+                SLOT(SetCounterMask()));
+        connect(chkCounter3, SIGNAL(toggled(bool)), this,
+                SLOT(SetCounterMask()));
+    }
 }
 
 void qTabSettings::GetSettings() {
@@ -170,7 +208,7 @@ void qTabSettings::GetSettings() {
             comboSettings->setCurrentIndex(UNINITIALIZED);
             break;
         default:
-            if ((int)retval < -1 || (int)retval >= NUMSETTINGS) {
+            if ((int)retval < -1 || (int)retval >= comboSettings->count()) {
                 throw sls::RuntimeError(std::string("Unknown settings: ") +
                                         std::to_string(retval));
             }
@@ -196,6 +234,60 @@ void qTabSettings::SetSettings(int index) {
     if (det->getDetectorType().squash() == slsDetectorDefs::EIGER) {
         SetThresholdEnergy(spinThreshold->value());
     }
+}
+
+void qTabSettings::GetGainMode() {
+    LOG(logDEBUG) << "Getting gain mode";
+    disconnect(comboGainMode, SIGNAL(currentIndexChanged(int)), this,
+               SLOT(SetGainMode(int)));
+    try {
+        auto retval = det->getGainMode().tsquash(
+            "Inconsistent gain mode for all detectors.");
+        if ((int)retval < 0 || (int)retval >= comboGainMode->count()) {
+            throw sls::RuntimeError(std::string("Unknown gain mode: ") +
+                                    std::to_string(retval));
+        }
+        // warning when using fix_g0 and not in export mode
+        if ((int)retval == FIX_G0 && !isVisibleFixG0) {
+            std::string message =
+                "<nobr>You are not in Expert Mode and Gain Mode is in FIX_G0. "
+                "</nobr><br><nobr>Could damage the detector when used without "
+                "caution! </nobr>";
+            qDefs::Message(qDefs::WARNING, message,
+                           "qTabSettings::GetGainMode");
+            LOG(logWARNING) << message;
+        }
+        comboGainMode->setCurrentIndex((int)retval);
+    }
+    CATCH_DISPLAY("Could not get gain mode.", "qTabSettings::GetGainMode")
+    connect(comboGainMode, SIGNAL(currentIndexChanged(int)), this,
+            SLOT(SetGainMode(int)));
+}
+
+void qTabSettings::SetGainMode(int index) {
+    // warning for fix_G0 even in export mode
+    if (index == FIX_G0) {
+        if (qDefs::Message(
+                qDefs::QUESTION,
+                "<nobr>You are in Export mode, "
+                "</nobr><br><nobr>but setting Gain Mode to FIX_G0 could "
+                "damage the detector! </nobr><br><nobr>Proceed and set "
+                "gainmode to FIX_G0 anyway?</nobr>",
+                "qTabSettings::SetGainMode") == slsDetectorDefs::FAIL) {
+            GetGainMode();
+            return;
+        }
+    }
+
+    LOG(logINFO) << "Setting Gain Mode to "
+                 << comboGainMode->currentText().toAscii().data();
+    auto val = static_cast<slsDetectorDefs::gainMode>(index);
+    try {
+
+        det->setGainMode(val);
+    }
+    CATCH_HANDLE("Could not set gain mode.", "qTabSettings::SetGainMode", this,
+                 &qTabSettings::GetGainMode)
 }
 
 void qTabSettings::GetDynamicRange() {
@@ -269,7 +361,7 @@ void qTabSettings::GetThresholdEnergies() {
         spinThreshold3->setValue(retval[2]);
     }
     CATCH_DISPLAY("Could not get threshold energy.",
-                  "qTabDataOutput::GetThresholdEnergies")
+                  "qTabSettings::GetThresholdEnergies")
     connect(btnSetThreshold, SIGNAL(clicked()), this,
             SLOT(SetThresholdEnergies()));
 }
@@ -284,7 +376,7 @@ void qTabSettings::GetThresholdEnergy() {
         spinThreshold->setValue(retval);
     }
     CATCH_DISPLAY("Could not get threshold energy.",
-                  "qTabDataOutput::GetThresholdEnergy")
+                  "qTabSettings::GetThresholdEnergy")
     connect(spinThreshold, SIGNAL(valueChanged(int)), this,
             SLOT(SetThresholdEnergy(int)));
 }
@@ -317,11 +409,61 @@ void qTabSettings::SetThresholdEnergy(int index) {
     GetThresholdEnergy();
 }
 
+void qTabSettings::GetCounterMask() {
+    LOG(logDEBUG) << "Getting counter mask";
+    disconnect(chkCounter1, SIGNAL(toggled(bool)), this,
+               SLOT(SetCounterMask()));
+    disconnect(chkCounter2, SIGNAL(toggled(bool)), this,
+               SLOT(SetCounterMask()));
+    disconnect(chkCounter3, SIGNAL(toggled(bool)), this,
+               SLOT(SetCounterMask()));
+    try {
+        auto retval = sls::getSetBits(det->getCounterMask().tsquash(
+            "Counter mask is inconsistent for all detectors."));
+        // default to unchecked
+        for (auto p : counters) {
+            p->setChecked(false);
+        }
+        // if retval[i] = 2, chkCounter2 is checked
+        for (auto i : retval) {
+            if (i > 3) {
+                throw sls::RuntimeError(
+                    std::string("Unknown counter index : ") +
+                    std::to_string(static_cast<int>(i)));
+            }
+            counters[i]->setChecked(true);
+        }
+    }
+    CATCH_DISPLAY("Could not get counter mask.", "qTabSettings::GetCounterMask")
+    connect(chkCounter1, SIGNAL(toggled(bool)), this, SLOT(SetCounterMask()));
+    connect(chkCounter2, SIGNAL(toggled(bool)), this, SLOT(SetCounterMask()));
+    connect(chkCounter3, SIGNAL(toggled(bool)), this, SLOT(SetCounterMask()));
+}
+
+void qTabSettings::SetCounterMask() {
+    uint32_t mask = 0;
+    for (unsigned int i = 0; i < counters.size(); ++i) {
+        if (counters[i]->isChecked()) {
+            mask |= (1 << i);
+        }
+    }
+    LOG(logINFO) << "Setting counter mask to " << mask;
+    try {
+        det->setCounterMask(mask);
+    }
+    CATCH_HANDLE("Could not set counter mask.", "qTabSettings::SetCounterMask",
+                 this, &qTabSettings::GetCounterMask)
+}
+
 void qTabSettings::Refresh() {
     LOG(logDEBUG) << "**Updating Settings Tab";
 
     if (comboSettings->isEnabled()) {
         GetSettings();
+    }
+
+    if (comboGainMode->isEnabled()) {
+        GetGainMode();
     }
 
     if (comboDynamicRange->isEnabled()) {
@@ -333,8 +475,11 @@ void qTabSettings::Refresh() {
         GetThresholdEnergies();
     // eiger
     else if (spinThreshold->isEnabled()) {
-        LOG(logINFOBLUE) << "calling it!";
         GetThresholdEnergy();
+    }
+
+    if (lblCounter->isEnabled()) {
+        GetCounterMask();
     }
 
     LOG(logDEBUG) << "**Updated Settings Tab";

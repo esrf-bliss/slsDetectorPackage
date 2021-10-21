@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: LGPL-3.0-or-other
+# Copyright (C) 2021 Contributors to the SLS Detector Package
 
 mkdir build
 mkdir install
@@ -8,6 +10,7 @@ cmake .. \
       -DSLS_USE_TEXTCLIENT=ON \
       -DSLS_USE_RECEIVER=ON \
       -DSLS_USE_GUI=ON \
+      -DSLS_USE_MOENCH=ON\
       -DSLS_USE_TESTS=ON \
       -DSLS_USE_PYTHON=OFF \
       -DCMAKE_BUILD_TYPE=Release \

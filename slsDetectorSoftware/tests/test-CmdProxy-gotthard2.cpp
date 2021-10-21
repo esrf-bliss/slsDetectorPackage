@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #include "CmdProxy.h"
 #include "catch.hpp"
 #include "sls/Detector.h"
@@ -15,6 +17,93 @@ using sls::Detector;
 using test::GET;
 using test::PUT;
 
+// time specific measurements for gotthard2
+TEST_CASE("timegotthard2", "[.cmd]") {
+    Detector det;
+    CmdProxy proxy(&det);
+    auto det_type = det.getDetectorType().squash();
+    if (det_type == defs::GOTTHARD2) {
+        // exptime
+        auto prev_val = det.getExptime();
+        {
+            std::ostringstream oss;
+            proxy.Call("exptime", {"220ns"}, -1, PUT, oss);
+            REQUIRE(oss.str() == "exptime 220ns\n");
+        }
+        {
+            std::ostringstream oss;
+            proxy.Call("exptime", {}, -1, GET, oss);
+            REQUIRE(oss.str() == "exptime 222ns\n");
+        }
+        for (int i = 0; i != det.size(); ++i) {
+            det.setExptime(prev_val[i], {i});
+        }
+        // burst period
+        prev_val = det.getBurstPeriod();
+        {
+            std::ostringstream oss;
+            proxy.Call("burstperiod", {"220ns"}, -1, PUT, oss);
+            REQUIRE(oss.str() == "burstperiod 220ns\n");
+        }
+        {
+            std::ostringstream oss;
+            proxy.Call("burstperiod", {}, -1, GET, oss);
+            REQUIRE(oss.str() == "burstperiod 222ns\n");
+        }
+        for (int i = 0; i != det.size(); ++i) {
+            det.setBurstPeriod(prev_val[i], {i});
+        }
+        // delay after trigger
+        prev_val = det.getDelayAfterTrigger();
+        {
+            std::ostringstream oss;
+            proxy.Call("delay", {"220ns"}, -1, PUT, oss);
+            REQUIRE(oss.str() == "delay 220ns\n");
+        }
+        {
+            std::ostringstream oss;
+            proxy.Call("delay", {}, -1, GET, oss);
+            REQUIRE(oss.str() == "delay 222ns\n");
+        }
+        for (int i = 0; i != det.size(); ++i) {
+            det.setDelayAfterTrigger(prev_val[i], {i});
+        }
+        // period in burst mode
+        auto burst_prev_val = det.getBurstMode();
+        det.setBurstMode(defs::BURST_INTERNAL, {});
+        prev_val = det.getPeriod();
+        {
+            std::ostringstream oss;
+            proxy.Call("period", {"220ns"}, -1, PUT, oss);
+            REQUIRE(oss.str() == "period 220ns\n");
+        }
+        {
+            std::ostringstream oss;
+            proxy.Call("period", {}, -1, GET, oss);
+            REQUIRE(oss.str() == "period 222ns\n");
+        }
+        for (int i = 0; i != det.size(); ++i) {
+            det.setPeriod(prev_val[i], {i});
+        }
+        // period in continuous mode
+        det.setBurstMode(defs::CONTINUOUS_INTERNAL, {});
+        prev_val = det.getPeriod();
+        {
+            std::ostringstream oss;
+            proxy.Call("period", {"220ns"}, -1, PUT, oss);
+            REQUIRE(oss.str() == "period 220ns\n");
+        }
+        {
+            std::ostringstream oss;
+            proxy.Call("period", {}, -1, GET, oss);
+            REQUIRE(oss.str() == "period 222ns\n");
+        }
+        for (int i = 0; i != det.size(); ++i) {
+            det.setPeriod(prev_val[i], {i});
+            det.setBurstMode(burst_prev_val[i], {i});
+        }
+    }
+}
 /* dacs */
 
 TEST_CASE("Setting and reading back GOTTHARD2 dacs", "[.cmd][.dacs]") {
@@ -52,59 +141,59 @@ TEST_CASE("Setting and reading back GOTTHARD2 dacs", "[.cmd][.dacs]") {
         SECTION("vb_opa_fd") { test_dac(defs::VB_OPA_FD, "vb_opa_fd", 0); }
         SECTION("vcom_adc2") { test_dac(defs::VCOM_ADC2, "vcom_adc2", 1400); }
         // eiger
-        REQUIRE_THROWS(proxy.Call("vthreshold", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vsvp", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vsvn", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vtrim", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vrpreamp", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vrshaper", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vtgstv", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vcmp_ll", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vcmp_lr", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vcal", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vcmp_rl", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vcmp_rr", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("rxb_rb", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("rxb_lb", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vcp", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vcn", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vishaper", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("iodelay", {}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vthreshold"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vsvp"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vsvn"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vtrim"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vrpreamp"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vrshaper"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vtgstv"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vcmp_ll"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vcmp_lr"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vcal"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vcmp_rl"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vcmp_rr"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"rxb_rb"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"rxb_lb"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vcp"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vcn"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vishaper"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"iodelay"}, -1, GET));
         // gotthard
-        REQUIRE_THROWS(proxy.Call("vref_ds", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vcascn_pb", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vcascp_pb", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vout_cm", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vcasc_out", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vin_cm", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vref_comp", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("ib_test_c", {}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vref_ds"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vcascn_pb"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vcascp_pb"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vout_cm"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vcasc_out"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vin_cm"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vref_comp"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"ib_test_c"}, -1, GET));
         // jungfrau
-        REQUIRE_THROWS(proxy.Call("vb_comp", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vdd_prot", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vin_com", {}, -1, GET));
-        // REQUIRE_THROWS(proxy.Call("vref_prech", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vb_pixbuf", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vb_ds", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vref_ds", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vref_comp", {}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vb_comp"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vdd_prot"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vin_com"}, -1, GET));
+        // REQUIRE_THROWS(proxy.Call("dac", {"vref_prech"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vb_pixbuf"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vb_ds"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vref_ds"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vref_comp"}, -1, GET));
         // mythen3
-        REQUIRE_THROWS(proxy.Call("vrpreamp", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vrshaper", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vrshaper_n", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vipre", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vishaper", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vdcsh", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vth1", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vth2", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vth3", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vcal_n", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vcal_p", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vtrim", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vcassh", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vcas", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vicin", {}, -1, GET));
-        REQUIRE_THROWS(proxy.Call("vipre_out", {}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vrpreamp"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vrshaper"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vrshaper_n"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vipre"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vishaper"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vdcsh"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vth1"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vth2"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vth3"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vcal_n"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vcal_p"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vtrim"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vcassh"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vcas"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vicin"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("dac", {"vipre_out"}, -1, GET));
     }
 }
 
@@ -432,66 +521,6 @@ TEST_CASE("cdsgain", "[.cmd]") {
     }
 }
 
-TEST_CASE("filter", "[.cmd]") {
-    Detector det;
-    CmdProxy proxy(&det);
-    auto det_type = det.getDetectorType().squash();
-
-    if (det_type == defs::GOTTHARD2) {
-        auto prev_val = det.getFilter();
-        {
-            std::ostringstream oss;
-            proxy.Call("filter", {"1"}, -1, PUT, oss);
-            REQUIRE(oss.str() == "filter 1\n");
-        }
-        {
-            std::ostringstream oss;
-            proxy.Call("filter", {"0"}, -1, PUT, oss);
-            REQUIRE(oss.str() == "filter 0\n");
-        }
-        {
-            std::ostringstream oss;
-            proxy.Call("filter", {}, -1, GET, oss);
-            REQUIRE(oss.str() == "filter 0\n");
-        }
-        for (int i = 0; i != det.size(); ++i) {
-            det.setFilter(prev_val[i], {i});
-        }
-    } else {
-        REQUIRE_THROWS(proxy.Call("filter", {}, -1, GET));
-    }
-}
-
-TEST_CASE("currentsource", "[.cmd]") {
-    Detector det;
-    CmdProxy proxy(&det);
-    auto det_type = det.getDetectorType().squash();
-
-    if (det_type == defs::GOTTHARD2) {
-        auto prev_val = det.getCurrentSource();
-        {
-            std::ostringstream oss;
-            proxy.Call("currentsource", {"1"}, -1, PUT, oss);
-            REQUIRE(oss.str() == "currentsource 1\n");
-        }
-        {
-            std::ostringstream oss;
-            proxy.Call("currentsource", {"0"}, -1, PUT, oss);
-            REQUIRE(oss.str() == "currentsource 0\n");
-        }
-        {
-            std::ostringstream oss;
-            proxy.Call("currentsource", {}, -1, GET, oss);
-            REQUIRE(oss.str() == "currentsource 0\n");
-        }
-        for (int i = 0; i != det.size(); ++i) {
-            det.setCurrentSource(prev_val[i], {i});
-        }
-    } else {
-        REQUIRE_THROWS(proxy.Call("currentsource", {}, -1, GET));
-    }
-}
-
 TEST_CASE("timingsource", "[.cmd]") {
     Detector det;
     CmdProxy proxy(&det);
@@ -550,6 +579,109 @@ TEST_CASE("veto", "[.cmd]") {
     } else {
         REQUIRE_THROWS(proxy.Call("veto", {}, -1, GET));
     }
+}
+
+TEST_CASE("vetostream", "[.cmd]") {
+    Detector det;
+    CmdProxy proxy(&det);
+    auto det_type = det.getDetectorType().squash();
+    if (det_type == defs::GOTTHARD2) {
+        auto prev_val = det.getVetoStream();
+        {
+            std::ostringstream oss;
+            proxy.Call("vetostream", {"none"}, -1, PUT, oss);
+            REQUIRE(oss.str() == "vetostream none\n");
+        }
+        {
+            std::ostringstream oss;
+            proxy.Call("vetostream", {}, -1, GET, oss);
+            REQUIRE(oss.str() == "vetostream none\n");
+        }
+        {
+            std::ostringstream oss;
+            proxy.Call("vetostream", {"lll"}, -1, PUT, oss);
+            REQUIRE(oss.str() == "vetostream lll\n");
+        }
+        {
+            std::ostringstream oss;
+            proxy.Call("vetostream", {}, -1, GET, oss);
+            REQUIRE(oss.str() == "vetostream lll\n");
+        }
+        {
+            std::ostringstream oss;
+            proxy.Call("vetostream", {"lll", "10gbe"}, -1, PUT, oss);
+            REQUIRE(oss.str() == "vetostream lll, 10gbe\n");
+        }
+        {
+            std::ostringstream oss;
+            proxy.Call("vetostream", {}, -1, GET, oss);
+            REQUIRE(oss.str() == "vetostream lll, 10gbe\n");
+        }
+        REQUIRE_THROWS(proxy.Call("vetostream", {"lll", "none"}, -1, PUT));
+        for (int i = 0; i != det.size(); ++i) {
+            det.setVetoStream(prev_val[i], {i});
+        }
+    } else {
+        REQUIRE_THROWS(proxy.Call("vetostream", {}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("vetostream", {"none"}, -1, PUT));
+    }
+    REQUIRE_THROWS(proxy.Call("vetostream", {"dfgd"}, -1, GET));
+}
+
+TEST_CASE("vetoalg", "[.cmd]") {
+    Detector det;
+    CmdProxy proxy(&det);
+    auto det_type = det.getDetectorType().squash();
+    if (det_type == defs::GOTTHARD2) {
+        auto prev_val_lll =
+            det.getVetoAlgorithm(defs::streamingInterface::LOW_LATENCY_LINK);
+        auto prev_val_10g =
+            det.getVetoAlgorithm(defs::streamingInterface::ETHERNET_10GB);
+        {
+            std::ostringstream oss;
+            proxy.Call("vetoalg", {"hits", "lll"}, -1, PUT, oss);
+            REQUIRE(oss.str() == "vetoalg hits lll\n");
+        }
+        {
+            std::ostringstream oss;
+            proxy.Call("vetoalg", {"lll"}, -1, GET, oss);
+            REQUIRE(oss.str() == "vetoalg hits lll\n");
+        }
+        {
+            std::ostringstream oss;
+            proxy.Call("vetoalg", {"hits", "10gbe"}, -1, PUT, oss);
+            REQUIRE(oss.str() == "vetoalg hits 10gbe\n");
+        }
+        {
+            std::ostringstream oss;
+            proxy.Call("vetoalg", {"10gbe"}, -1, GET, oss);
+            REQUIRE(oss.str() == "vetoalg hits 10gbe\n");
+        }
+        {
+            std::ostringstream oss;
+            proxy.Call("vetoalg", {"raw", "lll"}, -1, PUT, oss);
+            REQUIRE(oss.str() == "vetoalg raw lll\n");
+        }
+        {
+            std::ostringstream oss;
+            proxy.Call("vetoalg", {"raw", "10gbe"}, -1, PUT, oss);
+            REQUIRE(oss.str() == "vetoalg raw 10gbe\n");
+        }
+        REQUIRE_THROWS(
+            proxy.Call("vetoalg", {"default", "lll", "10gbe"}, -1, PUT));
+        REQUIRE_THROWS(proxy.Call("vetoalg", {"hits", "none"}, -1, PUT));
+        for (int i = 0; i != det.size(); ++i) {
+            det.setVetoAlgorithm(prev_val_lll[i],
+                                 defs::streamingInterface::LOW_LATENCY_LINK,
+                                 {i});
+            det.setVetoAlgorithm(prev_val_10g[i],
+                                 defs::streamingInterface::ETHERNET_10GB, {i});
+        }
+    } else {
+        REQUIRE_THROWS(proxy.Call("vetoalg", {"lll"}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("vetoalg", {"none"}, -1, PUT));
+    }
+    REQUIRE_THROWS(proxy.Call("vetoalg", {"dfgd"}, -1, GET));
 }
 
 TEST_CASE("confadc", "[.cmd]") {

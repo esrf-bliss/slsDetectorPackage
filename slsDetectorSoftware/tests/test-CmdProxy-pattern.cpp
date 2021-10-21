@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #include "CmdProxy.h"
 #include "catch.hpp"
 #include "sls/Detector.h"
@@ -55,7 +57,7 @@ TEST_CASE("defaultpattern", "[.cmd]") {
         REQUIRE_NOTHROW(proxy.Call("defaultpattern", {}, -1, PUT));
     } else {
         REQUIRE_THROWS(proxy.Call("defaultpattern", {}, -1, GET));
-        REQUIRE_NOTHROW(proxy.Call("defaultpattern", {}, -1, PUT));
+        REQUIRE_THROWS(proxy.Call("defaultpattern", {}, -1, PUT));
     }
 }
 

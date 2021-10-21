@@ -1,8 +1,11 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #include "sls/file_utils.h"
 #include "sls/logger.h"
 #include "sls/sls_detector_exceptions.h"
 
 #include <errno.h>
+#include <ios>
 #include <iostream>
 #include <sstream>
 #include <sys/stat.h>
@@ -92,3 +95,13 @@ void mkdir_p(const std::string &path, std::string dir) {
     if (i + 1 < path.length())
         mkdir_p(path.substr(i + 1), dir);
 }
+
+namespace sls {
+int getFileSize(std::ifstream &ifs) {
+    auto current_pos = ifs.tellg();
+    ifs.seekg(0, std::ios::end);
+    int file_size = ifs.tellg();
+    ifs.seekg(current_pos);
+    return file_size;
+}
+} // namespace sls

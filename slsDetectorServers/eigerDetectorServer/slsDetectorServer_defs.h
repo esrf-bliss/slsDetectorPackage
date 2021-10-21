@@ -1,10 +1,20 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #pragma once
 #include "sls/sls_detector_defs.h"
 
-#define REQUIRED_FIRMWARE_VERSION (27)
-#define IDFILECOMMAND             "more /home/root/executables/detid.txt"
-#define CONFIG_FILE               ("config_eiger.txt")
-#define WAIT_STOP_SERVER_START    (1 * 1000 * 1000)
+#define LINKED_SERVER_NAME "eigerDetectorServer"
+
+#define REQUIRED_FIRMWARE_VERSION (29)
+// virtual ones renamed for consistency
+// real ones keep previous name for compatibility (already in production)
+#ifdef VIRTUAL
+#define ID_FILE "detid_eiger.txt"
+#else
+#define ID_FILE "detid.txt"
+#endif
+#define CONFIG_FILE            ("config_eiger.txt")
+#define WAIT_STOP_SERVER_START (1 * 1000 * 1000)
 
 #define STATUS_IDLE    0
 #define STATUS_RUNNING 1
@@ -120,10 +130,13 @@ enum MASTERINDEX { MASTER_HARDWARE, OW_MASTER, OW_SLAVE };
 
 #define MAX_TRIMBITS_VALUE (63)
 
+#define MIN_ROWS_PER_READOUT    (1)
 #define MAX_ROWS_PER_READOUT    (256)
 #define MAX_PACKETS_PER_REQUEST (256)
 
 #define UDP_HEADER_MAX_FRAME_VALUE (0xFFFFFFFFFFFF)
+
+#define BIT16_MASK (0xFFFF)
 
 #define DAC_MIN_MV (0)
 #define DAC_MAX_MV (2048)

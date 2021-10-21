@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: LGPL-3.0-or-other
+# Copyright (C) 2021 Contributors to the SLS Detector Package
 set(src 
     slsDetectorFunctionList.c
     ../slsDetectorServer/src/slsDetectorServer.c
@@ -6,6 +8,7 @@ set(src
     ../slsDetectorServer/src/communication_funcs_UDP.c
     ../slsDetectorServer/src/common.c
     ../slsDetectorServer/src/sharedMemory.c
+    ../../slsSupportLib/src/md5.c
 )
 
 include_directories(
@@ -100,3 +103,4 @@ install(TARGETS eigerDetectorServerSlaveBottom_virtual
 
 
 configure_file(config_eiger.txt ${CMAKE_BINARY_DIR}/bin/config_eiger.txt COPYONLY)
+configure_file(detid_eiger.txt ${CMAKE_BINARY_DIR}/bin/detid_eiger.txt COPYONLY)

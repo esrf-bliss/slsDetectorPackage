@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #include "CmdProxy.h"
 #include "HelpDacs.h"
 #include "sls/TimeHelper.h"
@@ -29,10 +31,11 @@ std::ostream &operator<<(std::ostream &os,
 
 void CmdProxy::Call(const std::string &command,
                     const std::vector<std::string> &arguments, int detector_id,
-                    int action, std::ostream &os) {
+                    int action, std::ostream &os, int receiver_id) {
     cmd = command;
     args = arguments;
     det_id = detector_id;
+    rx_id = receiver_id;
 
     std::string temp;
     while (temp != cmd) {
@@ -79,9 +82,14 @@ std::map<std::string, std::string> CmdProxy::GetDepreciatedCommands() {
 }
 
 void CmdProxy::WrongNumberOfParameters(size_t expected) {
-    throw RuntimeError(
-        "Command " + cmd + " expected <=" + std::to_string(expected) +
-        " parameter/s but got " + std::to_string(args.size()) + "\n");
+    if (expected == 0) {
+        throw RuntimeError("Command " + cmd +
+                           " expected no parameter/s but got " +
+                           std::to_string(args.size()) + "\n");
+    }
+    throw RuntimeError("Command " + cmd + " expected (or >=) " +
+                       std::to_string(expected) + " parameter/s but got " +
+                       std::to_string(args.size()) + "\n");
 }
 
 /************************************************
@@ -206,7 +214,8 @@ std::string CmdProxy::Acquire(int action) {
               "detector acquisition for number of frames set\n\t- monitors "
               "detector status from running to idle\n\t- stops the receiver "
               "listener (if enabled)\n\t- increments file index if file write "
-              "enabled\n\t- resets acquiring flag";
+              "enabled\n\t- resets acquiring flag"
+           << '\n';
     } else {
         if (det->empty()) {
             throw sls::RuntimeError(
@@ -603,57 +612,38 @@ std::string CmdProxy::Exptime(int action) {
     return os.str();
 }
 
-std::string CmdProxy::Speed(int action) {
+std::string CmdProxy::ReadoutSpeed(int action) {
     std::ostringstream os;
     os << cmd << ' ';
     if (action == defs::HELP_ACTION) {
-        os << "[0 or full_speed|1 or half_speed|2 or "
-              "quarter_speed]\n\t[Eiger][Jungfrau] Readout speed of "
-              "chip.\n\t[Jungfrau] FULL_SPEED option only available from v2.0 "
-              "boards and with setting number of interfaces to 2. Also "
-              "overwrites adcphase to recommended default. "
+        os << "\n\t[0 or full_speed|1 or half_speed|2 or "
+              "quarter_speed]\n\t\t[Eiger][Jungfrau] Readout "
+              "speed of chip.\n\t\t[Eiger] Default speed is full_speed."
+              "\n\t\t[Jungfrau] Default speed is half_speed. full_speed "
+              "option only available from v2.0 boards and is recommended to "
+              "set "
+              "number of interfaces to 2. Also overwrites "
+              "adcphase to recommended default.\n\t [144|108]\n\t\t[Gotthard2] "
+              "Readout speed of chip in MHz. Default is 108."
            << '\n';
     } else {
         defs::detectorType type = det->getDetectorType().squash();
         if (type == defs::CHIPTESTBOARD || type == defs::MOENCH) {
             throw sls::RuntimeError(
-                "Speed not implemented. Did you mean runclk?");
-        }
-        if (type != defs::EIGER && type != defs::JUNGFRAU) {
-            throw sls::RuntimeError(
-                "Speed not implemented."); // setspped one function problem. tbr
-                                           // after change
+                "ReadoutSpeed not implemented. Did you mean runclk?");
         }
         if (action == defs::GET_ACTION) {
             if (!args.empty()) {
                 WrongNumberOfParameters(0);
             }
-            auto t = det->getSpeed(std::vector<int>{det_id});
+            auto t = det->getReadoutSpeed(std::vector<int>{det_id});
             os << OutString(t) << '\n';
         } else if (action == defs::PUT_ACTION) {
             if (args.size() != 1) {
                 WrongNumberOfParameters(1);
             }
-            defs::speedLevel t;
-            try {
-                int ival = StringTo<int>(args[0]);
-                switch (ival) {
-                case 0:
-                    t = defs::FULL_SPEED;
-                    break;
-                case 1:
-                    t = defs::HALF_SPEED;
-                    break;
-                case 2:
-                    t = defs::QUARTER_SPEED;
-                    break;
-                default:
-                    throw sls::RuntimeError("Unknown speed " + args[0]);
-                }
-            } catch (...) {
-                t = sls::StringTo<defs::speedLevel>(args[0]);
-            }
-            det->setSpeed(t, std::vector<int>{det_id});
+            defs::speedLevel t = sls::StringTo<defs::speedLevel>(args[0]);
+            det->setReadoutSpeed(t, std::vector<int>{det_id});
             os << sls::ToString(t) << '\n'; // no args to convert 0,1,2 as well
         } else {
             throw sls::RuntimeError("Unknown action");
@@ -959,6 +949,69 @@ std::string CmdProxy::ExternalSignal(int action) {
     return os.str();
 }
 
+std::string CmdProxy::CurrentSource(int action) {
+    std::ostringstream os;
+    os << cmd << ' ';
+    if (action == defs::HELP_ACTION) {
+        os << "\n\t[0|1]\n\t\t[Gotthard2] Enable or disable current source. "
+              "Default "
+              "is disabled.\n\t[0|1] [fix|nofix] [select source] [(only for "
+              "chipv1.1)normal|low]\n\t\t[Jungfrau] Disable or enable current "
+              "source with some parameters. The select source is 0-63 for "
+              "chipv1.0 and a 64 bit mask for chipv1.1. To disable, one needs "
+              "only one argument '0'."
+           << '\n';
+    } else if (action == defs::GET_ACTION) {
+        if (args.size() != 0) {
+            WrongNumberOfParameters(0);
+        }
+        auto t = det->getCurrentSource(std::vector<int>{det_id});
+        os << OutString(t) << '\n';
+    } else if (action == defs::PUT_ACTION) {
+        if (args.size() == 1) {
+            det->setCurrentSource(
+                defs::currentSrcParameters(StringTo<bool>(args[0])));
+        } else if (args.size() >= 3) {
+            // scan fix
+            bool fix = false;
+            if (args[1] == "fix") {
+                fix = true;
+            } else if (args[1] == "nofix") {
+                fix = false;
+            } else {
+                throw sls::RuntimeError("Invalid argument: " + args[1] +
+                                        ". Did you mean fix or nofix?");
+            }
+            if (args.size() == 3) {
+                det->setCurrentSource(defs::currentSrcParameters(
+                    fix, StringTo<uint64_t>(args[2])));
+            } else if (args.size() == 4) {
+                bool normalCurrent = false;
+                if (args[3] == "normal") {
+                    normalCurrent = true;
+                } else if (args[3] == "low") {
+                    normalCurrent = false;
+                } else {
+                    throw sls::RuntimeError("Invalid argument: " + args[3] +
+                                            ". Did you mean normal or low?");
+                }
+                det->setCurrentSource(defs::currentSrcParameters(
+                    fix, StringTo<uint64_t>(args[2]), normalCurrent));
+            } else {
+                throw sls::RuntimeError(
+                    "Invalid number of parareters for this command.");
+            }
+        } else {
+            throw sls::RuntimeError(
+                "Invalid number of parareters for this command.");
+        }
+        os << ToString(args) << '\n';
+    } else {
+        throw sls::RuntimeError("Unknown action");
+    }
+    return os.str();
+}
+
 /** temperature */
 std::string CmdProxy::TemperatureValues(int action) {
     std::ostringstream os;
@@ -1095,6 +1148,82 @@ std::string CmdProxy::DacValues(int action) {
     return os.str();
 }
 
+std::string CmdProxy::ResetDacs(int action) {
+    std::ostringstream os;
+    os << cmd << ' ';
+    if (action == defs::HELP_ACTION) {
+        os << "[(optional) hard] "
+              "\n\t[Eiger][Jungfrau][Gotthard][Moench][Gotthard2]["
+              "Mythen3]Reset dac values to the defaults. A 'hard' optional "
+              "reset will reset the dacs to the hardcoded defaults in on-board "
+              "detector server."
+           << '\n';
+    } else if (action == defs::GET_ACTION) {
+        throw sls::RuntimeError("Cannot get");
+    } else if (action == defs::PUT_ACTION) {
+        bool hardReset = false;
+        if (args.size() == 1) {
+            if (args[0] != "hard") {
+                throw sls::RuntimeError("Unknown argument " + args[0] +
+                                        ". Did you mean hard?");
+            }
+            hardReset = true;
+        } else if (args.size() > 1) {
+            WrongNumberOfParameters(1);
+        }
+        det->resetToDefaultDacs(hardReset, std::vector<int>{det_id});
+        os << "successful\n";
+    } else {
+        throw sls::RuntimeError("Unknown action");
+    }
+    return os.str();
+}
+
+std::string CmdProxy::DefaultDac(int action) {
+    std::ostringstream os;
+    os << cmd << ' ';
+    if (action == defs::HELP_ACTION) {
+        os << "[dac name][value][(optional)setting]\n\tSets the default for "
+              "that dac to this value.\n\t[Jungfrau][Mythen3] When settings is "
+              "provided, it sets the default value only for that setting"
+           << '\n';
+    } else if (action == defs::GET_ACTION) {
+        if (args.size() < 1) {
+            WrongNumberOfParameters(1);
+        }
+        // optional settings
+        if (args.size() == 2) {
+            auto t = det->getDefaultDac(
+                StringTo<defs::dacIndex>(args[0]),
+                sls::StringTo<slsDetectorDefs::detectorSettings>(args[1]),
+                std::vector<int>{det_id});
+            os << args[0] << ' ' << args[1] << ' ' << OutString(t) << '\n';
+        } else {
+            auto t = det->getDefaultDac(StringTo<defs::dacIndex>(args[0]),
+                                        std::vector<int>{det_id});
+            os << args[0] << ' ' << OutString(t) << '\n';
+        }
+    } else if (action == defs::PUT_ACTION) {
+        if (args.size() < 2) {
+            WrongNumberOfParameters(2);
+        }
+        // optional settings
+        if (args.size() == 3) {
+            det->setDefaultDac(
+                StringTo<defs::dacIndex>(args[0]), StringTo<int>(args[1]),
+                sls::StringTo<slsDetectorDefs::detectorSettings>(args[2]),
+                std::vector<int>{det_id});
+            os << args[0] << ' ' << args[2] << ' ' << args[1] << '\n';
+        } else {
+            det->setDefaultDac(StringTo<defs::dacIndex>(args[0]),
+                               StringTo<int>(args[1]));
+            os << args[0] << ' ' << args[1] << '\n';
+        }
+    } else {
+        throw sls::RuntimeError("Unknown action");
+    }
+    return os.str();
+}
 /* acquisition */
 
 std::string CmdProxy::ReceiverStatus(int action) {
@@ -1193,7 +1322,138 @@ std::string CmdProxy::Scan(int action) {
     return os.str();
 }
 
+std::string CmdProxy::Trigger(int action) {
+    std::ostringstream os;
+    os << cmd << ' ';
+    if (action == defs::HELP_ACTION) {
+        if (cmd == "trigger") {
+            os << "\n\t[Eiger][Mythen3] Sends software trigger signal to "
+                  "detector";
+        } else if (cmd == "blockingtrigger") {
+            os << "\n\t[Eiger] Sends software trigger signal to detector and "
+                  "blocks till "
+                  "the frames are sent out for that trigger.";
+        } else {
+            throw sls::RuntimeError("unknown command " + cmd);
+        }
+        os << '\n';
+    } else if (action == slsDetectorDefs::GET_ACTION) {
+        throw sls::RuntimeError("Cannot get");
+    } else if (action == slsDetectorDefs::PUT_ACTION) {
+        if (det_id != -1) {
+            throw sls::RuntimeError("Cannot execute this at module level");
+        }
+        if (!args.empty()) {
+            WrongNumberOfParameters(0);
+        }
+        bool block = false;
+        if (cmd == "blockingtrigger") {
+            block = true;
+        }
+        det->sendSoftwareTrigger(block);
+        os << "successful\n";
+    } else {
+        throw sls::RuntimeError("Unknown action");
+    }
+    return os.str();
+}
+
 /* Network Configuration (Detector<->Receiver) */
+
+IpAddr CmdProxy::getIpFromAuto() {
+    std::string rxHostname =
+        det->getRxHostname(std::vector<int>{det_id}).squash("none");
+    // Hostname could be ip try to decode otherwise look up the hostname
+    auto val = sls::IpAddr{rxHostname};
+    if (val == 0) {
+        val = HostnameToIp(rxHostname.c_str());
+    }
+    return val;
+}
+
+UdpDestination CmdProxy::getUdpEntry() {
+    UdpDestination udpDestination{};
+    udpDestination.entry = rx_id;
+
+    for (auto it : args) {
+        size_t pos = it.find('=');
+        std::string key = it.substr(0, pos);
+        std::string value = it.substr(pos + 1);
+        if (key == "ip") {
+            if (value == "auto") {
+                auto val = getIpFromAuto();
+                LOG(logINFO) << "Setting udp_dstip of detector " << det_id
+                             << " to " << val;
+                udpDestination.ip = val;
+            } else {
+                udpDestination.ip = IpAddr(value);
+            }
+        } else if (key == "ip2") {
+            if (value == "auto") {
+                auto val = getIpFromAuto();
+                LOG(logINFO) << "Setting udp_dstip2 of detector " << det_id
+                             << " to " << val;
+                udpDestination.ip2 = val;
+            } else {
+                udpDestination.ip2 = IpAddr(value);
+            }
+        } else if (key == "mac") {
+            udpDestination.mac = MacAddr(value);
+        } else if (key == "mac2") {
+            udpDestination.mac2 = MacAddr(value);
+        } else if (key == "port") {
+            udpDestination.port = StringTo<uint32_t>(value);
+        } else if (key == "port2") {
+            udpDestination.port2 = StringTo<uint32_t>(value);
+        }
+    }
+    return udpDestination;
+}
+
+std::string CmdProxy::UDPDestinationList(int action) {
+    std::ostringstream os;
+    os << cmd << ' ';
+    if (action == defs::HELP_ACTION) {
+        os << "[ip=x.x.x.x] [(optional)ip2=x.x.x.x] "
+              "\n\t[mac=xx:xx:xx:xx:xx:xx] "
+              "[(optional)mac2=xx:xx:xx:xx:xx:xx]\n\t[port=value] "
+              "[(optional)port2=value\n\tThe order of ip, mac and port does "
+              "not matter. entry_value can be >0 only for Eiger and Jungfrau "
+              "where round robin is implemented. If 'auto' used, then ip is "
+              "set to ip of rx_hostname."
+           << '\n';
+    } else if (action == defs::GET_ACTION) {
+        if (!args.empty()) {
+            WrongNumberOfParameters(0);
+        }
+        if (det_id == -1) {
+            throw sls::RuntimeError("udp_dstlist must be at module level.");
+        }
+        if (rx_id < 0 || rx_id >= MAX_UDP_DESTINATION) {
+            throw sls::RuntimeError(
+                "Invalid receiver index to get round robin entry.");
+        }
+        auto t = det->getDestinationUDPList(rx_id, std::vector<int>{det_id});
+        os << OutString(t) << '\n';
+    } else if (action == defs::PUT_ACTION) {
+        if (args.empty()) {
+            WrongNumberOfParameters(1);
+        }
+        if (det_id == -1) {
+            throw sls::RuntimeError("udp_dstlist must be at module level.");
+        }
+        if (rx_id < 0 || rx_id >= MAX_UDP_DESTINATION) {
+            throw sls::RuntimeError(
+                "Invalid receiver index to set round robin entry.");
+        }
+        auto t = getUdpEntry();
+        det->setDestinationUDPList(t, det_id);
+        os << ToString(args) << std::endl;
+    } else {
+        throw sls::RuntimeError("Unknown action");
+    }
+    return os.str();
+}
 
 std::string CmdProxy::UDPDestinationIP(int action) {
     std::ostringstream os;
@@ -1214,13 +1474,7 @@ std::string CmdProxy::UDPDestinationIP(int action) {
             WrongNumberOfParameters(1);
         }
         if (args[0] == "auto") {
-            std::string rxHostname =
-                det->getRxHostname(std::vector<int>{det_id}).squash("none");
-            // Hostname could be ip try to decode otherwise look up the hostname
-            auto val = sls::IpAddr{rxHostname};
-            if (val == 0) {
-                val = HostnameToIp(rxHostname.c_str());
-            }
+            auto val = getIpFromAuto();
             LOG(logINFO) << "Setting udp_dstip of detector " << det_id << " to "
                          << val;
             det->setDestinationUDPIP(val, std::vector<int>{det_id});
@@ -1256,13 +1510,7 @@ std::string CmdProxy::UDPDestinationIP2(int action) {
             WrongNumberOfParameters(1);
         }
         if (args[0] == "auto") {
-            std::string rxHostname =
-                det->getRxHostname(std::vector<int>{det_id}).squash("none");
-            // Hostname could be ip try to decode otherwise look up the hostname
-            auto val = sls::IpAddr{rxHostname};
-            if (val == 0) {
-                val = HostnameToIp(rxHostname.c_str());
-            }
+            auto val = getIpFromAuto();
             LOG(logINFO) << "Setting udp_dstip2 of detector " << det_id
                          << " to " << val;
             det->setDestinationUDPIP2(val, std::vector<int>{det_id});
@@ -1350,8 +1598,8 @@ std::string CmdProxy::ZMQHWM(int action) {
     if (action == defs::HELP_ACTION) {
         os << "[n_limit] \n\tClient's zmq receive high water mark. Default is "
               "the zmq library's default (1000), can also be set here using "
-              "-1. \n This is a high number and can be set to 2 for gui "
-              "purposes. \n One must also set the receiver's send high water "
+              "-1. \n\tThis is a high number and can be set to 2 for gui "
+              "purposes. \n\tOne must also set the receiver's send high water "
               "mark to similar value. Final effect is sum of them.\n\t Setting "
               "it via command line is useful only before zmq enabled (before "
               "opening gui)."
@@ -1405,50 +1653,6 @@ std::string CmdProxy::RateCorrection(int action) {
             det->setRateCorrection(t, std::vector<int>{det_id});
             os << args.front() << "ns\n";
         }
-    } else {
-        throw sls::RuntimeError("Unknown action");
-    }
-    return os.str();
-}
-
-std::string CmdProxy::Activate(int action) {
-    std::ostringstream os;
-    os << cmd << ' ';
-    if (action == defs::HELP_ACTION) {
-        os << "[0, 1] [(optional) padding|nopadding]\n\t[Eiger] 1 is default. "
-              "0 deactivates readout and does not send data. \n\tPadding will "
-              "pad data files for deactivates readouts."
-           << '\n';
-    } else if (action == defs::GET_ACTION) {
-        if (!args.empty()) {
-            WrongNumberOfParameters(0);
-        }
-        auto t = det->getActive(std::vector<int>{det_id});
-        auto p = det->getRxPadDeactivatedMode(std::vector<int>{det_id});
-        Result<std::string> pResult(p.size());
-        for (unsigned int i = 0; i < p.size(); ++i) {
-            pResult[i] = p[i] ? "padding" : "nopadding";
-        }
-        os << OutString(t) << ' ' << OutString(pResult) << '\n';
-    } else if (action == defs::PUT_ACTION) {
-        if (args.empty() || args.size() > 2) {
-            WrongNumberOfParameters(2);
-        }
-        int t = StringTo<int>(args[0]);
-        det->setActive(t, std::vector<int>{det_id});
-        os << args[0];
-        if (args.size() == 2) {
-            bool p = true;
-            if (args[1] == "nopadding") {
-                p = false;
-            } else if (args[1] != "padding") {
-                throw sls::RuntimeError(
-                    "Unknown argument for deactivated padding.");
-            }
-            det->setRxPadDeactivatedMode(p, std::vector<int>{det_id});
-            os << ' ' << args[1];
-        }
-        os << '\n';
     } else {
         throw sls::RuntimeError("Unknown action");
     }
@@ -1549,6 +1753,34 @@ std::string CmdProxy::Quad(int action) {
         }
         det->setQuad(StringTo<int>(args[0]));
         os << args.front() << '\n';
+    } else {
+        throw sls::RuntimeError("Unknown action");
+    }
+    return os.str();
+}
+
+std::string CmdProxy::DataStream(int action) {
+    std::ostringstream os;
+    os << cmd << ' ';
+    if (action == defs::HELP_ACTION) {
+        os << "[left|right] [0, 1]\n\t[Eiger] Enables or disables data "
+              "streaming from left or/and right side of detector. 1 (enabled) "
+              "by default."
+           << '\n';
+    } else if (action == defs::GET_ACTION) {
+        if (args.size() != 1) {
+            WrongNumberOfParameters(1);
+        }
+        auto t = det->getDataStream(StringTo<defs::portPosition>(args[0]),
+                                    std::vector<int>{det_id});
+        os << OutString(t) << '\n';
+    } else if (action == defs::PUT_ACTION) {
+        if (args.size() != 2) {
+            WrongNumberOfParameters(2);
+        }
+        det->setDataStream(StringTo<defs::portPosition>(args[0]),
+                           StringTo<bool>(args[1]), std::vector<int>{det_id});
+        os << args << '\n';
     } else {
         throw sls::RuntimeError("Unknown action");
     }
@@ -1802,6 +2034,89 @@ std::string CmdProxy::BurstMode(int action) {
     return os.str();
 }
 
+std::string CmdProxy::VetoStreaming(int action) {
+    std::ostringstream os;
+    os << cmd << ' ';
+    if (action == defs::HELP_ACTION) {
+        os << "[none|lll|10gbe|...]\n\t[Gotthard2] Enable or disable the 2 "
+              "veto streaming interfaces available. Can include more than one "
+              "interface. \n\tDefault: none. lll (low latency link) is the "
+              "default "
+              "interface to work with. \n\t10GbE is for debugging and also "
+              "enables second interface in receiver for listening to veto "
+              "packets (writes a separate file if writing enabled). Also "
+              "restarts client and receiver zmq sockets if zmq streaming "
+              "enabled."
+           << '\n';
+    } else if (action == defs::GET_ACTION) {
+        if (!args.empty()) {
+            WrongNumberOfParameters(0);
+        }
+        auto t = det->getVetoStream(std::vector<int>{det_id});
+        os << OutString(t) << '\n';
+    } else if (action == defs::PUT_ACTION) {
+        if (args.empty()) {
+            WrongNumberOfParameters(1);
+        }
+        defs::streamingInterface interface = defs::streamingInterface::NONE;
+        for (const auto &arg : args) {
+            if (arg == "none") {
+                if (args.size() > 1) {
+                    throw sls::RuntimeError(
+                        std::string(
+                            "cannot have other arguments with 'none'. args: ") +
+                        ToString(args));
+                }
+                break;
+            }
+            interface = interface | (StringTo<defs::streamingInterface>(arg));
+        }
+        det->setVetoStream(interface, std::vector<int>{det_id});
+        os << ToString(interface) << '\n';
+    } else {
+        throw sls::RuntimeError("Unknown action");
+    }
+    return os.str();
+}
+
+std::string CmdProxy::VetoAlgorithm(int action) {
+    std::ostringstream os;
+    os << cmd << ' ';
+    if (action == defs::HELP_ACTION) {
+        os << "[hits|raw] [lll|10gbe]\n\t[Gotthard2] Set the veto "
+              "algorithm. Default is hits."
+           << '\n';
+    } else if (action == defs::GET_ACTION) {
+        if (args.size() != 1) {
+            WrongNumberOfParameters(1);
+        }
+        defs::streamingInterface interface =
+            StringTo<defs::streamingInterface>(args[0]);
+        if (interface == defs::streamingInterface::NONE) {
+            throw sls::RuntimeError(
+                "Must specify an interface to set algorithm");
+        }
+        auto t = det->getVetoAlgorithm(interface, std::vector<int>{det_id});
+        os << OutString(t) << ' ' << ToString(interface) << '\n';
+    } else if (action == defs::PUT_ACTION) {
+        if (args.size() != 2) {
+            WrongNumberOfParameters(2);
+        }
+        defs::vetoAlgorithm alg = StringTo<defs::vetoAlgorithm>(args[0]);
+        defs::streamingInterface interface =
+            StringTo<defs::streamingInterface>(args[1]);
+        if (interface == defs::streamingInterface::NONE) {
+            throw sls::RuntimeError(
+                "Must specify an interface to set algorithm");
+        }
+        det->setVetoAlgorithm(alg, interface, std::vector<int>{det_id});
+        os << ToString(alg) << ' ' << ToString(interface) << '\n';
+    } else {
+        throw sls::RuntimeError("Unknown action");
+    }
+    return os.str();
+}
+
 std::string CmdProxy::ConfigureADC(int action) {
     std::ostringstream os;
     os << cmd << ' ';
@@ -1867,7 +2182,8 @@ std::string CmdProxy::Counters(int action) {
     if (action == defs::HELP_ACTION) {
         os << "[i0] [i1] [i2]... \n\t[Mythen3] List of counters indices "
               "enabled. Each element in list can be 0 - 2 and must be non "
-              "repetitive."
+              "repetitive. Enabling counters sets vth dacs to remembered "
+              "values and disabling sets them to disabled values."
            << '\n';
     } else if (action == defs::GET_ACTION) {
         if (!args.empty()) {
@@ -1975,6 +2291,43 @@ std::string CmdProxy::GateDelay(int action) {
         } else {
             os << args[0] << '\n';
         }
+    } else {
+        throw sls::RuntimeError("Unknown action");
+    }
+    return os.str();
+}
+
+std::string CmdProxy::GainCaps(int action) {
+    std::ostringstream os;
+    os << cmd << ' ';
+    if (action == defs::HELP_ACTION) {
+        os << "[cap1, cap2, ...]\n\t[Mythen3] gain, options: C10pre, C15sh, "
+              "C30sh, C50sh, C225ACsh, C15pre"
+           << '\n';
+    } else if (action == defs::GET_ACTION) {
+        if (!args.empty())
+            WrongNumberOfParameters(0);
+
+        auto tmp = det->getGainCaps();
+        sls::Result<defs::M3_GainCaps> csr;
+        for (auto val : tmp) {
+            if (val)
+                csr.push_back(static_cast<defs::M3_GainCaps>(val));
+        }
+
+        os << OutString(csr) << '\n';
+    } else if (action == defs::PUT_ACTION) {
+        if (args.size() < 1) {
+            WrongNumberOfParameters(1);
+        }
+        int caps = 0;
+        for (const auto &arg : args) {
+            if (arg != "0")
+                caps |= sls::StringTo<defs::M3_GainCaps>(arg);
+        }
+
+        det->setGainCaps(caps);
+        os << OutString(args) << '\n';
     } else {
         throw sls::RuntimeError("Unknown action");
     }
@@ -2471,10 +2824,11 @@ std::string CmdProxy::ProgramFpga(int action) {
     std::ostringstream os;
     os << cmd << ' ';
     if (action == defs::HELP_ACTION) {
-        os << "[fname.pof | fname.rbf]\n\t[Jungfrau][Ctb][Moench] Programs "
-              "FPGA from pof file. Rebooting controller is recommended. "
-              "\n\t[Mythen3][Gotthard2] Programs FPGA from rbf file. Power "
-              "cycling the detector is recommended. "
+        os << "[fname.pof | fname.rbf (full path)]\n\t[Jungfrau][Ctb][Moench] "
+              "Programs FPGA from pof file (full path). Then, detector "
+              "controller is rebooted \n\t[Mythen3][Gotthard2] Programs FPGA "
+              "from rbf file (full path). Then, detector controller is "
+              "rebooted."
            << '\n';
     } else if (action == defs::GET_ACTION) {
         throw sls::RuntimeError("Cannot get");
@@ -2494,11 +2848,13 @@ std::string CmdProxy::CopyDetectorServer(int action) {
     std::ostringstream os;
     os << cmd << ' ';
     if (action == defs::HELP_ACTION) {
-        os << "[server_name] "
-              "[pc_host_name]\n\t[Jungfrau][Ctb][Moench][Mythen3][Gotthard2] "
-              "Copies detector server via tftp from pc. "
-              "\n\t[Jungfrau][Ctb][Moench]Also changes respawn server, which "
-              "is effective after a reboot."
+        os << "[server_name (in tftp folder)] "
+              "[pc_host_name]\n\t[Jungfrau][Eiger][Ctb][Moench][Mythen3]["
+              "Gotthard2] Copies detector server via tftp from pc. Ensure that "
+              "server is in the pc's tftp folder. Makes a symbolic link with a "
+              "shorter name (without vx.x.x). Then, detector reboots (except "
+              "Eiger).\n\t[Jungfrau][Ctb][Moench]Also changes respawn server "
+              "to the link, which is effective after a reboot."
            << '\n';
     } else if (action == defs::GET_ACTION) {
         throw sls::RuntimeError("Cannot get");
@@ -2518,14 +2874,14 @@ std::string CmdProxy::UpdateFirmwareAndDetectorServer(int action) {
     std::ostringstream os;
     os << cmd << ' ';
     if (action == defs::HELP_ACTION) {
-        os << "[server_name] [pc_host_name] "
-              "[fname.pof]\n\t[Jungfrau][Gotthard][CTB][Moench] Updates the "
-              "firmware, detector server and then reboots detector controller "
-              "blackfin. \n\t[Mythen3][Gotthard2] Will still have old server "
-              "starting up as the new server is not respawned \n\tsname is "
-              "name of detector server binary found on tftp folder of host pc "
-              "\n\thostname is name of pc to tftp from \n\tfname is "
-              "programming file name"
+        os << "[server_name (in tftp folder)] [pc_host_name] [fname.pof (incl "
+              "full path)]\n\t[Jungfrau][Gotthard][CTB][Moench] Updates the "
+              "firmware, detector server, creates the symbolic link and then "
+              "reboots detector controller. \n\t[Mythen3][Gotthard2] will "
+              "require a script to start up the shorter named server link at "
+              "start up. \n\tsname is name of detector server binary found on "
+              "tftp folder of host pc \n\thostname is name of pc to tftp from "
+              "\n\tfname is programming file name"
            << '\n';
     } else if (action == defs::GET_ACTION) {
         throw sls::RuntimeError("Cannot get");

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #ifndef MULTITHREADED_ANALOG_DETECTOR_H
 #define MULTITHREADED_ANALOG_DETECTOR_H
 
@@ -17,7 +19,7 @@
 #include <pthread.h>
 
 #include "analogDetector.h"
-#include "sls/CircularFifo.h"
+#include "circularFifo.h"
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -123,7 +125,7 @@ public:
      return fifoFree->pop(ptr);
    }
 
-   virtual int isBusy() {if (fifoData->isEmpty() && busy==0) return 0; else return 1;}
+   virtual int isBusy() {if (fifoData->isEmpty() && busy==0) return 0; return 1;}
    
    //protected:
    /** Implement this method in your subclass with the code you want your thread to run. */

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 
 // daq register definitions
 #define DAQ_REG_CTRL               1
@@ -13,7 +15,7 @@
 #define DAQ_REG_EXPOSURE_REPEAT_TIMER 5 // == (31 downto 3) * 10^(2 downto 0)
 #define DAQ_REG_SUBFRAME_EXPOSURES    6
 #define DAQ_REG_SUBFRAME_PERIOD       7 // also pg and fifo status register
-#define DAQ_REG_PARTIAL_READOUT       8
+#define DAQ_REG_READ_N_ROWS           8
 
 #define DAQ_REG_HRDWRE 12
 // clang-format off
@@ -27,10 +29,24 @@
 #define DAQ_REG_HRDWRE_OW_MASTER_MSK   (0x00000001 << DAQ_REG_HRDWRE_OW_MASTER_OFST)
 #define DAQ_REG_HRDWRE_MASTER_OFST     (4)
 #define DAQ_REG_HRDWRE_MASTER_MSK      (0x00000001 << DAQ_REG_HRDWRE_MASTER_OFST)
+#define DAQ_REG_HRDWRE_PROGRAM_OFST    (30)
+#define DAQ_REG_HRDWRE_PROGRAM_MSK     (0x00000001 << DAQ_REG_HRDWRE_PROGRAM_OFST)
+#define DAQ_REG_HRDWRE_M8_OFST         (31)
+#define DAQ_REG_HRDWRE_M8_MSK          (0x00000001 << DAQ_REG_HRDWRE_M8_OFST)
+
 
 #define DAQ_REG_RO_OFFSET   20
 #define DAQ_REG_STATUS     (DAQ_REG_RO_OFFSET + 0) // also pg and fifo status register
+
 #define FEB_REG_STATUS     (DAQ_REG_RO_OFFSET + 3)
+
+#define FEB_REG_STATUS_WAIT_FOR_TRGGR_OFST  (5)
+#define FEB_REG_STATUS_WAIT_FOR_TRGGR_MSK   (0x00000001 << FEB_REG_STATUS_WAIT_FOR_TRGGR_OFST)
+#define FEB_REG_STATUS_ACQ_DONE_OFST        (6)
+#define FEB_REG_STATUS_ACQ_DONE_MSK         (0x00000001 << FEB_REG_STATUS_ACQ_DONE_OFST)
+#define FEB_REG_STATUS_TEMP_OFST            (16)
+#define FEB_REG_STATUS_TEMP_MSK             (0x0000FFFF << FEB_REG_STATUS_TEMP_OFST)
+
 #define MEAS_SUBPERIOD_REG (DAQ_REG_RO_OFFSET + 4)
 #define MEAS_PERIOD_REG    (DAQ_REG_RO_OFFSET + 5)
 // clang-format on
@@ -38,7 +54,8 @@
 #define DAQ_CTRL_RESET 0x80000000
 #define DAQ_CTRL_START 0x40000000
 #define ACQ_CTRL_START 0x50000000 // this is 0x10000000 (acq) | 0x40000000 (daq)
-#define DAQ_CTRL_STOP  0x00000000
+#define DAQ_CTRL_STOP  0x08000000 // sends last complete frame
+#define DAQ_CTRL_DONE  0x00000040 // data processing done in feb
 
 // direct chip commands to the DAQ_REG_CHIP_CMDS register
 #define DAQ_SET_STATIC_BIT       0x00000001
@@ -193,6 +210,7 @@
 #define STOP_ACQ_BIT            0x40000000
 #define TWO_REQUESTS_OFFSET     0x1c
 #define TWO_REQUESTS_BIT        0x80000000
+#define NUM_UDP_DEST_OFFSET     0x20
 
 // version
 #define FIRMWARE_VERSION_OFFSET     0x4

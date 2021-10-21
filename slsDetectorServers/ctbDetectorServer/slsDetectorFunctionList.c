@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #include "slsDetectorFunctionList.h"
 #include "clogger.h"
 #include "sharedMemory.h"
@@ -11,6 +13,7 @@
 #include "UDPPacketHeaderGenerator.h"
 #include "common.h"
 #include "communication_funcs_UDP.h"
+#include "loadPattern.h"
 
 #include <netinet/in.h>
 #include <string.h>
@@ -24,7 +27,7 @@
 // Global variable from slsDetectorServer_funcs
 extern int debugflag;
 extern int updateFlag;
-extern udpStruct udpDetails;
+extern udpStruct udpDetails[MAX_UDP_DESTINATION];
 extern const enum detectorType myDetectorType;
 
 // Global variable from UDPPacketHeaderGenerator
@@ -42,7 +45,6 @@ char initErrorMessage[MAX_STR_LENGTH];
 
 #ifdef VIRTUAL
 pthread_t pthread_virtual_tid;
-uint64_t virtual_pattern[MAX_PATTERN_LENGTH];
 int64_t virtual_currentFrameNumber = 2;
 #endif
 
@@ -55,10 +57,10 @@ char *digitalData = 0;
 char volatile *analogDataPtr = 0;
 char volatile *digitalDataPtr = 0;
 char udpPacketData[UDP_PACKET_DATA_BYTES + sizeof(sls_detector_header)];
-uint32_t adcEnableMask_1g = 0;
+uint32_t adcEnableMask_1g = BIT32_MSK;
 
 // 10g readout
-uint8_t adcEnableMask_10g = 0;
+uint8_t adcEnableMask_10g = 0xFF;
 
 int32_t clkPhase[NUM_CLOCKS] = {};
 uint32_t clkFrequency[NUM_CLOCKS] = {40, 20, 20, 200};
@@ -392,7 +394,7 @@ uint32_t getDetectorIP() {
 #ifdef VIRTUAL
     return 0;
 #endif
-    char temp[50] = "";
+    char temp[INET_ADDRSTRLEN] = "";
     uint32_t res = 0;
     // execute and get address
     char output[255];
@@ -470,16 +472,17 @@ void setupDetector() {
     }
     vLimit = DEFAULT_VLIMIT;
     highvoltage = 0;
-    adcEnableMask_1g = 0;
-    adcEnableMask_10g = 0;
+    adcEnableMask_1g = BIT32_MSK;
+    adcEnableMask_10g = 0xFF;
     analogEnable = 1;
     digitalEnable = 0;
     naSamples = 1;
     ndSamples = 1;
 #ifdef VIRTUAL
     sharedMemory_setStatus(IDLE);
-    memset(virtual_pattern, 0, sizeof(virtual_pattern));
+    initializePatternWord();
 #endif
+    setupUDPCommParameters();
 
     ALTERA_PLL_ResetPLLAndReconfiguration();
     resetCore();
@@ -969,7 +972,7 @@ int setExpTime(int64_t val) {
 }
 
 int64_t getExpTime() {
-    return setPatternWaitTime(0, -1) / (1E-3 * clkFrequency[RUN_CLK]);
+    return getPatternWaitTime(0) / (1E-3 * clkFrequency[RUN_CLK]);
 }
 
 int setPeriod(int64_t val) {
@@ -1516,18 +1519,18 @@ void calcChecksum(udp_header *udp) {
 }
 
 int configureMAC() {
-    uint32_t srcip = udpDetails.srcip;
-    uint32_t dstip = udpDetails.dstip;
-    uint64_t srcmac = udpDetails.srcmac;
-    uint64_t dstmac = udpDetails.dstmac;
-    int srcport = udpDetails.srcport;
-    int dstport = udpDetails.dstport;
+    uint32_t srcip = udpDetails[0].srcip;
+    uint32_t dstip = udpDetails[0].dstip;
+    uint64_t srcmac = udpDetails[0].srcmac;
+    uint64_t dstmac = udpDetails[0].dstmac;
+    int srcport = udpDetails[0].srcport;
+    int dstport = udpDetails[0].dstport;
 
     LOG(logINFOBLUE, ("Configuring MAC\n"));
-    char src_mac[50], src_ip[INET_ADDRSTRLEN], dst_mac[50],
-        dst_ip[INET_ADDRSTRLEN];
-    getMacAddressinString(src_mac, 50, srcmac);
-    getMacAddressinString(dst_mac, 50, dstmac);
+    char src_mac[MAC_ADDRESS_SIZE], src_ip[INET_ADDRSTRLEN],
+        dst_mac[MAC_ADDRESS_SIZE], dst_ip[INET_ADDRSTRLEN];
+    getMacAddressinString(src_mac, MAC_ADDRESS_SIZE, srcmac);
+    getMacAddressinString(dst_mac, MAC_ADDRESS_SIZE, dstmac);
     getIpAddressinString(src_ip, srcip);
     getIpAddressinString(dst_ip, dstip);
 
@@ -1544,7 +1547,7 @@ int configureMAC() {
         LOG(logINFOBLUE, ("\t1G MAC\n"));
         if (updateDatabytesandAllocateRAM() == FAIL)
             return -1;
-        if (setUDPDestinationDetails(0, dst_ip, dstport) == FAIL) {
+        if (setUDPDestinationDetails(0, 0, dst_ip, dstport) == FAIL) {
             LOG(logERROR, ("could not set udp 1G destination IP and port\n"));
             return FAIL;
         }
@@ -1840,311 +1843,36 @@ void configureSyncFrequency(enum CLKINDEX ind) {
         setFrequency(SYNC_CLK, min);
 }
 
-void setPipeline(enum CLKINDEX ind, int val) {
-    if (ind != ADC_CLK && ind != DBIT_CLK) {
-        LOG(logERROR, ("Unknown clock index %d to set pipeline\n", ind));
-        return;
-    }
+void setADCPipeline(int val) {
     if (val < 0) {
         return;
     }
-    char *clock_names[] = {CLK_NAMES};
-    LOG(logINFO,
-        ("Setting %s clock (%d) Pipeline to %d\n", clock_names[ind], ind, val));
-    uint32_t offset = ADC_OFFSET_ADC_PPLN_OFST;
-    uint32_t mask = ADC_OFFSET_ADC_PPLN_MSK;
-    if (ind == DBIT_CLK) {
-        offset = ADC_OFFSET_DBT_PPLN_OFST;
-        mask = ADC_OFFSET_DBT_PPLN_MSK;
-    }
-
+    LOG(logINFO, ("Setting adc pipeline to %d\n", val));
     uint32_t addr = ADC_OFFSET_REG;
-    // reset value
-    bus_w(addr, bus_r(addr) & ~mask);
-    // set value
-    bus_w(addr, bus_r(addr) | ((val << offset) & mask));
-    LOG(logDEBUG1,
-        (" %s clock (%d) Offset: 0x%8x\n", clock_names[ind], ind, bus_r(addr)));
+    bus_w(addr, bus_r(addr) & ~ADC_OFFSET_ADC_PPLN_MSK);
+    bus_w(addr, bus_r(addr) | ((val << ADC_OFFSET_ADC_PPLN_OFST) &
+                               ADC_OFFSET_ADC_PPLN_MSK));
 }
 
-int getPipeline(enum CLKINDEX ind) {
-    if (ind != ADC_CLK && ind != DBIT_CLK) {
-        LOG(logERROR, ("Unknown clock index %d to get pipeline\n", ind));
-        return -1;
-    }
-    if (ind == DBIT_CLK) {
-        return ((bus_r(ADC_OFFSET_REG) & ADC_OFFSET_DBT_PPLN_MSK) >>
-                ADC_OFFSET_DBT_PPLN_OFST);
-    }
+int getADCPipeline() {
     return ((bus_r(ADC_OFFSET_REG) & ADC_OFFSET_ADC_PPLN_MSK) >>
             ADC_OFFSET_ADC_PPLN_OFST);
 }
 
-// patterns
-
-uint64_t writePatternIOControl(uint64_t word) {
-    if ((int64_t)word != -1) {
-        LOG(logINFO,
-            ("Setting Pattern I/O Control: 0x%llx\n", (long long int)word));
-        set64BitReg(word, PATTERN_IO_CNTRL_LSB_REG, PATTERN_IO_CNTRL_MSB_REG);
+void setDBITPipeline(int val) {
+    if (val < 0) {
+        return;
     }
-    uint64_t retval =
-        get64BitReg(PATTERN_IO_CNTRL_LSB_REG, PATTERN_IO_CNTRL_MSB_REG);
-    LOG(logDEBUG1, ("  I/O Control retval: 0x%llx\n", (long long int)retval));
-    return retval;
+    LOG(logINFO, ("Setting dbit pipeline to %d\n", val));
+    uint32_t addr = ADC_OFFSET_REG;
+    bus_w(addr, bus_r(addr) & ~ADC_OFFSET_DBT_PPLN_MSK);
+    bus_w(addr, bus_r(addr) | ((val << ADC_OFFSET_DBT_PPLN_OFST) &
+                               ADC_OFFSET_DBT_PPLN_MSK));
 }
 
-uint64_t readPatternWord(int addr) {
-    // error (handled in tcp)
-    if (addr < 0 || addr >= MAX_PATTERN_LENGTH) {
-        LOG(logERROR, ("Cannot get Pattern - Word. Invalid addr 0x%x. "
-                       "Should be between 0 and 0x%x\n",
-                       addr, MAX_PATTERN_LENGTH));
-        return -1;
-    }
-
-    LOG(logINFORED, ("  Reading (Executing) Pattern Word (addr:0x%x)\n", addr));
-    uint32_t reg = PATTERN_CNTRL_REG;
-
-    // overwrite with  only addr
-    bus_w(reg, ((addr << PATTERN_CNTRL_ADDR_OFST) & PATTERN_CNTRL_ADDR_MSK));
-
-    // set read strobe
-    bus_w(reg, bus_r(reg) | PATTERN_CNTRL_RD_MSK);
-
-    // unset read strobe
-    bus_w(reg, bus_r(reg) & (~PATTERN_CNTRL_RD_MSK));
-    usleep(WAIT_TIME_PATTERN_READ);
-
-    // read value
-    uint64_t retval = get64BitReg(PATTERN_OUT_LSB_REG, PATTERN_OUT_MSB_REG);
-    LOG(logDEBUG1,
-        ("  Word(addr:0x%x) retval: 0x%llx\n", addr, (long long int)retval));
-#ifdef VIRTUAL
-    retval = virtual_pattern[addr];
-#endif
-    return retval;
-}
-
-uint64_t writePatternWord(int addr, uint64_t word) {
-    // get
-    if ((int64_t)word == -1)
-        return readPatternWord(addr);
-
-    // error (handled in tcp)
-    if (addr < 0 || addr >= MAX_PATTERN_LENGTH) {
-        LOG(logERROR, ("Cannot set Pattern - Word. Invalid addr 0x%x. "
-                       "Should be between 0 and 0x%x\n",
-                       addr, MAX_PATTERN_LENGTH));
-        return -1;
-    }
-
-    LOG(logDEBUG1, ("Setting Pattern Word (addr:0x%x, word:0x%llx)\n", addr,
-                    (long long int)word));
-    uint32_t reg = PATTERN_CNTRL_REG;
-
-    // write word
-    set64BitReg(word, PATTERN_IN_LSB_REG, PATTERN_IN_MSB_REG);
-    LOG(logDEBUG1, ("  Wrote word. PatternIn Reg: 0x%llx\n",
-                    get64BitReg(PATTERN_IN_LSB_REG, PATTERN_IN_MSB_REG)));
-
-    // overwrite with  only addr
-    bus_w(reg, ((addr << PATTERN_CNTRL_ADDR_OFST) & PATTERN_CNTRL_ADDR_MSK));
-
-    // set write strobe
-    bus_w(reg, bus_r(reg) | PATTERN_CNTRL_WR_MSK);
-
-    // unset write strobe
-    bus_w(reg, bus_r(reg) & (~PATTERN_CNTRL_WR_MSK));
-#ifdef VIRTUAL
-    virtual_pattern[addr] = word;
-#endif
-
-    return word;
-    // return readPatternWord(addr); // will start executing the pattern
-}
-
-int setPatternWaitAddress(int level, int addr) {
-
-    // error (handled in tcp)
-    if (addr >= MAX_PATTERN_LENGTH) {
-        LOG(logERROR, ("Cannot set Pattern Wait Address. Invalid addr 0x%x. "
-                       "Should be between 0 and 0x%x\n",
-                       addr, MAX_PATTERN_LENGTH));
-        return -1;
-    }
-
-    uint32_t reg = 0;
-    uint32_t offset = 0;
-    uint32_t mask = 0;
-
-    switch (level) {
-    case 0:
-        reg = PATTERN_WAIT_0_ADDR_REG;
-        offset = PATTERN_WAIT_0_ADDR_OFST;
-        mask = PATTERN_WAIT_0_ADDR_MSK;
-        break;
-    case 1:
-        reg = PATTERN_WAIT_1_ADDR_REG;
-        offset = PATTERN_WAIT_1_ADDR_OFST;
-        mask = PATTERN_WAIT_1_ADDR_MSK;
-        break;
-    case 2:
-        reg = PATTERN_WAIT_2_ADDR_REG;
-        offset = PATTERN_WAIT_2_ADDR_OFST;
-        mask = PATTERN_WAIT_2_ADDR_MSK;
-        break;
-    default:
-        LOG(logERROR, ("Cannot set Pattern Wait Address. Invalid level 0x%x. "
-                       "Should be between 0 and 2.\n",
-                       level));
-        return -1;
-    }
-
-    // set
-    if (addr >= 0) {
-        LOG(logINFO, ("Setting Pattern Wait Address (level:%d, addr:0x%x)\n",
-                      level, addr));
-        bus_w(reg, ((addr << offset) & mask));
-    }
-
-    // get
-    uint32_t regval = ((bus_r(reg) & mask) >> offset);
-    LOG(logDEBUG1,
-        ("  Wait Address retval (level:%d, addr:0x%x)\n", level, regval));
-    return regval;
-}
-
-uint64_t setPatternWaitTime(int level, uint64_t t) {
-    uint32_t regl = 0;
-    uint32_t regm = 0;
-
-    switch (level) {
-    case 0:
-        regl = PATTERN_WAIT_TIMER_0_LSB_REG;
-        regm = PATTERN_WAIT_TIMER_0_MSB_REG;
-        break;
-    case 1:
-        regl = PATTERN_WAIT_TIMER_1_LSB_REG;
-        regm = PATTERN_WAIT_TIMER_1_MSB_REG;
-        break;
-    case 2:
-        regl = PATTERN_WAIT_TIMER_2_LSB_REG;
-        regm = PATTERN_WAIT_TIMER_2_MSB_REG;
-        break;
-    default:
-        LOG(logERROR, ("Cannot set Pattern Wait Time. Invalid level %d. "
-                       "Should be between 0 and 2.\n",
-                       level));
-        return -1;
-    }
-
-    // set
-    if ((int64_t)t >= 0) {
-        LOG(logINFO, ("Setting Pattern Wait Time (level:%d, t:%lld)\n", level,
-                      (long long int)t));
-        set64BitReg(t, regl, regm);
-    }
-
-    // get
-    uint64_t regval = get64BitReg(regl, regm);
-    LOG(logDEBUG1, ("  Wait Time retval (level:%d, t:%lld)\n", level,
-                    (long long int)regval));
-    return regval;
-}
-
-void setPatternLoop(int level, int *startAddr, int *stopAddr, int *nLoop) {
-
-    // (checked at tcp)
-    if (*startAddr >= MAX_PATTERN_LENGTH || *stopAddr >= MAX_PATTERN_LENGTH) {
-        LOG(logERROR, ("Cannot set Pattern Loop, Address (startaddr:0x%x, "
-                       "stopaddr:0x%x) must be "
-                       "less than 0x%x\n",
-                       *startAddr, *stopAddr, MAX_PATTERN_LENGTH));
-    }
-
-    uint32_t addr = 0;
-    uint32_t nLoopReg = 0;
-    uint32_t startOffset = 0;
-    uint32_t startMask = 0;
-    uint32_t stopOffset = 0;
-    uint32_t stopMask = 0;
-
-    switch (level) {
-    case 0:
-        addr = PATTERN_LOOP_0_ADDR_REG;
-        nLoopReg = PATTERN_LOOP_0_ITERATION_REG;
-        startOffset = PATTERN_LOOP_0_ADDR_STRT_OFST;
-        startMask = PATTERN_LOOP_0_ADDR_STRT_MSK;
-        stopOffset = PATTERN_LOOP_0_ADDR_STP_OFST;
-        stopMask = PATTERN_LOOP_0_ADDR_STP_MSK;
-        break;
-    case 1:
-        addr = PATTERN_LOOP_1_ADDR_REG;
-        nLoopReg = PATTERN_LOOP_1_ITERATION_REG;
-        startOffset = PATTERN_LOOP_1_ADDR_STRT_OFST;
-        startMask = PATTERN_LOOP_1_ADDR_STRT_MSK;
-        stopOffset = PATTERN_LOOP_1_ADDR_STP_OFST;
-        stopMask = PATTERN_LOOP_1_ADDR_STP_MSK;
-        break;
-    case 2:
-        addr = PATTERN_LOOP_2_ADDR_REG;
-        nLoopReg = PATTERN_LOOP_2_ITERATION_REG;
-        startOffset = PATTERN_LOOP_2_ADDR_STRT_OFST;
-        startMask = PATTERN_LOOP_2_ADDR_STRT_MSK;
-        stopOffset = PATTERN_LOOP_2_ADDR_STP_OFST;
-        stopMask = PATTERN_LOOP_2_ADDR_STP_MSK;
-        break;
-    case -1:
-        // complete pattern
-        addr = PATTERN_LIMIT_REG;
-        nLoopReg = -1;
-        startOffset = PATTERN_LIMIT_STRT_OFST;
-        startMask = PATTERN_LIMIT_STRT_MSK;
-        stopOffset = PATTERN_LIMIT_STP_OFST;
-        stopMask = PATTERN_LIMIT_STP_MSK;
-        break;
-    default:
-        // already checked at tcp interface
-        LOG(logERROR, ("Cannot set Pattern loop. Invalid level %d. "
-                       "Should be between -1 and 2.\n",
-                       level));
-        *startAddr = 0;
-        *stopAddr = 0;
-        *nLoop = 0;
-    }
-
-    // set iterations
-    if (level >= 0) {
-        // set iteration
-        if (*nLoop >= 0) {
-            LOG(logINFO,
-                ("Setting Pattern Loop (level:%d, nLoop:%d)\n", level, *nLoop));
-            bus_w(nLoopReg, *nLoop);
-        }
-        *nLoop = bus_r(nLoopReg);
-    }
-
-    // set
-    if (*startAddr >= 0 && *stopAddr >= 0) {
-        // writing start and stop addr
-        LOG(logINFO,
-            ("Setting Pattern Loop (level:%d, startaddr:0x%x, stopaddr:0x%x)\n",
-             level, *startAddr, *stopAddr));
-        bus_w(addr, ((*startAddr << startOffset) & startMask) |
-                        ((*stopAddr << stopOffset) & stopMask));
-        LOG(logDEBUG1, ("Addr:0x%x, val:0x%x\n", addr, bus_r(addr)));
-    }
-
-    *startAddr = ((bus_r(addr) & startMask) >> startOffset);
-    LOG(logDEBUG1, ("Getting Pattern Loop Start Address (level:%d, Read "
-                    "startAddr:0x%x)\n",
-                    level, *startAddr));
-
-    *stopAddr = ((bus_r(addr) & stopMask) >> stopOffset);
-    LOG(logDEBUG1, ("Getting Pattern Loop Stop Address (level:%d, Read "
-                    "stopAddr:0x%x)\n",
-                    level, *stopAddr));
+int getDBITPipeline() {
+    return ((bus_r(ADC_OFFSET_REG) & ADC_OFFSET_DBT_PPLN_MSK) >>
+            ADC_OFFSET_DBT_PPLN_OFST);
 }
 
 int setLEDEnable(int enable) {
@@ -2187,22 +1915,6 @@ void setDigitalIODelay(uint64_t pinMask, int delay) {
 
     // trigger configuration
     bus_w(addr, bus_r(addr) & (~OUTPUT_DELAY_0_OTPT_TRGGR_MSK));
-}
-
-void setPatternMask(uint64_t mask) {
-    set64BitReg(mask, PATTERN_MASK_LSB_REG, PATTERN_MASK_MSB_REG);
-}
-
-uint64_t getPatternMask() {
-    return get64BitReg(PATTERN_MASK_LSB_REG, PATTERN_MASK_MSB_REG);
-}
-
-void setPatternBitMask(uint64_t mask) {
-    set64BitReg(mask, PATTERN_SET_LSB_REG, PATTERN_SET_MSB_REG);
-}
-
-uint64_t getPatternBitMask() {
-    return get64BitReg(PATTERN_SET_LSB_REG, PATTERN_SET_MSB_REG);
 }
 
 /* aquisition */
@@ -2314,7 +2026,7 @@ void *start_timer(void *arg) {
                    imageData + srcOffset, dataSize);
             srcOffset += dataSize;
 
-            sendUDPPacket(0, packetData, packetSize);
+            sendUDPPacket(0, 0, packetData, packetSize);
         }
         LOG(logINFO, ("Sent frame: %d [%lld]\n", frameNr,
                       (long long unsigned int)virtual_currentFrameNumber));
@@ -2431,10 +2143,10 @@ void readandSendUDPFrames(int *ret, char *mess) {
     LOG(logDEBUG1, ("Reading from 1G UDP\n"));
 
     // validate udp socket
-    if (getUdPSocketDescriptor(0) <= 0) {
+    if (getUdPSocketDescriptor(0, 0) <= 0) {
         *ret = FAIL;
         sprintf(mess, "UDP Socket not created. sockfd:%d\n",
-                getUdPSocketDescriptor(0));
+                getUdPSocketDescriptor(0, 0));
         LOG(logERROR, (mess));
         return;
     }
@@ -2443,7 +2155,7 @@ void readandSendUDPFrames(int *ret, char *mess) {
     while (readFrameFromFifo() == OK) {
         int bytesToSend = 0, n = 0;
         while ((bytesToSend = fillUDPPacket(udpPacketData))) {
-            n += sendUDPPacket(0, udpPacketData, bytesToSend);
+            n += sendUDPPacket(0, 0, udpPacketData, bytesToSend);
         }
         if (n >= dataBytes) {
             LOG(logINFO, (" Frame %lld sent (%d packets, %d databytes, n:%d "

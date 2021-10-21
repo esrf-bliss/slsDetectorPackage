@@ -70,6 +70,12 @@ uint64_t PacketStream<PC, SD, FP>::getNumFramesCaught() {
 }
 
 template <class PC, class SD, class FP>
+uint64_t PacketStream<PC, SD, FP>::getNumCompleteFramesCaught() {
+    std::lock_guard<std::mutex> l(mutex);
+    return complete_frames_caught;
+}
+
+template <class PC, class SD, class FP>
 uint64_t PacketStream<PC, SD, FP>::getLastFrameIndex() {
     std::lock_guard<std::mutex> l(mutex);
     return last_frame;
@@ -83,8 +89,9 @@ void PacketStream<PC, SD, FP>::addPacketBlock(BlockPtr block) {
         std::lock_guard<std::mutex> l(mutex);
         if (first_frame == uint64_t(-1))
             first_frame = frame;
+	++frames_caught;
         if (full_frame)
-            ++frames_caught;
+            ++complete_frames_caught;
         if (frame > last_frame)
             last_frame = frame;
     }

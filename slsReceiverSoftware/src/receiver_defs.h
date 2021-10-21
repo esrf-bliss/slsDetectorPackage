@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #pragma once
 
 #include "sls/sls_detector_defs.h"
@@ -13,6 +15,11 @@
 #define MAX_SOCKET_INPUT_PACKET_QUEUE (250000)
 
 // files
+
+// versions
+#define HDF5_WRITER_VERSION   (6.3) // 1 decimal places
+#define BINARY_WRITER_VERSION (6.3) // 1 decimal places
+
 #define MAX_FRAMES_PER_FILE           20000
 #define SHORT_MAX_FRAMES_PER_FILE     100000
 #define MOENCH_MAX_FRAMES_PER_FILE    100000
@@ -44,8 +51,7 @@ struct FifoFrame {
 #define MAX_CHUNKED_IMAGES (1)
 
 // parameters to calculate fifo depth
-#define SAMPLE_TIME_IN_NS          (100000000) // 100ms
-#define MAX_EIGER_ROWS_PER_READOUT (256)
+#define SAMPLE_TIME_IN_NS (100000000) // 100ms
 
 // to differentiate between gotthard and short gotthard
 #define GOTTHARD_PACKET_SIZE (1286)

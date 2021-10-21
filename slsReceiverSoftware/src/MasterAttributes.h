@@ -1,5 +1,8 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #pragma once
 
+#include "receiver_defs.h"
 #include "sls/ToString.h"
 #include "sls/logger.h"
 #include "sls/sls_detector_defs.h"
@@ -14,11 +17,8 @@ using namespace H5;
 #include <chrono>
 using ns = std::chrono::nanoseconds;
 
-// versions
-#define HDF5_WRITER_VERSION   (6.2) // 1 decimal places
-#define BINARY_WRITER_VERSION (6.2) // 1 decimal places
-
 struct MasterAttributes {
+    // (before acquisition)
     slsDetectorDefs::detectorType detType{slsDetectorDefs::GENERIC};
     slsDetectorDefs::timingMode timingMode{slsDetectorDefs::AUTO_TIMING};
     uint32_t imageSize{0};
@@ -40,7 +40,7 @@ struct MasterAttributes {
     ns subExptime{0};
     ns subPeriod{0};
     uint32_t quad{0};
-    uint32_t numLinesReadout;
+    uint32_t readNRows;
     std::vector<int64_t> ratecorr;
     uint32_t adcmask{0};
     uint32_t analog{0};
@@ -59,6 +59,9 @@ struct MasterAttributes {
     ns gateDelay3{0};
     uint32_t gates;
     std::map<std::string, std::string> additionalJsonHeader;
+
+    // Final Attributes (after acquisition)
+    uint64_t framesInFile{0};
 
     MasterAttributes(){};
     virtual ~MasterAttributes(){};
@@ -90,30 +93,42 @@ struct MasterAttributes {
     };
 
     void WriteBinaryAttributes(FILE *fd, std::string message) {
+        if (fwrite((void *)message.c_str(), 1, message.length(), fd) !=
+            message.length()) {
+            throw sls::RuntimeError(
+                "Master binary file incorrect number of bytes written to file");
+        }
+    };
+
+    void WriteFinalBinaryAttributes(FILE *fd) {
         // adding few common parameters to the end
+        std::ostringstream oss;
+
         if (!additionalJsonHeader.empty()) {
-            std::ostringstream oss;
             oss << "Additional Json Header     : "
                 << sls::ToString(additionalJsonHeader) << '\n';
-            message += oss.str();
         }
+        oss << "Frames in File             : " << framesInFile << '\n';
 
         // adding sls_receiver header format
-        message += std::string("\n#Frame Header\n"
-                               "Frame Number               : 8 bytes\n"
-                               "SubFrame Number/ExpLength  : 4 bytes\n"
-                               "Packet Number              : 4 bytes\n"
-                               "Bunch ID                   : 8 bytes\n"
-                               "Timestamp                  : 8 bytes\n"
-                               "Module Id                  : 2 bytes\n"
-                               "Row                        : 2 bytes\n"
-                               "Column                     : 2 bytes\n"
-                               "Reserved                   : 2 bytes\n"
-                               "Debug                      : 4 bytes\n"
-                               "Round Robin Number         : 2 bytes\n"
-                               "Detector Type              : 1 byte\n"
-                               "Header Version             : 1 byte\n"
-                               "Packets Caught Mask        : 64 bytes\n");
+        oss << '\n'
+            << "#Frame Header" << '\n'
+            << "Frame Number               : 8 bytes" << '\n'
+            << "SubFrame Number/ExpLength  : 4 bytes" << '\n'
+            << "Packet Number              : 4 bytes" << '\n'
+            << "Bunch ID                   : 8 bytes" << '\n'
+            << "Timestamp                  : 8 bytes" << '\n'
+            << "Module Id                  : 2 bytes" << '\n'
+            << "Row                        : 2 bytes" << '\n'
+            << "Column                     : 2 bytes" << '\n'
+            << "Reserved                   : 2 bytes" << '\n'
+            << "Debug                      : 4 bytes" << '\n'
+            << "Round Robin Number         : 2 bytes" << '\n'
+            << "Detector Type              : 1 byte" << '\n'
+            << "Header Version             : 1 byte" << '\n'
+            << "Packets Caught Mask        : 64 bytes" << '\n';
+
+        std::string message = oss.str();
 
         // writing to file
         if (fwrite((void *)message.c_str(), 1, message.length(), fd) !=
@@ -130,6 +145,8 @@ struct MasterAttributes {
     };
 
     void WriteHDF5Attributes(H5File *fd, Group *group) {
+        char c[1024];
+        memset(c, 0, sizeof(c));
         // clang-format off
         // version
         {
@@ -145,24 +162,27 @@ struct MasterAttributes {
             StrType strdatatype(PredType::C_S1, 256);
             DataSpace dataspace = DataSpace(H5S_SCALAR);
             DataSet dataset =
-                group->createDataSet("Timestamp", strdatatype, dataspace);
-            dataset.write(std::string(ctime(&t)), strdatatype);
+            group->createDataSet("Timestamp", strdatatype, dataspace);
+            sls::strcpy_safe(c, std::string(ctime(&t)));
+            dataset.write(c, strdatatype);
         }
         // detector type
         {
             DataSpace dataspace = DataSpace(H5S_SCALAR);
             StrType strdatatype(PredType::C_S1, 256);
             DataSet dataset =
-                group->createDataSet("Detector Type", strdatatype, dataspace);
-            dataset.write(sls::ToString(detType), strdatatype);
+            group->createDataSet("Detector Type", strdatatype, dataspace);
+            sls::strcpy_safe(c, sls::ToString(detType));
+            dataset.write(c, strdatatype);
         }
         // timing mode
         {
             DataSpace dataspace = DataSpace(H5S_SCALAR);
             StrType strdatatype(PredType::C_S1, 256);
             DataSet dataset =
-                group->createDataSet("Timing Mode", strdatatype, dataspace);
-            dataset.write(sls::ToString(timingMode), strdatatype);
+            group->createDataSet("Timing Mode", strdatatype, dataspace);
+            sls::strcpy_safe(c, sls::ToString(timingMode));
+            dataset.write(c, strdatatype);
         }
         // Image Size
         {
@@ -173,8 +193,9 @@ struct MasterAttributes {
             DataSpace dataspaceAttr = DataSpace(H5S_SCALAR);
             StrType strdatatype(PredType::C_S1, 256);
             Attribute attribute =
-                dataset.createAttribute("Unit", strdatatype, dataspaceAttr);
-            attribute.write(strdatatype, std::string("bytes"));
+            dataset.createAttribute("Unit", strdatatype, dataspaceAttr);
+            sls::strcpy_safe(c, "bytes");
+            attribute.write(strdatatype, c);
         }
         //TODO: make this into an array?
         // x
@@ -203,8 +224,9 @@ struct MasterAttributes {
             DataSpace dataspace = DataSpace(H5S_SCALAR);
             StrType strdatatype(PredType::C_S1, 256);
             DataSet dataset =
-                group->createDataSet("Frame Discard Policy", strdatatype, dataspace);
-            dataset.write(sls::ToString(frameDiscardMode), strdatatype);
+            group->createDataSet("Frame Discard Policy", strdatatype, dataspace);
+            sls::strcpy_safe(c, sls::ToString(frameDiscardMode));
+            dataset.write(c, strdatatype);
         }        
         // Frame Padding
         {
@@ -218,8 +240,9 @@ struct MasterAttributes {
             DataSpace dataspace = DataSpace(H5S_SCALAR);
             StrType strdatatype(PredType::C_S1, 256);
             DataSet dataset =
-                group->createDataSet("Scan Parameters", strdatatype, dataspace);
-            dataset.write(sls::ToString(scanParams), strdatatype);
+            group->createDataSet("Scan Parameters", strdatatype, dataspace);
+            sls::strcpy_safe(c, sls::ToString(scanParams));
+            dataset.write(c, strdatatype);
         }   
         // Total Frames
         {
@@ -228,14 +251,27 @@ struct MasterAttributes {
                 "Total Frames", PredType::STD_U64LE, dataspace);
             dataset.write(&totalFrames, PredType::STD_U64LE);
         }
+    };
+
+    void WriteFinalHDF5Attributes(H5File *fd, Group *group) {
+        char c[1024];
+        memset(c, 0, sizeof(c));
+        // Total Frames in file
+        {
+            DataSpace dataspace = DataSpace(H5S_SCALAR);
+            DataSet dataset = group->createDataSet(
+                "Frames in File", PredType::STD_U64LE, dataspace);
+            dataset.write(&framesInFile, PredType::STD_U64LE);
+        }
         // additional json header
         if (!additionalJsonHeader.empty()) {
             std::string json = sls::ToString(additionalJsonHeader);
             StrType strdatatype(PredType::C_S1, json.length());
             DataSpace dataspace = DataSpace(H5S_SCALAR);
             DataSet dataset =
-                group->createDataSet("Additional JSON Header", strdatatype, dataspace);
-            dataset.write(sls::ToString(additionalJsonHeader), strdatatype);
+            group->createDataSet("Additional JSON Header", strdatatype, dataspace);
+            sls::strcpy_safe(c, sls::ToString(additionalJsonHeader));
+            dataset.write(c, strdatatype);
         }
     };
 
@@ -243,16 +279,22 @@ struct MasterAttributes {
         DataSpace dataspace = DataSpace(H5S_SCALAR);
         StrType strdatatype(PredType::C_S1, 256);
         DataSet dataset =
-            group->createDataSet("Exposure Time", strdatatype, dataspace);
-        dataset.write(sls::ToString(exptime), strdatatype);
+        group->createDataSet("Exposure Time", strdatatype, dataspace);
+        char c[1024];
+        memset(c, 0, sizeof(c));
+        sls::strcpy_safe(c, sls::ToString(exptime));
+        dataset.write(c, strdatatype);
     };
 
     void WriteHDF5Period(H5File *fd, Group *group) {
         DataSpace dataspace = DataSpace(H5S_SCALAR);
         StrType strdatatype(PredType::C_S1, 256);
         DataSet dataset =
-            group->createDataSet("Acquisition Period", strdatatype, dataspace);
-        dataset.write(sls::ToString(period), strdatatype);
+        group->createDataSet("Acquisition Period", strdatatype, dataspace);
+        char c[1024];
+        memset(c, 0, sizeof(c));
+        sls::strcpy_safe(c, sls::ToString(period));
+        dataset.write(c, strdatatype);
     };
 
     void WriteHDF5DynamicRange(H5File *fd, Group *group) {
@@ -263,8 +305,9 @@ struct MasterAttributes {
         DataSpace dataspaceAttr = DataSpace(H5S_SCALAR);
         StrType strdatatype(PredType::C_S1, 256);
         Attribute attribute =
-            dataset.createAttribute("Unit", strdatatype, dataspaceAttr);
-        attribute.write(strdatatype, std::string("bits"));
+        dataset.createAttribute("Unit", strdatatype, dataspaceAttr);
+        char c[1024] = "bits";
+        attribute.write( strdatatype, c);
     };
 
     void WriteHDF5TenGiga(H5File *fd, Group *group) {
@@ -323,7 +366,8 @@ class JungfrauMasterAttributes : public MasterAttributes {
         oss << MasterAttributes::GetBinaryMasterAttributes()
             << "Exptime                    : " << sls::ToString(exptime) << '\n'
             << "Period                     : " << sls::ToString(period) << '\n'
-            << "Number of UDP Interfaces   : " << numUDPInterfaces << '\n';
+            << "Number of UDP Interfaces   : " << numUDPInterfaces << '\n'
+            << "Number of rows             : " << readNRows << '\n';
         std::string message = oss.str();
         MasterAttributes::WriteBinaryAttributes(fd, message);
     };
@@ -338,6 +382,13 @@ class JungfrauMasterAttributes : public MasterAttributes {
             DataSet dataset = group->createDataSet(
                 "Number of UDP Interfaces", PredType::NATIVE_INT, dataspace);
             dataset.write(&numUDPInterfaces, PredType::NATIVE_INT);
+        }
+        // readNRows
+        {
+            DataSpace dataspace = DataSpace(H5S_SCALAR);
+            DataSet dataset = group->createDataSet(
+                "Number of rows", PredType::NATIVE_INT, dataspace);
+            dataset.write(&readNRows, PredType::NATIVE_INT);
         }
     };
 #endif
@@ -360,7 +411,7 @@ class EigerMasterAttributes : public MasterAttributes {
             << "SubPeriod                  : " << sls::ToString(subPeriod)
             << '\n'
             << "Quad                       : " << quad << '\n'
-            << "Number of Lines read out   : " << numLinesReadout << '\n'
+            << "Number of rows             : " << readNRows << '\n'
             << "Rate Corrections           : " << sls::ToString(ratecorr)
             << '\n';
         std::string message = oss.str();
@@ -374,6 +425,8 @@ class EigerMasterAttributes : public MasterAttributes {
         MasterAttributes::WriteHDF5TenGiga(fd, group);
         MasterAttributes::WriteHDF5Exptime(fd, group);
         MasterAttributes::WriteHDF5Period(fd, group);
+        char c[1024];
+        memset(c, 0, sizeof(c));
         // threshold
         {
             DataSpace dataspace = DataSpace(H5S_SCALAR);
@@ -384,7 +437,8 @@ class EigerMasterAttributes : public MasterAttributes {
             StrType strdatatype(PredType::C_S1, 256);
             Attribute attribute =
                 dataset.createAttribute("Unit", strdatatype, dataspaceAttr);
-            attribute.write(strdatatype, std::string("eV"));
+            sls::strcpy_safe(c, "eV");
+            attribute.write(strdatatype, c);
         }
         // SubExptime
         {
@@ -392,7 +446,8 @@ class EigerMasterAttributes : public MasterAttributes {
             StrType strdatatype(PredType::C_S1, 256);
             DataSet dataset = group->createDataSet("Sub Exposure Time",
                                                    strdatatype, dataspace);
-            dataset.write(sls::ToString(subExptime), strdatatype);
+            sls::strcpy_safe(c, sls::ToString(subExptime));
+            dataset.write(c, strdatatype);
         }
         // SubPeriod
         {
@@ -400,7 +455,8 @@ class EigerMasterAttributes : public MasterAttributes {
             StrType strdatatype(PredType::C_S1, 256);
             DataSet dataset =
                 group->createDataSet("Sub Period", strdatatype, dataspace);
-            dataset.write(sls::ToString(subPeriod), strdatatype);
+            sls::strcpy_safe(c, sls::ToString(subPeriod));
+            dataset.write(c, strdatatype);
         }
         // Quad
         {
@@ -409,12 +465,12 @@ class EigerMasterAttributes : public MasterAttributes {
                 group->createDataSet("Quad", PredType::NATIVE_INT, dataspace);
             dataset.write(&quad, PredType::NATIVE_INT);
         }
-        // numLinesReadout
+        // readNRows
         {
             DataSpace dataspace = DataSpace(H5S_SCALAR);
             DataSet dataset = group->createDataSet(
-                "Number of Lines read out", PredType::NATIVE_INT, dataspace);
-            dataset.write(&numLinesReadout, PredType::NATIVE_INT);
+                "Number of rows", PredType::NATIVE_INT, dataspace);
+            dataset.write(&readNRows, PredType::NATIVE_INT);
         }
         // Rate corrections
         {
@@ -422,7 +478,8 @@ class EigerMasterAttributes : public MasterAttributes {
             StrType strdatatype(PredType::C_S1, 1024);
             DataSet dataset = group->createDataSet("Rate Corrections",
                                                    strdatatype, dataspace);
-            dataset.write(sls::ToString(ratecorr), strdatatype);
+            sls::strcpy_safe(c, sls::ToString(ratecorr));
+            dataset.write(c, strdatatype);
         }
     };
 #endif
@@ -465,6 +522,8 @@ class Mythen3MasterAttributes : public MasterAttributes {
         MasterAttributes::WriteHDF5DynamicRange(fd, group);
         MasterAttributes::WriteHDF5TenGiga(fd, group);
         MasterAttributes::WriteHDF5Period(fd, group);
+        char c[1024];
+        memset(c, 0, sizeof(c));
         // Counter Mask
         {
             DataSpace dataspace = DataSpace(H5S_SCALAR);
@@ -478,7 +537,8 @@ class Mythen3MasterAttributes : public MasterAttributes {
             StrType strdatatype(PredType::C_S1, 256);
             DataSet dataset =
                 group->createDataSet("Exposure Time1", strdatatype, dataspace);
-            dataset.write(sls::ToString(exptime1), strdatatype);
+            sls::strcpy_safe(c, sls::ToString(exptime1));
+            dataset.write(c, strdatatype);
         }
         // Exptime2
         {
@@ -486,7 +546,8 @@ class Mythen3MasterAttributes : public MasterAttributes {
             StrType strdatatype(PredType::C_S1, 256);
             DataSet dataset =
                 group->createDataSet("Exposure Time2", strdatatype, dataspace);
-            dataset.write(sls::ToString(exptime2), strdatatype);
+            sls::strcpy_safe(c, sls::ToString(exptime2));
+            dataset.write(c, strdatatype);
         }
         // Exptime3
         {
@@ -494,7 +555,8 @@ class Mythen3MasterAttributes : public MasterAttributes {
             StrType strdatatype(PredType::C_S1, 256);
             DataSet dataset =
                 group->createDataSet("Exposure Time3", strdatatype, dataspace);
-            dataset.write(sls::ToString(exptime3), strdatatype);
+            sls::strcpy_safe(c, sls::ToString(exptime3));
+            dataset.write(c, strdatatype);
         }
         // GateDelay1
         {
@@ -502,7 +564,8 @@ class Mythen3MasterAttributes : public MasterAttributes {
             StrType strdatatype(PredType::C_S1, 256);
             DataSet dataset =
                 group->createDataSet("Gate Delay1", strdatatype, dataspace);
-            dataset.write(sls::ToString(gateDelay1), strdatatype);
+            sls::strcpy_safe(c, sls::ToString(gateDelay1));
+            dataset.write(c, strdatatype);
         }
         // GateDelay2
         {
@@ -510,7 +573,8 @@ class Mythen3MasterAttributes : public MasterAttributes {
             StrType strdatatype(PredType::C_S1, 256);
             DataSet dataset =
                 group->createDataSet("Gate Delay2", strdatatype, dataspace);
-            dataset.write(sls::ToString(gateDelay2), strdatatype);
+            sls::strcpy_safe(c, sls::ToString(gateDelay2));
+            dataset.write(c, strdatatype);
         }
         // GateDelay3
         {
@@ -518,7 +582,8 @@ class Mythen3MasterAttributes : public MasterAttributes {
             StrType strdatatype(PredType::C_S1, 256);
             DataSet dataset =
                 group->createDataSet("Gate Delay3", strdatatype, dataspace);
-            dataset.write(sls::ToString(gateDelay3), strdatatype);
+            sls::strcpy_safe(c, sls::ToString(gateDelay3));
+            dataset.write(c, strdatatype);
         }
         // Gates
         {
@@ -533,7 +598,8 @@ class Mythen3MasterAttributes : public MasterAttributes {
             StrType strdatatype(PredType::C_S1, 1024);
             DataSet dataset = group->createDataSet("Threshold Energies",
                                                    strdatatype, dataspace);
-            dataset.write(sls::ToString(thresholdAllEnergyeV), strdatatype);
+            sls::strcpy_safe(c, sls::ToString(thresholdAllEnergyeV));
+            dataset.write(c, strdatatype);
         }
     };
 #endif
@@ -565,7 +631,10 @@ class Gotthard2MasterAttributes : public MasterAttributes {
             StrType strdatatype(PredType::C_S1, 256);
             DataSet dataset =
                 group->createDataSet("Burst Mode", strdatatype, dataspace);
-            dataset.write(sls::ToString(burstMode), strdatatype);
+            char c[1024];
+            memset(c, 0, sizeof(c));
+            sls::strcpy_safe(c, sls::ToString(burstMode));
+            dataset.write(c, strdatatype);
         }
     };
 #endif

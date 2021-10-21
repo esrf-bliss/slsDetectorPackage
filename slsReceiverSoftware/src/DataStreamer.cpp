@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 /************************************************
  * @file DataStreamer.cpp
  * @short streams data from receiver via ZMQ
@@ -15,11 +17,11 @@
 const std::string DataStreamer::TypeName = "DataStreamer";
 
 DataStreamer::DataStreamer(int ind, Fifo *f, uint32_t *dr, ROI *r, uint64_t *fi,
-                           int fd, int *nd, bool *qe, uint64_t *tot)
+                           bool fr, int *nm, bool *qe, uint64_t *tot)
     : ThreadObject(ind, TypeName), fifo(f), dynamicRange(dr), roi(r),
-      fileIndex(fi), flippedDataX(fd), quadEnable(qe), totalNumFrames(tot) {
-    numDet[0] = nd[0];
-    numDet[1] = nd[1];
+      fileIndex(fi), flipRows(fr), quadEnable(qe), totalNumFrames(tot) {
+    numMods[0] = nm[0];
+    numMods[1] = nm[1];
 
     LOG(logDEBUG) << "DataStreamer " << ind << " created";
 }
@@ -58,12 +60,12 @@ void DataStreamer::RecordFirstIndex(uint64_t fnum, FifoFrame *frame) {
 
 void DataStreamer::SetGeneralData(GeneralData *g) { generalData = g; }
 
-void DataStreamer::SetNumberofDetectors(int *nd) {
-    numDet[0] = nd[0];
-    numDet[1] = nd[1];
+void DataStreamer::SetNumberofModules(int *nm) {
+    numMods[0] = nm[0];
+    numMods[1] = nm[1];
 }
 
-void DataStreamer::SetFlippedDataX(int fd) { flippedDataX = fd; }
+void DataStreamer::SetFlipRows(bool fd) { flipRows = fd; }
 
 void DataStreamer::SetAdditionalJsonHeader(
     const std::map<std::string, std::string> &json) {
@@ -208,8 +210,8 @@ int DataStreamer::SendHeader(sls_receiver_header *rheader, uint32_t size,
 
     zHeader.dynamicRange = *dynamicRange;
     zHeader.fileIndex = *fileIndex;
-    zHeader.ndetx = numDet[0];
-    zHeader.ndety = numDet[1];
+    zHeader.ndetx = numMods[0];
+    zHeader.ndety = numMods[1];
     zHeader.npixelsx = nx;
     zHeader.npixelsy = ny;
     zHeader.imageSize = size;
@@ -231,7 +233,7 @@ int DataStreamer::SendHeader(sls_receiver_header *rheader, uint32_t size,
     zHeader.roundRNumber = header.roundRNumber;
     zHeader.detType = header.detType;
     zHeader.version = header.version;
-    zHeader.flippedDataX = flippedDataX;
+    zHeader.flipRows = static_cast<int>(flipRows);
     zHeader.quad = *quadEnable;
     zHeader.completeImage =
         (header.packetNumber < generalData->packetsPerFrame ? false : true);

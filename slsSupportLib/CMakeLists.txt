@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: LGPL-3.0-or-other
+# Copyright (C) 2021 Contributors to the SLS Detector Package
 set(SOURCES
     src/string_utils.cpp
     src/file_utils.cpp
@@ -13,6 +15,7 @@ set(SOURCES
     src/PacketStream.cpp
     src/FrameAssembler.cpp
     src/sls_detector_exceptions.cpp
+    src/md5_helper.cpp
 )
 
 # Header files to install as a part of the library
@@ -46,8 +49,24 @@ if(SLS_DEVEL_HEADERS)
         include/sls/versionAPI.h
         include/sls/ZmqSocket.h
         include/sls/bit_utils.h
+        include/sls/mdf5.h
+        include/sls/md5_helper.h
     )
 endif()
+
+
+# Library for md5 c code that we are using (and potentially other c code)
+# Maybe this should be broken out into it's own folder etc.
+add_library(md5sls STATIC 
+    src/md5.c
+)
+
+target_include_directories(md5sls 
+  PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
+)
+
 
 # Create an object library to avoid building the library twice
 add_library(slsSupportObject OBJECT
@@ -71,7 +90,8 @@ target_link_libraries(slsSupportObject
     rapidjson
     ${NUMA_LIBRARY}
   PRIVATE
-    slsProjectWarnings     
+    slsProjectWarnings
+    md5sls     
 )
 
 message("ZeroMQ_INCLUDE_DIR: ${ZeroMQ_INCLUDE_DIR}")
@@ -83,16 +103,23 @@ if (SLS_USE_TESTS)
     add_subdirectory(tests)
 endif(SLS_USE_TESTS)
 
+#List of targets to support adding removing targets as config
+set(SUPPORT_LIBRARY_TARGETS slsSupportObject)
+
 # Add shared library version of the support lib
-add_library(slsSupportShared SHARED $<TARGET_OBJECTS:slsSupportObject>)
+if(SLS_BUILD_SHARED_LIBRARIES)
+    add_library(slsSupportShared SHARED $<TARGET_OBJECTS:slsSupportObject>)
+    target_link_libraries(slsSupportShared PUBLIC slsSupportObject)
 
-target_link_libraries(slsSupportShared PUBLIC slsSupportObject)
-
-set_target_properties(slsSupportShared PROPERTIES
-    LIBRARY_OUTPUT_NAME SlsSupport
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
-    PUBLIC_HEADER "${PUBLICHEADERS}"
-)
+    set_target_properties(slsSupportShared PROPERTIES
+        VERSION ${PACKAGE_VERSION_MAJOR}.${PACKAGE_VERSION_MINOR}.${PACKAGE_VERSION_PATCH}
+        SOVERSION ${PACKAGE_VERSION_MAJOR}
+        LIBRARY_OUTPUT_NAME SlsSupport
+        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+        PUBLIC_HEADER "${PUBLICHEADERS}"
+    )
+    list(APPEND SUPPORT_LIBRARY_TARGETS slsSupportShared)
+endif(SLS_BUILD_SHARED_LIBRARIES)
 
 # Add static version of the support lib
 add_library(slsSupportStatic STATIC $<TARGET_OBJECTS:slsSupportObject>)
@@ -103,14 +130,16 @@ set_target_properties(slsSupportStatic PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
     PUBLIC_HEADER "${PUBLICHEADERS}"
 )
+list(APPEND SUPPORT_LIBRARY_TARGETS slsSupportStatic)
 
 if((CMAKE_BUILD_TYPE STREQUAL "Release") AND SLS_LTO_AVAILABLE)
-    set_property(TARGET slsSupportObject PROPERTY INTERPROCEDURAL_OPTIMIZATION True)
-    set_property(TARGET slsSupportShared  PROPERTY INTERPROCEDURAL_OPTIMIZATION True)
-    set_property(TARGET slsSupportStatic PROPERTY INTERPROCEDURAL_OPTIMIZATION True)
+    set_property(TARGET ${SUPPORT_LIBRARY_TARGETS} PROPERTY INTERPROCEDURAL_OPTIMIZATION True)
 endif()
 
-install(TARGETS slsSupportShared slsSupportStatic slsSupportObject
+
+list(APPEND SUPPORT_LIBRARY_TARGETS md5sls)
+
+install(TARGETS ${SUPPORT_LIBRARY_TARGETS}
     EXPORT "${TARGETS_EXPORT_NAME}"
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}

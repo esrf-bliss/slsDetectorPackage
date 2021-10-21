@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #pragma once
 #include "Implementation.h"
 #include "receiver_defs.h"
@@ -13,7 +15,7 @@ class ServerInterface;
 
 class ClientInterface : private virtual slsDetectorDefs {
     enum numberMode { DEC, HEX };
-    detectorType myDetectorType;
+    detectorType detType;
     int portNumber{0};
     sls::ServerSocket server;
     std::unique_ptr<Implementation> receiver;
@@ -73,7 +75,6 @@ class ClientInterface : private virtual slsDetectorDefs {
 
     int lock_receiver(sls::ServerInterface &socket);
     int get_last_client_ip(sls::ServerInterface &socket);
-    int set_port(sls::ServerInterface &socket);
     int get_version(sls::ServerInterface &socket);
     int setup_receiver(sls::ServerInterface &socket);
     void setDetectorType(detectorType arg);
@@ -118,7 +119,8 @@ class ClientInterface : private virtual slsDetectorDefs {
     int set_streaming(sls::ServerInterface &socket);
     int get_streaming(sls::ServerInterface &socket);
     int set_streaming_timer(sls::ServerInterface &socket);
-    int set_flipped_data(sls::ServerInterface &socket);
+    int get_flip_rows(sls::ServerInterface &socket);
+    int set_flip_rows(sls::ServerInterface &socket);
     int set_file_format(sls::ServerInterface &socket);
     int get_file_format(sls::ServerInterface &socket);
     int set_streaming_port(sls::ServerInterface &socket);
@@ -139,8 +141,6 @@ class ClientInterface : private virtual slsDetectorDefs {
     int get_discard_policy(sls::ServerInterface &socket);
     int set_padding_enable(sls::ServerInterface &socket);
     int get_padding_enable(sls::ServerInterface &socket);
-    int set_deactivated_padding_enable(sls::ServerInterface &socket);
-    int get_deactivated_padding_enable(sls::ServerInterface &socket);
     int set_readout_mode(sls::ServerInterface &socket);
     int set_adc_mask(sls::ServerInterface &socket);
     int set_dbit_list(sls::ServerInterface &socket);
@@ -148,7 +148,7 @@ class ClientInterface : private virtual slsDetectorDefs {
     int set_dbit_offset(sls::ServerInterface &socket);
     int get_dbit_offset(sls::ServerInterface &socket);
     int set_quad_type(sls::ServerInterface &socket);
-    int set_read_n_lines(sls::ServerInterface &socket);
+    int set_read_n_rows(sls::ServerInterface &socket);
     sls::MacAddr setUdpIp(sls::IpAddr arg);
     int set_udp_ip(sls::ServerInterface &socket);
     sls::MacAddr setUdpIp2(sls::IpAddr arg);
@@ -173,6 +173,7 @@ class ClientInterface : private virtual slsDetectorDefs {
     int get_streaming_hwm(sls::ServerInterface &socket);
     int set_streaming_hwm(sls::ServerInterface &socket);
     int set_all_threshold(sls::ServerInterface &socket);
+    int set_detector_datastream(sls::ServerInterface &socket);
 
     Implementation *impl() {
         if (receiver != nullptr) {

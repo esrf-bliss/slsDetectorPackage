@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: LGPL-3.0-or-other
+# Copyright (C) 2021 Contributors to the SLS Detector Package
 include_directories(
     ${PROJECT_SOURCE_DIR}/libs/catch
     include
@@ -21,18 +23,18 @@ add_executable(tests ${SLS_TEST_SOURCES})
 target_link_libraries(tests
     PUBLIC 
       slsProjectOptions
-      slsSupportShared
+      slsSupportStatic
       pthread
       rt
     PRIVATE
       slsProjectWarnings
 )  
 
-if (SLS_USE_TEXTCLIENT)
+if (SLS_USE_DETECTOR)
     target_link_libraries(tests PUBLIC
-        slsDetectorShared
+        slsDetectorStatic
     )
-endif (SLS_USE_TEXTCLIENT)
+endif (SLS_USE_DETECTOR)
 
 if (SLS_USE_RECEIVER)
     target_link_libraries(tests PUBLIC

@@ -1,8 +1,10 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #pragma once
 #include "clogger.h"
+#include "common.h"
 #include "sls/sls_detector_defs.h"
 
-enum numberMode { DEC, HEX };
 #define GOODBYE (-200)
 #define REBOOT  (-400)
 
@@ -14,9 +16,6 @@ const char *getRetName();
 void function_table();
 void functionNotImplemented();
 void modeNotImplemented(char *modename, int mode);
-void validate(int arg, int retval, char *modename, enum numberMode nummode);
-void validate64(int64_t arg, int64_t retval, char *modename,
-                enum numberMode nummode);
 int executeCommand(char *command, char *result, enum TLogLevel level);
 int M_nofunc(int);
 #if defined(MYTHEN3D) || defined(GOTTHARD2D)
@@ -43,6 +42,7 @@ int get_adc(int);
 int write_register(int);
 int read_register(int);
 int set_module(int);
+void validate_settings(enum detectorSettings sett);
 int set_settings(int);
 int get_threshold_energy(int);
 int acquire(int blocking, int file_des);
@@ -89,7 +89,6 @@ int set_roi(int);
 int get_roi(int);
 int lock_server(int);
 int get_last_client_ip(int);
-int set_port(int);
 int calibrate_pedestal(int);
 int enable_ten_giga(int);
 int validateAndSetAllTrimbits(int arg);
@@ -146,11 +145,11 @@ int set_quad(int);
 int get_quad(int);
 int set_interrupt_subframe(int);
 int get_interrupt_subframe(int);
-int set_read_n_lines(int);
-int get_read_n_lines(int);
+int set_read_n_rows(int);
+int get_read_n_rows(int);
 void calculate_and_set_position();
 int set_detector_position(int);
-int check_detector_idle();
+int check_detector_idle(const char *s);
 int is_udp_configured();
 void configure_mac();
 int set_source_udp_ip(int);
@@ -190,8 +189,6 @@ int get_clock_phase(int);
 int get_max_clock_phase_shift(int);
 int set_clock_divider(int);
 int get_clock_divider(int);
-int set_pipeline(int);
-int get_pipeline(int);
 int set_on_chip_dac(int);
 int get_on_chip_dac(int);
 int set_inject_channel(int);
@@ -231,8 +228,8 @@ int set_scan(int);
 int get_scan_error_message(int);
 int get_cds_gain(int);
 int set_cds_gain(int);
-int get_filter(int);
-int set_filter(int);
+int get_filter_resistor(int);
+int set_filter_resistor(int);
 int get_adc_config(int);
 int set_adc_config(int);
 int get_bad_channels(int);
@@ -241,9 +238,42 @@ int reconfigure_udp(int);
 int validate_udp_configuration(int);
 int get_bursts_left(int);
 int start_readout(int);
-int set_default_dacs(int);
+int reset_to_default_dacs(int);
 int is_virtual(int);
 int get_pattern(int);
 int load_default_pattern(int);
 int get_all_threshold_energy(int);
 int get_master(int);
+int get_csr();
+int set_gain_caps(int);
+int get_gain_caps(int);
+int get_datastream(int);
+int set_datastream(int);
+int get_veto_stream(int);
+int set_veto_stream(int);
+int get_veto_algorithm(int);
+int set_veto_algorithm(int);
+int get_chip_version(int);
+int get_default_dac(int);
+int set_default_dac(int);
+int get_gain_mode(int);
+int set_gain_mode(int);
+int get_comp_disable_time(int);
+int set_comp_disable_time(int);
+int get_flip_rows(int);
+int set_flip_rows(int);
+int get_num_filter_cells(int);
+int set_num_filter_cells(int);
+int set_adc_pipeline(int);
+int get_adc_pipeline(int);
+int set_dbit_pipeline(int);
+int get_dbit_pipeline(int);
+int get_module_id(int);
+int get_dest_udp_list(int);
+int set_dest_udp_list(int);
+int get_num_dest_list(int);
+int clear_all_udp_dst(int);
+int get_udp_first_dest(int);
+int set_udp_first_dest(int);
+int get_readout_speed(int);
+int set_readout_speed(int);
