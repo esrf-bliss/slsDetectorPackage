@@ -10,8 +10,8 @@ class DataStreamer;
 class Fifo;
 class slsDetectorDefs;
 
-#include <atomic>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <exception>
 #include <map>
@@ -354,7 +354,7 @@ class Implementation : private virtual slsDetectorDefs {
     bool deactivatedPaddingEnable{true};
     int numLinesReadout{MAX_EIGER_ROWS_PER_READOUT};
     int thresholdEnergyeV{-1};
-    std::array<int, 3> thresholdAllEnergyeV={{-1, -1, -1}};
+    std::array<int, 3> thresholdAllEnergyeV = {{-1, -1, -1}};
     std::vector<int64_t> rateCorrections;
     readoutMode readoutType{ANALOG_ONLY};
     uint32_t adcEnableMaskOneGiga{BIT32_MASK};
