@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #include "slsDetectorFunctionList.h"
 #include "ALTERA_PLL_CYCLONE10.h"
 #include "ASIC_Driver.h"
@@ -24,7 +26,7 @@
 extern int debugflag;
 extern int updateFlag;
 extern int checkModuleFlag;
-extern udpStruct udpDetails;
+extern udpStruct udpDetails[MAX_UDP_DESTINATION];
 extern const enum detectorType myDetectorType;
 
 // Global variable from communication_funcs.c
@@ -49,6 +51,7 @@ int highvoltage = 0;
 int dacValues[NDAC] = {};
 int onChipdacValues[ONCHIP_NDAC][NCHIP] = {};
 int defaultDacValues[NDAC] = {};
+int hardCodedDefaultDacValues[NDAC] = {};
 int defaultOnChipdacValues[ONCHIP_NDAC][NCHIP] = {};
 int injectedChannelsOffset = 0;
 int injectedChannelsIncrement = 0;
@@ -62,7 +65,7 @@ int64_t numTriggersReg = 1;
 int64_t delayReg = 0;
 int64_t numBurstsReg = 1;
 int64_t burstPeriodReg = 0;
-int filter = 0;
+int filterResistor = 0;
 int cdsGain = 0;
 int detPos[2] = {};
 
@@ -286,6 +289,17 @@ u_int32_t getDetectorNumber() {
     return bus_r(MCB_SERIAL_NO_REG);
 }
 
+int getModuleId(int *ret, char *mess) {
+    return ((bus_r(MOD_ID_REG) & MOD_ID_MSK) >> MOD_ID_OFST);
+}
+
+void setModuleId(int modid) {
+    LOG(logINFOBLUE, ("Setting module id in fpga: %d\n", modid))
+    bus_w(MOD_ID_REG, bus_r(MOD_ID_REG) & ~MOD_ID_MSK);
+    bus_w(MOD_ID_REG,
+          bus_r(MOD_ID_REG) | ((modid << MOD_ID_OFST) & MOD_ID_MSK));
+}
+
 u_int64_t getDetectorMAC() {
 #ifdef VIRTUAL
     return 0;
@@ -312,7 +326,7 @@ u_int32_t getDetectorIP() {
 #ifdef VIRTUAL
     return 0;
 #endif
-    char temp[50] = "";
+    char temp[INET_ADDRSTRLEN] = "";
     u_int32_t res = 0;
     // execute and get address
     char output[255];
@@ -387,12 +401,13 @@ void setupDetector() {
     delayReg = 0;
     numBurstsReg = 1;
     burstPeriodReg = 0;
-    filter = 0;
+    filterResistor = 0;
     cdsGain = 0;
     memset(clkPhase, 0, sizeof(clkPhase));
     memset(dacValues, 0, sizeof(dacValues));
     for (int i = 0; i < NDAC; ++i) {
         defaultDacValues[i] = -1;
+        hardCodedDefaultDacValues[i] = -1;
     }
     for (int i = 0; i < ONCHIP_NDAC; ++i) {
         for (int j = 0; j < NCHIP; ++j) {
@@ -405,8 +420,8 @@ void setupDetector() {
     memset(adcConfiguration, 0, sizeof(adcConfiguration));
 #ifdef VIRTUAL
     sharedMemory_setStatus(IDLE);
+    setupUDPCommParameters();
 #endif
-
     // pll defines
     ALTERA_PLL_C10_SetDefines(REG_OFFSET, BASE_READOUT_PLL, BASE_SYSTEM_PLL,
                               PLL_RESET_REG, PLL_RESET_READOUT_MSK,
@@ -460,12 +475,25 @@ void setupDetector() {
     // power on chip
     powerChip(1);
 
+    setASICDefaults();
+
+    setPhase(READOUT_C1, DEFAULT_CLK1_PHASE_DEG, 1);
+    setDBITPipeline(DEFAULT_DBIT_PIPELINE);
+
     // also sets default dac and on chip dac values
     if (readConfigFile() == FAIL) {
         return;
     }
+
+    // set module id in register
+    int modid = getModuleIdInFile(&initError, initErrorMessage, ID_FILE);
+    if (initError == FAIL) {
+        return;
+    }
+    setModuleId(modid);
+
     setBurstMode(DEFAULT_BURST_MODE);
-    setFilter(DEFAULT_FILTER);
+    setFilterResistor(DEFAULT_FILTER_RESISTOR);
     setCDSGain(DEFAILT_CDS_GAIN);
     setSettings(DEFAULT_SETTINGS);
 
@@ -479,9 +507,37 @@ void setupDetector() {
     setBurstPeriod(DEFAULT_BURST_PERIOD);
     setTiming(DEFAULT_TIMING_MODE);
     setCurrentSource(DEFAULT_CURRENT_SOURCE);
+    setVetoAlgorithm(DEFAULT_ALGORITHM, LOW_LATENCY_LINK);
+    setVetoAlgorithm(DEFAULT_ALGORITHM, ETHERNET_10GB);
+    setReadoutSpeed(DEFAULT_READOUT_SPEED);
 }
 
-int setDefaultDacs() {
+void setASICDefaults() {
+    uint32_t addr = ASIC_CONFIG_REG;
+
+    // dout ready source
+    bus_w(addr, bus_r(addr) & ~ASIC_CONFIG_DOUT_RDY_SRC_MSK);
+    bus_w(addr, bus_r(addr) | ((DEFAULT_ASIC_DOUT_RDY_SRC
+                                << ASIC_CONFIG_DOUT_RDY_SRC_OFST) &
+                               ASIC_CONFIG_DOUT_RDY_SRC_MSK));
+    // dout ready delay
+    bus_w(addr, bus_r(addr) & ~ASIC_CONFIG_DOUT_RDY_DLY_MSK);
+    bus_w(addr, bus_r(addr) | ((DEFAULT_ASIC_DOUT_RDY_DLY
+                                << ASIC_CONFIG_DOUT_RDY_DLY_OFST) &
+                               ASIC_CONFIG_DOUT_RDY_DLY_MSK));
+    // config done
+    bus_w(addr, bus_r(addr) | ASIC_CONFIG_DONE_MSK);
+    LOG(logINFO, ("Setting ASIC Defaults (0x%x)\n", bus_r(addr)));
+}
+
+int resetToDefaultDacs(int hardReset) {
+    // reset defaults to hardcoded defaults
+    if (hardReset) {
+        for (int i = 0; i < NDAC; ++i) {
+            defaultDacValues[i] = hardCodedDefaultDacValues[i];
+        }
+    }
+    // reset dacs to defaults
     int ret = OK;
     LOG(logINFOBLUE, ("Setting Default Dac values\n"));
     for (int i = 0; i < NDAC; ++i) {
@@ -515,6 +571,31 @@ int setDefaultDacs() {
     return ret;
 }
 
+int getDefaultDac(enum DACINDEX index, enum detectorSettings sett,
+                  int *retval) {
+    if (sett != UNDEFINED) {
+        return FAIL;
+    }
+    if (index < 0 || index >= NDAC)
+        return FAIL;
+    *retval = defaultDacValues[index];
+    return OK;
+}
+
+int setDefaultDac(enum DACINDEX index, enum detectorSettings sett, int value) {
+    if (sett != UNDEFINED) {
+        return FAIL;
+    }
+    if (index < 0 || index >= NDAC)
+        return FAIL;
+
+    char *dac_names[] = {DAC_NAMES};
+    LOG(logINFO, ("Setting Default Dac [%d - %s]: %d\n", (int)index,
+                  dac_names[index], value));
+    defaultDacValues[index] = value;
+    return OK;
+}
+
 int readConfigFile() {
 
     if (initError == FAIL) {
@@ -530,8 +611,9 @@ int readConfigFile() {
 
     usleep(INITIAL_STARTUP_WAIT);
 
-    char fname[128];
-    if (getAbsPath(fname, 128, CONFIG_FILE) == FAIL) {
+    const int fileNameSize = 128;
+    char fname[fileNameSize];
+    if (getAbsPath(fname, fileNameSize, CONFIG_FILE) == FAIL) {
         return FAIL;
     }
 
@@ -805,6 +887,7 @@ int readConfigFile() {
 
             // set default dac variables
             defaultDacValues[idac] = value;
+            hardCodedDefaultDacValues[idac] = value;
 
             // set dac
             setDAC(idac, value, 0);
@@ -989,7 +1072,7 @@ int setExpTime(int64_t val) {
         return FAIL;
     }
     LOG(logINFO, ("Setting exptime %lld ns\n", val));
-    val *= (1E-9 * systemFrequency);
+    val = (val * 1E-9 * systemFrequency) + 0.5;
     set64BitReg(val, ASIC_INT_EXPTIME_LSB_REG, ASIC_INT_EXPTIME_MSB_REG);
 
     // validate for tolerance
@@ -1014,7 +1097,7 @@ int setPeriod(int64_t val) {
     // continuous
     if (burstMode == CONTINUOUS_INTERNAL || burstMode == CONTINUOUS_EXTERNAL) {
         LOG(logINFO, ("Setting period %lld ns [Continuous mode]\n", val));
-        val *= (1E-9 * systemFrequency);
+        val = (val * 1E-9 * systemFrequency) + 0.5;
         // trigger
         if (getTiming() == TRIGGER_EXPOSURE) {
             LOG(logINFO,
@@ -1029,7 +1112,7 @@ int setPeriod(int64_t val) {
     // burst
     else {
         LOG(logINFO, ("Setting period %lld ns [Burst mode]\n", val));
-        val *= (1E-9 * systemFrequency);
+        val = (val * 1E-9 * systemFrequency) + 0.5;
         set64BitReg(val, ASIC_INT_PERIOD_LSB_REG, ASIC_INT_PERIOD_MSB_REG);
     }
     periodReg = val;
@@ -1067,7 +1150,7 @@ int setDelayAfterTrigger(int64_t val) {
         return FAIL;
     }
     LOG(logINFO, ("Setting delay after trigger %lld ns\n", val));
-    val *= (1E-9 * systemFrequency);
+    val = (val * 1E-9 * systemFrequency) + 0.5;
     delayReg = val;
     if (getTiming() == AUTO_TIMING) {
         LOG(logINFO, ("\tAuto mode (not writing to register)\n"));
@@ -1097,7 +1180,7 @@ int setBurstPeriod(int64_t val) {
         return FAIL;
     }
     LOG(logINFO, ("Setting burst period %lld ns\n", val));
-    val *= (1E-9 * systemFrequency);
+    val = (val * 1E-9 * systemFrequency) + 0.5;
     burstPeriodReg = val;
 
     // burst and auto
@@ -1581,15 +1664,15 @@ enum timingMode getTiming() {
 void setNumberofUDPInterfaces(int val) {
     uint32_t addr = CONFIG_REG;
 
-    // 2 interfaces (enable veto)
+    // 2 rxr interfaces (enable debugging interface)
     if (val > 1) {
-        LOG(logINFOBLUE, ("Setting #Interfaces: 2 (10gbps veto streaming)\n"));
-        bus_w(addr, bus_r(addr) | CONFIG_VETO_CH_10GB_ENBL_MSK);
+        LOG(logINFOBLUE, ("Enabling 10GbE (debugging) veto streaming\n"));
+        bus_w(addr, bus_r(addr) | CONFIG_VETO_CH_10GBE_ENBL_MSK);
     }
-    // 1 interface (disable veto)
+    // 1 rxr interface (disable debugging interface)
     else {
-        LOG(logINFOBLUE, ("Setting #Interfaces: 1 (2.5gbps veto streaming)\n"));
-        bus_w(addr, bus_r(addr) & ~CONFIG_VETO_CH_10GB_ENBL_MSK);
+        LOG(logINFOBLUE, ("Disabling 10GbE (debugging) veto streaming\n"));
+        bus_w(addr, bus_r(addr) & ~CONFIG_VETO_CH_10GBE_ENBL_MSK);
     }
     LOG(logDEBUG, ("config reg:0x%x\n", bus_r(addr)));
 }
@@ -1597,7 +1680,7 @@ void setNumberofUDPInterfaces(int val) {
 int getNumberofUDPInterfaces() {
     LOG(logDEBUG, ("config reg:0x%x\n", bus_r(CONFIG_REG)));
     // return 2 if 10gbps veto streaming enabled, else 1
-    return ((bus_r(CONFIG_REG) & CONFIG_VETO_CH_10GB_ENBL_MSK) ? 2 : 1);
+    return ((bus_r(CONFIG_REG) & CONFIG_VETO_CH_10GBE_ENBL_MSK) ? 2 : 1);
 }
 
 void setupHeader(int iRxEntry, int vetoInterface, uint32_t destip,
@@ -1680,38 +1763,32 @@ void calcChecksum(udp_header *udp) {
 
 int configureMAC() {
 
-    uint32_t srcip = udpDetails.srcip;
-    uint32_t srcip2 = udpDetails.srcip2;
-    uint32_t dstip = udpDetails.dstip;
-    uint32_t dstip2 = udpDetails.dstip2;
-    uint64_t srcmac = udpDetails.srcmac;
-    uint64_t srcmac2 = udpDetails.srcmac2;
-    uint64_t dstmac = udpDetails.dstmac;
-    uint64_t dstmac2 = udpDetails.dstmac2;
-    int srcport = udpDetails.srcport;
-    int srcport2 = udpDetails.srcport2;
-    int dstport = udpDetails.dstport;
-    int dstport2 = udpDetails.dstport2;
+    uint32_t srcip = udpDetails[0].srcip;
+    uint32_t srcip2 = udpDetails[0].srcip2;
+    uint32_t dstip = udpDetails[0].dstip;
+    uint32_t dstip2 = udpDetails[0].dstip2;
+    uint64_t srcmac = udpDetails[0].srcmac;
+    uint64_t srcmac2 = udpDetails[0].srcmac2;
+    uint64_t dstmac = udpDetails[0].dstmac;
+    uint64_t dstmac2 = udpDetails[0].dstmac2;
+    int srcport = udpDetails[0].srcport;
+    int srcport2 = udpDetails[0].srcport2;
+    int dstport = udpDetails[0].dstport;
+    int dstport2 = udpDetails[0].dstport2;
 
     LOG(logINFOBLUE, ("Configuring MAC\n"));
-    char src_mac[50], src_ip[INET_ADDRSTRLEN], dst_mac[50],
-        dst_ip[INET_ADDRSTRLEN];
-    getMacAddressinString(src_mac, 50, srcmac);
-    getMacAddressinString(dst_mac, 50, dstmac);
+    char src_mac[MAC_ADDRESS_SIZE], src_ip[INET_ADDRSTRLEN],
+        dst_mac[MAC_ADDRESS_SIZE], dst_ip[INET_ADDRSTRLEN];
+    getMacAddressinString(src_mac, MAC_ADDRESS_SIZE, srcmac);
+    getMacAddressinString(dst_mac, MAC_ADDRESS_SIZE, dstmac);
     getIpAddressinString(src_ip, srcip);
     getIpAddressinString(dst_ip, dstip);
-    char src_mac2[50], src_ip2[INET_ADDRSTRLEN], dst_mac2[50],
-        dst_ip2[INET_ADDRSTRLEN];
-    getMacAddressinString(src_mac2, 50, srcmac2);
-    getMacAddressinString(dst_mac2, 50, dstmac2);
+    char src_mac2[MAC_ADDRESS_SIZE], src_ip2[INET_ADDRSTRLEN],
+        dst_mac2[MAC_ADDRESS_SIZE], dst_ip2[INET_ADDRSTRLEN];
+    getMacAddressinString(src_mac2, MAC_ADDRESS_SIZE, srcmac2);
+    getMacAddressinString(dst_mac2, MAC_ADDRESS_SIZE, dstmac2);
     getIpAddressinString(src_ip2, srcip2);
     getIpAddressinString(dst_ip2, dstip2);
-
-    int numInterfaces = getNumberofUDPInterfaces();
-    int vetoEnabled = getVeto();
-
-    LOG(logINFO, ("\t#Veto            : %d\n", vetoEnabled));
-    LOG(logINFO, ("\t#10Gb Interfaces : %d\n", numInterfaces));
 
     LOG(logINFO, ("\tData Interface \n"));
     LOG(logINFO, ("\tSource IP   : %s\n"
@@ -1719,27 +1796,36 @@ int configureMAC() {
                   "\tSource Port : %d\n"
                   "\tDest IP     : %s\n"
                   "\tDest MAC    : %s\n"
-                  "\tDest Port   : %d\n",
+                  "\tDest Port   : %d\n\n",
                   src_ip, src_mac, srcport, dst_ip, dst_mac, dstport));
 
-    LOG(logINFO,
-        ("\tVeto Interface (%s)\n",
-         (vetoEnabled && numInterfaces == 2 ? "enabled" : "disabled")));
+    int lll = getVetoStream();
+    int i10gbe = (getNumberofUDPInterfaces() == 2 ? 1 : 0);
+
+    if (lll) {
+        LOG(logINFOGREEN, ("\tVeto (lll) : enabled\n\n"));
+    } else {
+        LOG(logINFORED, ("\tVeto (lll) : disabled\n\n"));
+    }
+    if (i10gbe) {
+        LOG(logINFOGREEN, ("\tVeto (10GbE): enabled\n"));
+    } else {
+        LOG(logINFORED, ("\tVeto (10GbE): disabled\n"));
+    }
     LOG(logINFO, ("\tSource IP2  : %s\n"
                   "\tSource MAC2 : %s\n"
                   "\tSource Port2: %d\n"
                   "\tDest IP2    : %s\n"
                   "\tDest MAC2   : %s\n"
-                  "\tDest Port2  : %d\n",
+                  "\tDest Port2  : %d\n\n",
                   src_ip2, src_mac2, srcport2, dst_ip2, dst_mac2, dstport2));
 
 #ifdef VIRTUAL
-    if (setUDPDestinationDetails(0, dst_ip, dstport) == FAIL) {
+    if (setUDPDestinationDetails(0, 0, dst_ip, dstport) == FAIL) {
         LOG(logERROR, ("could not set udp destination IP and port\n"));
         return FAIL;
     }
-    if (vetoEnabled && numInterfaces == 2 &&
-        setUDPDestinationDetails(1, dst_ip2, dstport2) == FAIL) {
+    if (i10gbe && setUDPDestinationDetails(0, 1, dst_ip2, dstport2) == FAIL) {
         LOG(logERROR, ("could not set udp destination IP and port for "
                        "interface 2\n"));
         return FAIL;
@@ -1753,7 +1839,7 @@ int configureMAC() {
     setupHeader(iRxEntry, 0, dstip, dstmac, dstport, srcmac, srcip, srcport);
 
     // veto
-    if (vetoEnabled && numInterfaces == 2) {
+    if (i10gbe) {
         setupHeader(iRxEntry, 1, dstip2, dstmac2, dstport2, srcmac2, srcip2,
                     srcport2);
     }
@@ -1830,15 +1916,21 @@ int checkDetectorType() {
     int type = atoi(buffer);
     if (type > TYPE_NO_MODULE_STARTING_VAL) {
         LOG(logERROR,
-            ("No Module attached! Expected %d for Gotthard2, got %d\n",
-             TYPE_GOTTHARD2_MODULE_VAL, type));
+            ("No Module attached! Expected %d, %d or %d for Gotthard2, got "
+             "%d\n",
+             TYPE_GOTTHARD2_MODULE_VAL, TYPE_GOTTHARD2_25UM_MASTER_MODULE_VAL,
+             TYPE_GOTTHARD2_25UM_SLAVE_MODULE_VAL, type));
         return -2;
     }
 
-    if (abs(type - TYPE_GOTTHARD2_MODULE_VAL) > TYPE_TOLERANCE) {
+    if ((abs(type - TYPE_GOTTHARD2_MODULE_VAL) > TYPE_TOLERANCE) &&
+        (abs(type - TYPE_GOTTHARD2_25UM_MASTER_MODULE_VAL) > TYPE_TOLERANCE) &&
+        (abs(type - TYPE_GOTTHARD2_25UM_SLAVE_MODULE_VAL) > TYPE_TOLERANCE)) {
         LOG(logERROR,
-            ("Wrong Module attached! Expected %d for Gotthard2, got %d\n",
-             TYPE_GOTTHARD2_MODULE_VAL, type));
+            ("Wrong Module attached! Expected %d, %d or %d for Gotthard2, got "
+             "%d\n",
+             TYPE_GOTTHARD2_MODULE_VAL, TYPE_GOTTHARD2_25UM_MASTER_MODULE_VAL,
+             TYPE_GOTTHARD2_25UM_SLAVE_MODULE_VAL, type));
         return FAIL;
     }
     return OK;
@@ -1856,6 +1948,22 @@ int powerChip(int on) {
     }
     return ((bus_r(CONTROL_REG) & CONTROL_PWR_CHIP_MSK) >>
             CONTROL_PWR_CHIP_OFST);
+}
+
+void setDBITPipeline(int val) {
+    if (val < 0) {
+        return;
+    }
+    LOG(logINFO, ("Setting dbit pipeline to %d\n", val));
+    uint32_t addr = ADIF_CONFIG_REG;
+    bus_w(addr, bus_r(addr) & ~ADIF_CONFIG_DBIT_PIPELINE_MSK);
+    bus_w(addr, bus_r(addr) | ((val << ADIF_CONFIG_DBIT_PIPELINE_OFST) &
+                               ADIF_CONFIG_DBIT_PIPELINE_MSK));
+}
+
+int getDBITPipeline() {
+    return ((bus_r(ADIF_CONFIG_REG) & ADIF_CONFIG_DBIT_PIPELINE_MSK) >>
+            ADIF_CONFIG_DBIT_PIPELINE_OFST);
 }
 
 int setPhase(enum CLKINDEX ind, int val, int degrees) {
@@ -1977,6 +2085,61 @@ int getVCOFrequency(enum CLKINDEX ind) {
     return ALTERA_PLL_C10_GetVCOFrequency(pllIndex);
 }
 
+int setReadoutSpeed(int val) {
+    switch (val) {
+    case G2_108MHZ:
+        LOG(logINFOBLUE, ("Setting readout speed to 108 MHz\n"));
+        if (setClockDivider(READOUT_C0, SPEED_108_CLKDIV_0) == FAIL) {
+            return FAIL;
+        }
+        if (setClockDivider(READOUT_C1, SPEED_108_CLKDIV_1) == FAIL) {
+            return FAIL;
+        }
+        if (setPhase(READOUT_C1, SPEED_108_CLKPHASE_DEG_1, 1) == FAIL) {
+            return FAIL;
+        }
+        break;
+    case G2_144MHZ:
+        LOG(logINFOBLUE, ("Setting readout speed to 144 MHz\n"));
+        if (setClockDivider(READOUT_C0, SPEED_144_CLKDIV_0) == FAIL) {
+            return FAIL;
+        }
+        if (setClockDivider(READOUT_C1, SPEED_144_CLKDIV_1) == FAIL) {
+            return FAIL;
+        }
+        if (setPhase(READOUT_C1, SPEED_144_CLKPHASE_DEG_1, 1) == FAIL) {
+            return FAIL;
+        }
+        break;
+    default:
+        LOG(logERROR, ("Unknown readout speed %d\n", val));
+        return FAIL;
+    }
+    return OK;
+}
+
+int getReadoutSpeed(int *retval) {
+    // TODO ASIC and ADIFreg need to check????
+    // clkdiv 2, 3, 4, 5?
+    if (clkDivider[READOUT_C0] == SPEED_108_CLKDIV_0 &&
+        clkDivider[READOUT_C1] == SPEED_108_CLKDIV_1 &&
+        getPhase(READOUT_C1, 1) == SPEED_108_CLKPHASE_DEG_1) {
+        *retval = G2_108MHZ;
+    }
+
+    else if (clkDivider[READOUT_C0] == SPEED_144_CLKDIV_0 &&
+             clkDivider[READOUT_C1] == SPEED_144_CLKDIV_1 &&
+             getPhase(READOUT_C1, 1) == SPEED_144_CLKPHASE_DEG_1) {
+        *retval = G2_144MHZ;
+    }
+
+    else {
+        *retval = -1;
+        return FAIL;
+    }
+    return OK;
+}
+
 int getMaxClockDivider() { return ALTERA_PLL_C10_GetMaxClockDivider(); }
 
 int setClockDivider(enum CLKINDEX ind, int val) {
@@ -1989,8 +2152,8 @@ int setClockDivider(enum CLKINDEX ind, int val) {
     }
     char *clock_names[] = {CLK_NAMES};
 
-    LOG(logINFO, ("\tSetting %s clock (%d) divider from %d to %d\n",
-                  clock_names[ind], ind, clkDivider[ind], val));
+    LOG(logINFOBLUE, ("Setting %s clock (%d) divider from %d to %d\n",
+                      clock_names[ind], ind, clkDivider[ind], val));
 
     // Remembering old phases in degrees
     int oldPhases[NUM_CLOCKS];
@@ -2411,7 +2574,7 @@ int setBurstMode(enum burstMode burst) {
 }
 
 int configureASICGlobalSettings() {
-    int value = ((filter << ASIC_FILTER_OFST) & ASIC_FILTER_MSK) |
+    int value = ((filterResistor << ASIC_FILTER_OFST) & ASIC_FILTER_MSK) |
                 ((cdsGain << ASIC_CDS_GAIN_OFST) & ASIC_CDS_GAIN_MSK);
     switch (burstMode) {
     case BURST_INTERNAL:
@@ -2426,9 +2589,9 @@ int configureASICGlobalSettings() {
         value |= (ASIC_CONT_MODE_MSK | ASIC_EXT_TIMING_MSK);
         break;
     }
-    LOG(logINFO, ("\tSending Global Chip settings:0x%x (filter:%d, "
+    LOG(logINFO, ("\tSending Global Chip settings:0x%x (filterResistor:%d, "
                   "cdsgain:%d)\n",
-                  value, filter, cdsGain));
+                  value, filterResistor, cdsGain));
 
     const int padding = 6; // due to address (4) to make it byte aligned
     const int lenTotalBits = padding + ASIC_GLOBAL_SETT_MAX_BITS +
@@ -2504,17 +2667,17 @@ int setCDSGain(int enable) {
 
 int getCDSGain() { return cdsGain; }
 
-int setFilter(int value) {
-    if (value < 0 || value > ASIC_FILTER_MAX_VALUE) {
-        LOG(logERROR, ("Invalid filter value %d\n", value));
+int setFilterResistor(int value) {
+    if (value < 0 || value > ASIC_FILTER_MAX_RES_VALUE) {
+        LOG(logERROR, ("Invalid filter resistor value %d\n", value));
         return FAIL;
     }
-    filter = value;
-    LOG(logINFO, ("Setting Filter to %d\n", filter));
+    filterResistor = value;
+    LOG(logINFO, ("Setting Filter Resistor to %d\n", filterResistor));
     return configureASICGlobalSettings();
 }
 
-int getFilter() { return filter; }
+int getFilterResistor() { return filterResistor; }
 
 void setCurrentSource(int value) {
     uint32_t addr = ASIC_CONFIG_REG;
@@ -2576,6 +2739,82 @@ int getVeto() {
     LOG(logDEBUG, ("config reg:0x%x\n", bus_r(CONFIG_REG)));
     return ((bus_r(CONFIG_REG) & CONFIG_VETO_ENBL_MSK) >>
             CONFIG_VETO_ENBL_OFST);
+}
+
+void setVetoStream(int value) {
+    uint32_t addr = CONFIG_REG;
+
+    if (value) {
+        LOG(logINFOBLUE, ("Enabling lll veto streaming\n"));
+        bus_w(addr, bus_r(addr) | CONFIG_VETO_CH_LLL_ENBL_MSK);
+    } else {
+        LOG(logINFOBLUE, ("Disabling lll veto streaming\n"));
+        bus_w(addr, bus_r(addr) & ~CONFIG_VETO_CH_LLL_ENBL_MSK);
+    }
+    LOG(logDEBUG, ("config reg:0x%x\n", bus_r(addr)));
+}
+
+int getVetoStream() {
+    return ((bus_r(CONFIG_REG) & CONFIG_VETO_CH_LLL_ENBL_MSK) ? 1 : 0);
+}
+
+enum vetoAlgorithm getVetoAlgorithm(enum streamingInterface interface) {
+    int retval = 0;
+    if (interface == LOW_LATENCY_LINK) {
+        retval = ((bus_r(CONFIG_REG) & CONFIG_VETO_CH_LLL_ALG_MSK) >>
+                  CONFIG_VETO_CH_LLL_ALG_OFST);
+    } else {
+        retval = ((bus_r(CONFIG_REG) & CONFIG_VETO_CH_10GBE_ALG_MSK) >>
+                  CONFIG_VETO_CH_10GBE_ALG_OFST);
+    }
+    switch (retval) {
+    case ALGORITHM_HITS_VAL:
+        return ALG_HITS;
+    case ALGORITHM_RAW_VAL:
+        return ALG_RAW;
+    default:
+        LOG(logERROR, ("unknown algorithm %d\n", retval));
+        return -1;
+    }
+}
+
+void setVetoAlgorithm(enum vetoAlgorithm alg,
+                      enum streamingInterface interface) {
+    uint32_t addr = CONFIG_REG;
+    uint32_t value = bus_r(addr);
+    switch (alg) {
+        // more to follow
+    case ALG_HITS:
+        if (interface == LOW_LATENCY_LINK) {
+            LOG(logINFO, ("Setting veto algorithm [lll]: hits\n"));
+            value &= (~CONFIG_VETO_CH_LLL_ALG_MSK);
+            value |= ((ALGORITHM_HITS_VAL << CONFIG_VETO_CH_LLL_ALG_OFST) &
+                      CONFIG_VETO_CH_LLL_ALG_MSK);
+        } else {
+            LOG(logINFO, ("Setting veto algorithm [10Gbe]: hits\n"));
+            value &= (~CONFIG_VETO_CH_10GBE_ALG_MSK);
+            value |= ((ALGORITHM_HITS_VAL << CONFIG_VETO_CH_10GBE_ALG_OFST) &
+                      CONFIG_VETO_CH_10GBE_ALG_MSK);
+        }
+        break;
+    case ALG_RAW:
+        if (interface == LOW_LATENCY_LINK) {
+            LOG(logINFO, ("Setting veto algorithm [lll]: raw\n"));
+            value &= (~CONFIG_VETO_CH_LLL_ALG_MSK);
+            value |= ((ALGORITHM_RAW_VAL << CONFIG_VETO_CH_LLL_ALG_OFST) &
+                      CONFIG_VETO_CH_LLL_ALG_MSK);
+        } else {
+            LOG(logINFO, ("Setting veto algorithm [10Gbe]: raw\n"));
+            value &= (~CONFIG_VETO_CH_10GBE_ALG_MSK);
+            value |= ((ALGORITHM_RAW_VAL << CONFIG_VETO_CH_10GBE_ALG_OFST) &
+                      CONFIG_VETO_CH_10GBE_ALG_MSK);
+        }
+        break;
+    default:
+        LOG(logERROR, ("unknown algorithm %d for lll\n", alg));
+        return;
+    }
+    bus_w(addr, value);
 }
 
 void setBadChannels(int nch, int *channels) {
@@ -2652,8 +2891,7 @@ int startStateMachine() {
     if (createUDPSocket(0) != OK) {
         return FAIL;
     }
-    if (getVeto() && getNumberofUDPInterfaces() == 2 &&
-        createUDPSocket(1) != OK) {
+    if (getNumberofUDPInterfaces() == 2 && createUDPSocket(1) != OK) {
         return FAIL;
     }
     LOG(logINFOBLUE, ("Starting State Machine\n"));
@@ -2688,8 +2926,7 @@ void *start_timer(void *arg) {
         return NULL;
     }
 
-    int numInterfaces = getNumberofUDPInterfaces();
-    int vetoEnabled = getVeto();
+    int i10gbe = (getNumberofUDPInterfaces() == 2 ? 1 : 0);
 
     int numRepeats = getNumTriggers();
     if (getTiming() == AUTO_TIMING) {
@@ -2766,12 +3003,12 @@ void *start_timer(void *arg) {
             memcpy(packetData + sizeof(sls_detector_header), imageData,
                    datasize);
             // send 1 packet = 1 frame
-            sendUDPPacket(0, packetData, packetsize);
+            sendUDPPacket(0, 0, packetData, packetsize);
 
             // second interface (veto)
             char packetData2[vetopacketsize];
             memset(packetData2, 0, vetopacketsize);
-            if (vetoEnabled && numInterfaces == 2) {
+            if (i10gbe) {
                 // set header
                 veto_header *header = (veto_header *)(packetData2);
                 header->frameNumber = virtual_currentFrameNumber;
@@ -2780,11 +3017,11 @@ void *start_timer(void *arg) {
                 memcpy(packetData2 + sizeof(veto_header), vetoData,
                        vetodatasize);
                 // send 1 packet = 1 frame
-                sendUDPPacket(1, packetData2, vetopacketsize);
+                sendUDPPacket(0, 1, packetData2, vetopacketsize);
             }
-            LOG(logINFO,
-                ("Sent frame: %d (bursts/ triggers: %d) [%lld]\n", frameNr,
-                 repeatNr, (long long unsigned int)virtual_currentFrameNumber));
+            LOG(logINFO, ("Sent frame %s: %d (bursts/ triggers: %d) [%lld]\n",
+                          (i10gbe ? "(+veto)" : ""), frameNr, repeatNr,
+                          (long long unsigned int)virtual_currentFrameNumber));
             clock_gettime(CLOCK_REALTIME, &end);
             int64_t timeNs = ((end.tv_sec - begin.tv_sec) * 1E9 +
                               (end.tv_nsec - begin.tv_nsec));
@@ -2810,7 +3047,7 @@ void *start_timer(void *arg) {
     }
 
     closeUDPSocket(0);
-    if (vetoEnabled && numInterfaces == 2) {
+    if (i10gbe) {
         closeUDPSocket(1);
     }
 

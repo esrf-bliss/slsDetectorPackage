@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #pragma once
 /************************************************
  * @file GeneralData.h
@@ -51,6 +53,7 @@ class GeneralData {
     uint32_t vetoPacketSize{0};
     uint32_t vetoImageSize{0};
     uint32_t vetoHsize{0};
+    uint32_t maxRowsPerReadout{0};
     /** dynamic range */
     uint32_t dynamicRange{16};
     /** 10 Gigabit enable */
@@ -334,6 +337,7 @@ class EigerData : public GeneralData {
             FIFO_HEADER_NUMBYTES + sizeof(slsDetectorDefs::sls_receiver_header);
         headerPacketSize = 40;
         standardheader = true;
+        maxRowsPerReadout = 256;
         UpdateImageSize();
     };
 
@@ -385,6 +389,7 @@ class JungfrauData : public GeneralData {
             FIFO_HEADER_NUMBYTES + sizeof(slsDetectorDefs::sls_receiver_header);
         defaultFifoDepth = 2500;
         standardheader = true;
+        maxRowsPerReadout = 512;
         UpdateImageSize();
     };
 

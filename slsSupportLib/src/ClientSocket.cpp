@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #include "sls/ClientSocket.h"
 #include "sls/logger.h"
 #include "sls/sls_detector_defs.h"
@@ -63,6 +65,7 @@ int ClientSocket::sendCommandThenRead(int fnum, const void *args,
                                       size_t retval_size) {
     int ret = slsDetectorDefs::FAIL;
     Send(&fnum, sizeof(fnum));
+    setFnum(fnum);
     Send(args, args_size);
     readReply(ret, retval, retval_size);
     return ret;

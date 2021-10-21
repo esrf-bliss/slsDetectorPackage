@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #include "catch.hpp"
 #include "sls/logger.h"
 #include <iostream>
@@ -74,6 +76,34 @@ TEST_CASE("Check is string is integer") {
     REQUIRE_FALSE(sls::is_int("hej"));
     REQUIRE_FALSE(sls::is_int("7a"));
     REQUIRE_FALSE(sls::is_int(""));
+}
+
+TEST_CASE("Replace substring in string") {
+    std::string s = "this string should be replaced";
+    auto r = sls::replace_first(&s, "string ", "");
+    REQUIRE(r == true);
+    REQUIRE(s == "this should be replaced");
+}
+
+TEST_CASE("Replace --help in command") {
+    std::string s = "sls_detector_get --help exptime";
+    auto r = sls::replace_first(&s, " --help", "");
+    REQUIRE(r == true);
+    REQUIRE(s == "sls_detector_get exptime");
+}
+
+TEST_CASE("Replace -h in command") {
+    std::string s = "sls_detector_get -h exptime";
+    auto r = sls::replace_first(&s, " -h", "");
+    REQUIRE(r == true);
+    REQUIRE(s == "sls_detector_get exptime");
+}
+
+TEST_CASE("replace --help") {
+    std::string s = "list --help";
+    auto r = sls::replace_first(&s, " --help", "");
+    REQUIRE(r == true);
+    REQUIRE(s == "list");
 }
 
 // TEST_CASE("concat things not being strings")

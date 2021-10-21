@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #pragma once
 // clang-format off
 #define REG_OFFSET (4)
@@ -33,6 +35,10 @@
 /* Flow control and status registers */
 #define BASE_FLOW_CONTROL   (0x00200) // 0x1806_0200 - 0x1806_02FF
 // https://git.psi.ch/sls_detectors_firmware/vhdl_library/blob/f37608230b4721661f29aacc20124555705ee705/flow/flow_ctrl.vhd
+
+/** Veto processing core */
+#define BASE_VETO_PRCSSNG   (0x0300)    // 0x1806_0300 - 0x1806_03FF?
+// https://git.psi.ch/sls_detectors_firmware/gotthard_II_mcb/blob/master/code/hdl/veto/veto_ctrl.vhd
 
 /* UDP datagram generator */
 #define BASE_UDP_RAM        (0x01000) // 0x1806_1000 - 0x1806_1FFF
@@ -86,8 +92,16 @@
 
 #define CONFIG_VETO_ENBL_OFST               (0)
 #define CONFIG_VETO_ENBL_MSK                (0x00000001 << CONFIG_VETO_ENBL_OFST)
-#define CONFIG_VETO_CH_10GB_ENBL_OFST       (1)
-#define CONFIG_VETO_CH_10GB_ENBL_MSK        (0x00000001 << CONFIG_VETO_CH_10GB_ENBL_OFST)
+#define CONFIG_VETO_CH_LLL_ALG_OFST         (8)
+#define CONFIG_VETO_CH_LLL_ALG_MSK          (0x00000007 << CONFIG_VETO_CH_LLL_ALG_OFST)
+#define CONFIG_VETO_CH_LLL_ENBL_OFST        (11)
+#define CONFIG_VETO_CH_LLL_ENBL_MSK         (0x00000001 << CONFIG_VETO_CH_LLL_ENBL_OFST)
+#define CONFIG_VETO_CH_10GBE_ALG_OFST       (12)
+#define CONFIG_VETO_CH_10GBE_ALG_MSK        (0x00000007 << CONFIG_VETO_CH_10GBE_ALG_OFST)
+#define CONFIG_VETO_CH_10GBE_ENBL_OFST      (15)
+#define CONFIG_VETO_CH_10GBE_ENBL_MSK       (0x00000001 << CONFIG_VETO_CH_10GBE_ENBL_OFST)
+#define ALGORITHM_HITS_VAL                  (0x0)
+#define ALGORITHM_RAW_VAL                   (0x7)
 
 /* Control RW register */
 #define CONTROL_REG                         (0x09 * REG_OFFSET + BASE_CONTROL)
@@ -110,9 +124,11 @@
 /** DTA Offset Register */
 #define DTA_OFFSET_REG                      (0x0A * REG_OFFSET + BASE_CONTROL)
 
-/** Mask Strip Registers (40) */
-#define MASK_STRIP_START_REG                (0x18 * REG_OFFSET + BASE_CONTROL)
-#define MASK_STRIP_NUM_REGS                 (40)
+
+#define MOD_ID_REG                          (0x0B * REG_OFFSET + BASE_CONTROL)
+
+#define MOD_ID_OFST                         (0)
+#define MOD_ID_MSK                          (0x0000FFFF << MOD_ID_OFST)
 
 /* ASIC registers --------------------------------------------------*/
 
@@ -135,6 +151,10 @@
 #define ASIC_CONFIG_CURRENT_SRC_EN_MSK      (0x00000001 << ASIC_CONFIG_CURRENT_SRC_EN_OFST)
 #define ASIC_CONFIG_RST_DAC_OFST            (15)
 #define ASIC_CONFIG_RST_DAC_MSK             (0x00000001 << ASIC_CONFIG_RST_DAC_OFST)
+#define ASIC_CONFIG_DOUT_RDY_SRC_OFST       (16)
+#define ASIC_CONFIG_DOUT_RDY_SRC_MSK        (0x0000000F << ASIC_CONFIG_DOUT_RDY_SRC_OFST)
+#define ASIC_CONFIG_DOUT_RDY_DLY_OFST       (20)
+#define ASIC_CONFIG_DOUT_RDY_DLY_MSK        (0x000000FF << ASIC_CONFIG_DOUT_RDY_DLY_OFST)
 #define ASIC_CONFIG_DONE_OFST               (31)
 #define ASIC_CONFIG_DONE_MSK                (0x00000001 << ASIC_CONFIG_DONE_OFST)
 
@@ -155,6 +175,16 @@
 /* ASIC Exptime 64bit Register */
 #define ASIC_CONT_FRAMES_LSB_REG            (0x06 * REG_OFFSET + BASE_ASIC)
 #define ASIC_CONT_FRAMES_MSB_REG            (0x07 * REG_OFFSET + BASE_ASIC)
+
+
+/* ADIF registers --------------------------------------------------*/
+
+/* ADIF Config register */
+#define ADIF_CONFIG_REG                     (0x00 * REG_OFFSET + BASE_ADIF)
+
+#define ADIF_CONFIG_DBIT_PIPELINE_OFST      (4)
+#define ADIF_CONFIG_DBIT_PIPELINE_MSK       (0x00000007 << ADIF_CONFIG_DBIT_PIPELINE_OFST)
+
 
 /* Packetizer -------------------------------------------------------------*/
 
@@ -257,5 +287,11 @@
 /* UDP datagram registers --------------------------------------------------*/
 #define RXR_ENDPOINTS_MAX                   (32)
 #define RXR_ENDPOINT_OFST                   (16 * REG_OFFSET)
+
+
+/** Veto processing core  --------------------------------------------------*/
+/** Mask Strip Registers (40) */
+#define MASK_STRIP_START_REG                (0x00 * REG_OFFSET + BASE_VETO_PRCSSNG)
+#define MASK_STRIP_NUM_REGS                 (40)
 
 // clang-format on

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #pragma once
 #include "SharedMemory.h"
 #include "sls/ClientSocket.h"
@@ -14,30 +16,30 @@
 
 class ServerInterface;
 
-#define SLS_SHMAPIVERSION 0x190726
-#define SLS_SHMVERSION    0x200402
+#define MODULE_SHMAPIVERSION 0x190726
+#define MODULE_SHMVERSION    0x200402
 
 namespace sls {
 
 /**
- * @short structure allocated in shared memory to store detector settings for
+ * @short structure allocated in shared memory to store Module settings for
  * IPC and cache
  */
-struct sharedSlsDetector {
+struct sharedModule {
 
     /* FIXED PATTERN FOR STATIC FUNCTIONS. DO NOT CHANGE, ONLY APPEND ------*/
 
     int shmversion;
     char hostname[MAX_STR_LENGTH];
-    slsDetectorDefs::detectorType myDetectorType;
+    slsDetectorDefs::detectorType detType;
 
     /** END OF FIXED PATTERN -----------------------------------------------*/
 
-    slsDetectorDefs::xy numberOfDetector;
+    slsDetectorDefs::xy numberOfModule;
     int controlPort;
     int stopPort;
     char settingsDir[MAX_STR_LENGTH];
-    /** list of the energies at which the detector has been trimmed  */
+    /** list of the energies at which the Module has been trimmed  */
     sls::StaticVector<int, MAX_TRIMEN> trimEnergies;
     /**  number of channels per chip */
     slsDetectorDefs::xy nChan;
@@ -66,17 +68,17 @@ class Module : public virtual slsDetectorDefs {
 
     /** creating new shared memory
     verify is if shared memory version matches existing one */
-    explicit Module(detectorType type, int det_id = 0, int module_id = 0,
+    explicit Module(detectorType type, int det_id = 0, int module_index = 0,
                     bool verify = true);
 
     /** opening existing shared memory
     verify is if shared memory version matches existing one */
-    explicit Module(int det_id = 0, int module_id = 0, bool verify = true);
+    explicit Module(int det_id = 0, int module_index = 0, bool verify = true);
 
     virtual ~Module();
 
     /** Frees shared memory and deletes shared memory structure
-    Safe to call only if detector shm also deleted or its numberOfDetectors is
+    Safe to call only if detector shm also deleted or its numberOfModules is
     updated */
     void freeSharedMemory();
     bool isFixedPatternSharedMemoryCompatible() const;
@@ -90,6 +92,7 @@ class Module : public virtual slsDetectorDefs {
     int64_t getFirmwareVersion() const;
     int64_t getDetectorServerVersion() const;
     int64_t getSerialNumber() const;
+    int getModuleId() const;
     int64_t getReceiverSoftwareVersion() const;
     static detectorType getTypeFromDetector(const std::string &hostname,
                                             int cport = DEFAULT_PORTNO);
@@ -98,7 +101,7 @@ class Module : public virtual slsDetectorDefs {
     detectorType getDetectorType() const;
     void updateNumberOfChannels();
     slsDetectorDefs::xy getNumberOfChannels() const;
-    void updateNumberOfDetector(slsDetectorDefs::xy det);
+    void updateNumberOfModule(slsDetectorDefs::xy det);
     detectorSettings getSettings() const;
     void setSettings(detectorSettings isettings);
     int getThresholdEnergy() const;
@@ -109,11 +112,13 @@ class Module : public virtual slsDetectorDefs {
                                detectorSettings isettings, bool trimbits);
     std::string getSettingsDir() const;
     std::string setSettingsDir(const std::string &dir);
-    void loadSettingsFile(const std::string &fname);
+    void loadTrimbits(const std::string &fname);
     int getAllTrimbits() const;
     void setAllTrimbits(int val);
     std::vector<int> getTrimEn() const;
     int setTrimEn(const std::vector<int> &energies = {});
+    bool getFlipRows() const;
+    void setFlipRows(bool value);
     bool isVirtualDetectorServer() const;
 
     /**************************************************
@@ -141,6 +146,8 @@ class Module : public virtual slsDetectorDefs {
     void setDynamicRange(int dr);
     timingMode getTimingMode() const;
     void setTimingMode(timingMode value);
+    speedLevel getReadoutSpeed() const;
+    void setReadoutSpeed(speedLevel value);
     int getClockDivider(int clkIndex) const;
     void setClockDivider(int clkIndex, int value);
     int getClockPhase(int clkIndex, bool inDegrees) const;
@@ -148,8 +155,11 @@ class Module : public virtual slsDetectorDefs {
     int getMaxClockPhaseShift(int clkIndex) const;
     int getClockFrequency(int clkIndex) const;
     void setClockFrequency(int clkIndex, int value);
-    /** [Eiger][Jungfrau][Moench][Gotthard][Gotthard2][Mythen3] */
-    void setDefaultDacs();
+    int getDefaultDac(slsDetectorDefs::dacIndex index,
+                      slsDetectorDefs::detectorSettings sett);
+    void setDefaultDac(slsDetectorDefs::dacIndex index, int defaultValue,
+                       defs::detectorSettings sett);
+    void resetToDefaultDacs(const bool hardReset);
     int getDAC(dacIndex index, bool mV) const;
     void setDAC(int val, dacIndex index, bool mV);
     bool getPowerChip() const;
@@ -165,7 +175,14 @@ class Module : public virtual slsDetectorDefs {
     void setExternalSignalFlags(int signalIndex, externalSignalFlag type);
     bool getParallelMode() const;
     void setParallelMode(const bool enable);
-
+    int getFilterResistor() const;
+    void setFilterResistor(int value);
+    defs::currentSrcParameters getCurrentSource() const;
+    void setCurrentSource(defs::currentSrcParameters par);
+    int getDBITPipeline() const;
+    void setDBITPipeline(int value);
+    int getReadNRows() const;
+    void setReadNRows(const int value);
     /**************************************************
      *                                                *
      *    Acquisition                                 *
@@ -185,7 +202,7 @@ class Module : public virtual slsDetectorDefs {
     std::vector<uint64_t> getNumMissingPackets() const;
     uint64_t getNextFrameNumber() const;
     void setNextFrameNumber(uint64_t value);
-    void sendSoftwareTrigger();
+    void sendSoftwareTrigger(const bool block);
     defs::scanParameters getScan() const;
     void setScan(const defs::scanParameters t);
     std::string getScanErrorMessage() const;
@@ -208,6 +225,12 @@ class Module : public virtual slsDetectorDefs {
     void setSourceUDPMAC(const sls::MacAddr mac);
     sls::MacAddr getSourceUDPMAC2() const;
     void setSourceUDPMAC2(const sls::MacAddr mac);
+    sls::UdpDestination getDestinationUDPList(const uint32_t entry) const;
+    void setDestinationUDPList(const sls::UdpDestination dest);
+    int getNumberofUDPDestinations() const;
+    void clearUDPDestinations();
+    int getFirstUDPDestination() const;
+    void setFirstUDPDestination(const int value);
     sls::IpAddr getDestinationUDPIP() const;
     void setDestinationUDPIP(const sls::IpAddr ip);
     sls::IpAddr getDestinationUDPIP2() const;
@@ -320,22 +343,16 @@ class Module : public virtual slsDetectorDefs {
     void setSubDeadTime(int64_t value);
     bool getOverFlowMode() const;
     void setOverFlowMode(const bool enable);
-    bool getFlippedDataX() const;
-    void setFlippedDataX(bool value);
     int64_t getRateCorrection() const;
     void setDefaultRateCorrection();
     void setRateCorrection(int64_t t = 0);
     void sendReceiverRateCorrections(const std::vector<int64_t> &t);
-    int getReadNLines() const;
-    void setReadNLines(const int value);
     bool getInterruptSubframe() const;
     void setInterruptSubframe(const bool enable);
     int64_t getMeasuredPeriod() const;
     int64_t getMeasuredSubFramePeriod() const;
     bool getActivate() const;
     void setActivate(const bool enable);
-    bool getDeactivatedRxrPaddingMode() const;
-    void setDeactivatedRxrPaddingMode(bool padding);
     bool getCounterBit() const;
     void setCounterBit(bool cb);
     void pulsePixel(int n = 0, int x = 0, int y = 0);
@@ -343,12 +360,15 @@ class Module : public virtual slsDetectorDefs {
     void pulseChip(int n_pulses = 0);
     bool getQuad() const;
     void setQuad(const bool enable);
+    bool getDataStream(const portPosition port) const;
+    void setDataStream(const portPosition port, const bool enable);
 
     /**************************************************
      *                                                *
      *    Jungfrau Specific                           *
      *                                                *
      * ************************************************/
+    double getChipVersion() const;
     int getThresholdTemperature() const;
     void setThresholdTemperature(int val);
     bool getTemperatureControl() const;
@@ -357,12 +377,18 @@ class Module : public virtual slsDetectorDefs {
     void resetTemperatureEvent();
     bool getAutoComparatorDisableMode() const;
     void setAutoComparatorDisableMode(bool val);
+    int64_t getComparatorDisableTime() const;
+    void setComparatorDisableTime(int64_t value);
     int getNumberOfAdditionalStorageCells() const;
     void setNumberOfAdditionalStorageCells(int value);
     int getStorageCellStart() const;
     void setStorageCellStart(int pos);
     int64_t getStorageCellDelay() const;
     void setStorageCellDelay(int64_t value);
+    gainMode getGainMode() const;
+    void setGainMode(const gainMode mode);
+    int getNumberOfFilterCells() const;
+    void setNumberOfFilterCells(int value);
 
     /**************************************************
      *                                                *
@@ -398,14 +424,16 @@ class Module : public virtual slsDetectorDefs {
     void setBurstMode(burstMode value);
     bool getCDSGain() const;
     void setCDSGain(bool value);
-    int getFilter() const;
-    void setFilter(int value);
-    bool getCurrentSource() const;
-    void setCurrentSource(bool value);
     slsDetectorDefs::timingSourceType getTimingSource() const;
     void setTimingSource(slsDetectorDefs::timingSourceType value);
     bool getVeto() const;
     void setVeto(bool enable);
+    bool getVetoStream() const;
+    void setVetoStream(const bool value);
+    slsDetectorDefs::vetoAlgorithm
+    getVetoAlgorithm(const slsDetectorDefs::streamingInterface interface) const;
+    void setVetoAlgorithm(const slsDetectorDefs::vetoAlgorithm alg,
+                          const slsDetectorDefs::streamingInterface interface);
     int getADCConfiguration(const int chipIndex, const int adcIndex) const;
     void setADCConfiguration(const int chipIndex, const int adcIndex,
                              int value);
@@ -426,6 +454,9 @@ class Module : public virtual slsDetectorDefs {
     void setGateDelay(int gateIndex, int64_t value);
     std::array<time::ns, 3> getGateDelayForAllGates() const;
     bool isMaster() const;
+    int getChipStatusRegister() const;
+    void setGainCaps(int caps);
+    int getGainCaps();
 
     /**************************************************
      *                                                *
@@ -434,8 +465,8 @@ class Module : public virtual slsDetectorDefs {
      * ************************************************/
     int getNumberOfAnalogSamples() const;
     void setNumberOfAnalogSamples(int value);
-    int getPipeline(int clkIndex) const;
-    void setPipeline(int clkIndex, int value);
+    int getADCPipeline() const;
+    void setADCPipeline(int value);
     uint32_t getADCEnableMask() const;
     void setADCEnableMask(uint32_t mask);
     uint32_t getTenGigaADCEnableMask() const;
@@ -673,9 +704,9 @@ class Module : public virtual slsDetectorDefs {
     verify is if shm size matches existing one  */
     void initSharedMemory(detectorType type, int det_id, bool verify = true);
 
-    /** Initialize detector structure to defaults,
+    /** Initialize module structure to defaults,
     Called when new shared memory is created */
-    void initializeDetectorStructure(detectorType type);
+    void initializeModuleStructure(detectorType type);
 
     void checkDetectorVersionCompatibility();
     void checkReceiverVersionCompatibility();
@@ -717,8 +748,8 @@ class Module : public virtual slsDetectorDefs {
     void programFPGAviaBlackfin(std::vector<char> buffer);
     void programFPGAviaNios(std::vector<char> buffer);
 
-    const int moduleId;
-    mutable sls::SharedMemory<sharedSlsDetector> shm{0, 0};
+    const int moduleIndex;
+    mutable sls::SharedMemory<sharedModule> shm{0, 0};
 };
 
 } // namespace sls

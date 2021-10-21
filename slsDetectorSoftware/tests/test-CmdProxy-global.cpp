@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #include "test-CmdProxy-global.h"
 #include "CmdProxy.h"
 #include "catch.hpp"
@@ -27,9 +29,9 @@ void test_dac(defs::dacIndex index, const std::string &dacname, int dacvalue) {
     }
     // other detectors
     else {
-        proxy.Call(dacname, {dacstr}, -1, PUT, oss_set);
+        proxy.Call("dac", {dacname, dacstr}, -1, PUT, oss_set);
         REQUIRE(oss_set.str() == "dac " + dacname + " " + dacstr + "\n");
-        proxy.Call(dacname, {}, -1, GET, oss_get);
+        proxy.Call("dac", {dacname}, -1, GET, oss_get);
         REQUIRE(oss_get.str() == "dac " + dacname + " " + dacstr + "\n");
     }
     // Reset all dacs to previous value

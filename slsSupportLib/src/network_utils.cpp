@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #include "sls/sls_detector_exceptions.h"
 
 #include "sls/network_utils.h"
@@ -69,12 +71,36 @@ std::string MacAddr::str() const { return to_hex(':'); }
 
 std::string MacAddr::hex() const { return to_hex(); }
 
+std::string UdpDestination::str() const {
+    std::ostringstream oss;
+    oss << '[' << std::endl
+        << "entry " << entry << std::endl
+        << "ip " << ip << std::endl
+        << "mac " << mac << std::endl
+        << "port " << port << std::endl;
+    if (port2 != 0) {
+        oss << "port2 " << port2 << std::endl;
+    }
+    if (ip2 != 0) {
+        oss << "ip2 " << ip2 << std::endl;
+    }
+    if (mac2 != 0) {
+        oss << "mac2 " << mac2 << std::endl;
+    }
+    oss << ']';
+    return oss.str();
+}
+
 std::ostream &operator<<(std::ostream &out, const IpAddr &addr) {
     return out << addr.str();
 }
 
 std::ostream &operator<<(std::ostream &out, const MacAddr &addr) {
     return out << addr.str();
+}
+
+std::ostream &operator<<(std::ostream &out, const UdpDestination &dest) {
+    return out << dest.str();
 }
 
 IpAddr HostnameToIp(const char *hostname) {

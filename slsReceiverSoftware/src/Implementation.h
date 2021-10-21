@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #pragma once
 #include "receiver_defs.h"
 #include "sls/container_utils.h"
@@ -16,6 +18,7 @@ class slsDetectorDefs;
 #include <exception>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <vector>
 using ns = std::chrono::nanoseconds;
 
@@ -88,7 +91,6 @@ class Implementation : private virtual slsDetectorDefs {
     void stopReceiver();
     void startReadout();
     void shutDownUDPSockets();
-    void closeFiles();
     void restreamStop();
 
     /**************************************************
@@ -203,21 +205,24 @@ class Implementation : private virtual slsDetectorDefs {
     bool getTenGigaEnable() const;
     /* [Eiger][Ctb] */
     void setTenGigaEnable(const bool b);
-    int getFlippedDataX() const;
-    void setFlippedDataX(int enable = -1);
+    bool getFlipRows() const;
+    void setFlipRows(bool enable);
     bool getQuad() const;
     /* [Eiger] */
     void setQuad(const bool b);
     bool getActivate() const;
     /** [Eiger] If deactivated, receiver will create dummy data if deactivated
      * padding is enabled (as it will receive nothing from detector) */
-    bool setActivate(const bool enable);
-    bool getDeactivatedPadding() const;
-    /* [Eiger] */
-    void setDeactivatedPadding(const bool enable);
-    int getReadNLines() const;
-    /* [Eiger] */
-    void setReadNLines(const int value);
+    void setActivate(const bool enable);
+    bool getDetectorDataStream(const portPosition port) const;
+    /** [Eiger] If datastream is disabled, receiver will create dummy data if
+     * deactivated
+     * padding for that port is enabled (as it will receive nothing from
+     * detector) */
+    void setDetectorDataStream(const portPosition port, const bool enable);
+    int getReadNRows() const;
+    /* [Eiger][Jungfrau] */
+    void setReadNRows(const int value);
     /** [Eiger] */
     void setThresholdEnergy(const int value);
     void setThresholdEnergy(const std::array<int, 3> value);
@@ -279,8 +284,8 @@ class Implementation : private virtual slsDetectorDefs {
 
     // config parameters
     int numThreads{1};
-    detectorType myDetectorType{GENERIC};
-    int numDet[MAX_DIMENSIONS] = {0, 0};
+    detectorType detType{GENERIC};
+    int numMods[MAX_DIMENSIONS] = {0, 0};
     int modulePos{0};
     std::string detHostname;
     bool silentMode{false};
@@ -348,11 +353,11 @@ class Implementation : private virtual slsDetectorDefs {
     uint32_t dynamicRange{16};
     ROI roi{};
     bool tengigaEnable{false};
-    int flippedDataX{0};
+    bool flipRows{false};
     bool quadEnable{false};
     bool activated{true};
-    bool deactivatedPaddingEnable{true};
-    int numLinesReadout{MAX_EIGER_ROWS_PER_READOUT};
+    std::array<bool, 2> detectorDataStream = {{true, true}};
+    int readNRows{0};
     int thresholdEnergyeV{-1};
     std::array<int, 3> thresholdAllEnergyeV = {{-1, -1, -1}};
     std::vector<int64_t> rateCorrections;
@@ -380,4 +385,6 @@ class Implementation : private virtual slsDetectorDefs {
     std::vector<std::unique_ptr<DataProcessor>> dataProcessor;
     std::vector<std::unique_ptr<DataStreamer>> dataStreamer;
     std::vector<std::unique_ptr<Fifo>> fifo;
+
+    std::mutex hdf5Lib;
 };

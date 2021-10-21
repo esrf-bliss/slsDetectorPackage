@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #include "slsDetectorFunctionList.h"
 #include "RegisterDefs.h"
 #include "clogger.h"
@@ -21,7 +23,7 @@
 // Global variable from slsDetectorServer_funcs
 extern int debugflag;
 extern int updateFlag;
-extern udpStruct udpDetails;
+extern udpStruct udpDetails[MAX_UDP_DESTINATION];
 extern const enum detectorType myDetectorType;
 
 // Variables that will be exported
@@ -45,6 +47,7 @@ int detPos[2] = {};
 
 int detectorFirstServer = 1;
 int dacValues[NDAC] = {};
+int defaultDacValues[NDAC] = DEFAULT_DAC_VALS;
 enum detectorSettings thisSettings = UNINITIALIZED;
 enum externalSignalFlag signalMode = 0;
 
@@ -55,7 +58,7 @@ int ipPacketSize = 0;
 int udpPacketSize = 0;
 
 // master slave configuration (for 25um)
-int masterflags = NO_MASTER;
+int master = 0;
 int masterdefaultdelay = 62;
 int patternphase = 0;
 int adcphase = 0;
@@ -314,7 +317,7 @@ u_int32_t getDetectorIP() {
 #ifdef VIRTUAL
     return 0;
 #endif
-    char temp[50] = "";
+    char temp[INET_ADDRSTRLEN] = "";
     u_int32_t res = 0;
     // execute and get address
     char output[255];
@@ -364,6 +367,8 @@ void initStopServer() {
 #ifdef VIRTUAL
     sharedMemory_setStop(0);
 #endif
+    // to get master from file
+    readConfigFile();
 }
 
 /* set up detector */
@@ -373,6 +378,7 @@ void setupDetector() {
 
 #ifdef VIRTUAL
     sharedMemory_setStatus(IDLE);
+    setupUDPCommParameters();
 #endif
 
     // Initialization
@@ -403,7 +409,7 @@ void setupDetector() {
                        DAC_MAX_MV);
     LTC2620_Disable();
     LTC2620_Configure();
-    setDefaultDacs();
+    resetToDefaultDacs(0);
 
     // temp
     bus_w(TEMP_SPI_IN_REG, TEMP_SPI_IN_IDLE_MSK);
@@ -431,19 +437,51 @@ void setupDetector() {
     setDelayAfterTrigger(DEFAULT_DELAY);
 }
 
-int setDefaultDacs() {
+int resetToDefaultDacs(int hardReset) {
+    // reset defaults to hardcoded defaults
+    if (hardReset) {
+        const int vals[] = DEFAULT_DAC_VALS;
+        for (int i = 0; i < NDAC; ++i) {
+            defaultDacValues[i] = vals[i];
+        }
+    }
+    // reset dacs to defaults
     int ret = OK;
     LOG(logINFOBLUE, ("Setting Default Dac values\n"));
-    const int defaultvals[NDAC] = DEFAULT_DAC_VALS;
     for (int i = 0; i < NDAC; ++i) {
-        setDAC((enum DACINDEX)i, defaultvals[i], 0);
-        if (dacValues[i] != defaultvals[i]) {
+        setDAC((enum DACINDEX)i, defaultDacValues[i], 0);
+        if (dacValues[i] != defaultDacValues[i]) {
             ret = FAIL;
             LOG(logERROR, ("Setting dac %d failed, wrote %d, read %d\n", i,
-                           defaultvals[i], dacValues[i]));
+                           defaultDacValues[i], dacValues[i]));
         }
     }
     return ret;
+}
+
+int getDefaultDac(enum DACINDEX index, enum detectorSettings sett,
+                  int *retval) {
+    if (sett != UNDEFINED) {
+        return FAIL;
+    }
+    if (index < 0 || index >= NDAC)
+        return FAIL;
+    *retval = defaultDacValues[index];
+    return OK;
+}
+
+int setDefaultDac(enum DACINDEX index, enum detectorSettings sett, int value) {
+    if (sett != UNDEFINED) {
+        return FAIL;
+    }
+    if (index < 0 || index >= NDAC)
+        return FAIL;
+
+    char *dac_names[] = {DAC_NAMES};
+    LOG(logINFO, ("Setting Default Dac [%d - %s]: %d\n", (int)index,
+                  dac_names[index], value));
+    defaultDacValues[index] = value;
+    return OK;
 }
 
 uint32_t writeRegister16And32(uint32_t offset, uint32_t data) {
@@ -586,8 +624,9 @@ void setGbitReadout() {
 }
 
 int readConfigFile() {
-    char fname[128];
-    if (getAbsPath(fname, 128, CONFIG_FILE) == FAIL) {
+    const int fileNameSize = 128;
+    char fname[fileNameSize];
+    if (getAbsPath(fname, fileNameSize, CONFIG_FILE) == FAIL) {
         return FAIL;
     }
 
@@ -621,14 +660,12 @@ int readConfigFile() {
         // key is master/ slave flag
         if (!strcasecmp(key, "masterflags")) {
             if (!strcasecmp(value, "is_master")) {
-                masterflags = IS_MASTER;
+                master = 1;
                 LOG(logINFOBLUE, ("\tMaster\n"));
-            } else if (!strcasecmp(value, "is_slave")) {
-                masterflags = IS_SLAVE;
-                LOG(logINFOBLUE, ("\tSlave\n"));
-            } else if (!strcasecmp(value, "no_master")) {
-                masterflags = NO_MASTER;
-                LOG(logINFOBLUE, ("\tNo Master\n"));
+            } else if ((!strcasecmp(value, "is_slave")) ||
+                       (!strcasecmp(value, "no_master"))) {
+                master = 0;
+                LOG(logINFOBLUE, ("\tSlave or No Master\n"));
             } else {
                 LOG(logERROR,
                     ("\tCould not scan masterflags %s value from config file\n",
@@ -705,7 +742,7 @@ void setMasterSlaveConfiguration() {
         return;
 
     // master configuration
-    if (masterflags == IS_MASTER) {
+    if (master) {
         // master default delay set, so reset delay
         setDelayAfterTrigger(0);
 
@@ -876,7 +913,7 @@ int setDelayAfterTrigger(int64_t val) {
         return FAIL;
     }
     LOG(logINFO, ("Setting delay after trigger %lld ns\n", (long long int)val));
-    if (masterflags == IS_MASTER) {
+    if (master) {
         val += masterdefaultdelay;
         LOG(logINFO, ("\tActual Delay (master): %lld\n", (long long int)val));
     }
@@ -900,7 +937,7 @@ int setDelayAfterTrigger(int64_t val) {
 int64_t getDelayAfterTrigger() {
     int64_t retval =
         get64BitReg(SET_DELAY_LSB_REG, SET_DELAY_MSB_REG) / (1E-9 * CLK_FREQ);
-    if (masterflags == IS_MASTER) {
+    if (master) {
         LOG(logDEBUG1,
             ("\tActual Delay read (master): %lld\n", (long long int)retval));
         retval -= masterdefaultdelay;
@@ -924,7 +961,7 @@ int64_t getPeriodLeft() {
 int64_t getDelayAfterTriggerLeft() {
     int64_t retval =
         get64BitReg(GET_DELAY_LSB_REG, GET_DELAY_MSB_REG) / (1E-9 * CLK_FREQ);
-    if (masterflags == IS_MASTER) {
+    if (master) {
         LOG(logDEBUG1,
             ("\tGetting Actual delay (master): %lld\n", (long long int)retval));
         retval -= masterdefaultdelay;
@@ -1201,6 +1238,8 @@ int setHighVoltage(int val) {
 
 /* parameters - timing, extsig */
 
+int isMaster() { return master; }
+
 void setTiming(enum timingMode arg) {
     u_int32_t addr = EXT_SIGNAL_REG;
     switch (arg) {
@@ -1295,18 +1334,18 @@ void calcChecksum(mac_conf *mac, int sourceip, int destip) {
 }
 
 int configureMAC() {
-    uint32_t srcip = udpDetails.srcip;
-    uint32_t dstip = udpDetails.dstip;
-    uint64_t srcmac = udpDetails.srcmac;
-    uint64_t dstmac = udpDetails.dstmac;
-    int srcport = udpDetails.srcport;
-    int dstport = udpDetails.dstport;
+    uint32_t srcip = udpDetails[0].srcip;
+    uint32_t dstip = udpDetails[0].dstip;
+    uint64_t srcmac = udpDetails[0].srcmac;
+    uint64_t dstmac = udpDetails[0].dstmac;
+    int srcport = udpDetails[0].srcport;
+    int dstport = udpDetails[0].dstport;
 
     LOG(logINFOBLUE, ("Configuring MAC\n"));
-    char src_mac[50], src_ip[INET_ADDRSTRLEN], dst_mac[50],
-        dst_ip[INET_ADDRSTRLEN];
-    getMacAddressinString(src_mac, 50, srcmac);
-    getMacAddressinString(dst_mac, 50, dstmac);
+    char src_mac[MAC_ADDRESS_SIZE], src_ip[INET_ADDRSTRLEN],
+        dst_mac[MAC_ADDRESS_SIZE], dst_ip[INET_ADDRSTRLEN];
+    getMacAddressinString(src_mac, MAC_ADDRESS_SIZE, srcmac);
+    getMacAddressinString(dst_mac, MAC_ADDRESS_SIZE, dstmac);
     getIpAddressinString(src_ip, srcip);
     getIpAddressinString(dst_ip, dstip);
 
@@ -1319,7 +1358,7 @@ int configureMAC() {
                   src_ip, src_mac, srcport, dst_ip, dst_mac, dstport));
 
 #ifdef VIRTUAL
-    if (setUDPDestinationDetails(0, dst_ip, dstport) == FAIL) {
+    if (setUDPDestinationDetails(0, 0, dst_ip, dstport) == FAIL) {
         LOG(logERROR, ("could not set udp 1G destination IP and port\n"));
         return FAIL;
     }
@@ -1451,7 +1490,7 @@ int configureMAC() {
         setExpTime(900 * 1000);
 
         // take an image
-        if (masterflags == IS_MASTER)
+        if (master)
             usleep(1 * 1000 * 1000); // required to ensure master starts
                                      // acquisition only after slave has changed
                                      // to basic parameters and is waiting
@@ -1605,7 +1644,7 @@ void *start_timer(void *arg) {
             memcpy(packetData + 4, imageData + srcOffset, dataSize);
             srcOffset += dataSize;
 
-            sendUDPPacket(0, packetData, packetSize);
+            sendUDPPacket(0, 0, packetData, packetSize);
         }
         LOG(logINFO,
             ("Sent frame: %d [%d]\n", frameNr, virtual_currentFrameNumber));

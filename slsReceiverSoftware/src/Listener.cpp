@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 /************************************************
  * @file Listener.cpp
  * @short creates the listener thread that
@@ -22,11 +24,11 @@ const std::string Listener::TypeName = "Listener";
 Listener::Listener(int ind, detectorType dtype, Fifo *f,
                    std::atomic<runStatus> *s, uint32_t *portno, std::string *e,
                    uint64_t *nf, int *us, int *as, uint32_t *fpf,
-                   frameDiscardPolicy *fdp, bool *act, bool *depaden, bool *sm)
+                   frameDiscardPolicy *fdp, bool *act, bool *detds, bool *sm)
     : ThreadObject(ind, TypeName), fifo(f), myDetectorType(dtype), status(s),
       udpPortNumber(portno), eth(e), numImages(nf), udpSocketBufferSize(us),
       actualUDPSocketBufferSize(as), framesPerFile(fpf), frameDiscardMode(fdp),
-      activated(act), deactivatedPaddingEnable(depaden), silentMode(sm) {
+      activated(act), detectorDataStream(detds), silentMode(sm) {
     LOG(logDEBUG) << "Listener " << ind << " created";
 }
 
@@ -94,7 +96,7 @@ void Listener::RecordFirstIndex(uint64_t fnum) {
 void Listener::SetGeneralData(GeneralData *g) { generalData = g; }
 
 void Listener::CreateUDPSockets() {
-    if (!(*activated)) {
+    if (!(*activated) || !(*detectorDataStream)) {
         return;
     }
 
@@ -144,7 +146,7 @@ void Listener::CreateDummySocketForUDPSocketBufferSize(int s) {
     LOG(logINFO) << "Testing UDP Socket Buffer size " << s << " with test port "
                  << *udpPortNumber;
 
-    if (!(*activated)) {
+    if (!(*activated) || !(*detectorDataStream)) {
         *actualUDPSocketBufferSize = (s * 2);
         return;
     }
@@ -201,7 +203,8 @@ void Listener::ThreadExecution() {
                    << std::hex << (void *)(buffer) << std::dec << ":" << buffer;
 
     // udpsocket doesnt exist
-    if (*activated && !udpSocketAlive && !carryOverFlag) {
+    if (*activated && *detectorDataStream && !udpSocketAlive &&
+        !carryOverFlag) {
         // LOG(logERROR) << "Listening_Thread " << index << ": UDP Socket not
         // created or shut down earlier";
         (*((uint32_t *)buffer)) = 0;
@@ -210,7 +213,8 @@ void Listener::ThreadExecution() {
     }
 
     // get data
-    if ((*status != TRANSMITTING && (!(*activated) || udpSocketAlive)) ||
+    if ((*status != TRANSMITTING &&
+         (!(*activated) || !(*detectorDataStream) || udpSocketAlive)) ||
         carryOverFlag) {
         rc = ListenToAnImage(buffer);
     }
@@ -293,26 +297,13 @@ uint32_t Listener::ListenToAnImage(char *buf) {
     memset(buf, 0, fifohsize);
     new_header = (sls_receiver_header *)(buf + FIFO_HEADER_NUMBYTES);
 
+    // deactivated port (eiger)
+    if (!(*detectorDataStream)) {
+        return 0;
+    }
     // deactivated (eiger)
     if (!(*activated)) {
-        // no padding
-        if (!(*deactivatedPaddingEnable))
-            return 0;
-        // padding without setting bitmask (all missing packets padded in
-        // dataProcessor)
-        if (currentFrameIndex >= *numImages)
-            return 0;
-
-        //(eiger) first fnum starts at 1
-        if (!currentFrameIndex) {
-            ++currentFrameIndex;
-        }
-        new_header->detHeader.frameNumber = currentFrameIndex;
-        new_header->detHeader.row = row;
-        new_header->detHeader.column = column;
-        new_header->detHeader.detType = (uint8_t)generalData->myDetectorType;
-        new_header->detHeader.version = (uint8_t)SLS_DETECTOR_HEADER_VERSION;
-        return imageSize;
+        return 0;
     }
 
     // look for carry over
@@ -487,7 +478,7 @@ uint32_t Listener::ListenToAnImage(char *buf) {
 
         lastCaughtFrameIndex = fnum;
 
-        LOG(logDEBUG5) << "Listening " << index
+        LOG(logDEBUG1) << "Listening " << index
                        << ": currentfindex:" << currentFrameIndex
                        << ", fnum:" << fnum << ", pnum:" << pnum
                        << ", numpackets:" << numpackets;

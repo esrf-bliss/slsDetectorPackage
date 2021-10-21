@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #include "slsDetectorFunctionList.h"
 #include "ALTERA_PLL_CYCLONE10.h"
 #include "DAC6571.h"
@@ -5,6 +7,8 @@
 #include "RegisterDefs.h"
 #include "clogger.h"
 #include "common.h"
+#include "loadPattern.h"
+#include "mythen3.h"
 #include "sharedMemory.h"
 #include "sls/versionAPI.h"
 #ifdef VIRTUAL
@@ -19,14 +23,11 @@
 #include <time.h>
 #endif
 
-/// NOT the right place to put it!
-int setChipStatusRegister(int csr);
-
 // Global variable from slsDetectorServer_funcs
 extern int debugflag;
 extern int updateFlag;
 extern int checkModuleFlag;
-extern udpStruct udpDetails;
+extern udpStruct udpDetails[MAX_UDP_DESTINATION];
 extern const enum detectorType myDetectorType;
 
 // Global variable from communication_funcs.c
@@ -43,15 +44,20 @@ pthread_t pthread_virtual_tid;
 int64_t virtual_currentFrameNumber = 2;
 #endif
 
-enum detectorSettings thisSettings;
+enum detectorSettings thisSettings = UNINITIALIZED;
 sls_detector_module *detectorModules = NULL;
 int *detectorChans = NULL;
 int *detectorDacs = NULL;
+int *channelMask = NULL;
+int defaultDacValues[NDAC] = DEFAULT_DAC_VALS;
+int defaultDacValue_standard[] = SPECIAL_DEFAULT_STANDARD_DAC_VALS;
+int defaultDacValue_fast[] = SPECIAL_DEFAULT_FAST_DAC_VALS;
+int defaultDacValue_highgain[] = SPECIAL_DEFAULT_HIGHGAIN_DAC_VALS;
 
-enum TLogLevel trimmingPrint = logINFO;
 int32_t clkPhase[NUM_CLOCKS] = {};
 uint32_t clkDivider[NUM_CLOCKS] = {};
 
+enum TLogLevel trimmingPrint = logINFO;
 int highvoltage = 0;
 int detPos[2] = {};
 int64_t exptimeReg[NCOUNTERS] = {0, 0, 0};
@@ -270,28 +276,23 @@ u_int16_t getHardwareVersionNumber() {
             MCB_SERIAL_NO_VRSN_OFST);
 }
 
-void readDetectorNumber() {
-#ifndef VIRTUAL
-    if (initError == FAIL) {
-        return;
-    }
-    FILE *fd = fopen(ID_FILE, "r");
-    if (fd == NULL) {
-        sprintf(initErrorMessage, "No %s file found.\n", ID_FILE);
-        LOG(logERROR, ("%s\n\n", initErrorMessage));
-        initError = FAIL;
-        return;
-    }
-    char output[255];
-    fgets(output, sizeof(output), fd);
-    sscanf(output, "%u", &detID);
-    if (isControlServer) {
-        LOG(logINFOBLUE, ("Detector ID: %u\n", detID));
-    }
+u_int32_t getDetectorNumber() {
+#ifdef VIRTUAL
+    return 0;
 #endif
+    return bus_r(MCB_SERIAL_NO_REG);
 }
 
-u_int32_t getDetectorNumber() { return detID; }
+int getModuleId(int *ret, char *mess) {
+    return ((bus_r(MOD_ID_REG) & MOD_ID_MSK) >> MOD_ID_OFST);
+}
+
+void setModuleId(int modid) {
+    LOG(logINFOBLUE, ("Setting module id in fpga: %d\n", modid))
+    bus_w(MOD_ID_REG, bus_r(MOD_ID_REG) & ~MOD_ID_MSK);
+    bus_w(MOD_ID_REG,
+          bus_r(MOD_ID_REG) | ((modid << MOD_ID_OFST) & MOD_ID_MSK));
+}
 
 u_int64_t getDetectorMAC() {
 #ifdef VIRTUAL
@@ -319,7 +320,7 @@ u_int32_t getDetectorIP() {
 #ifdef VIRTUAL
     return 0;
 #endif
-    char temp[50] = "";
+    char temp[INET_ADDRSTRLEN] = "";
     u_int32_t res = 0;
     // execute and get address
     char output[255];
@@ -374,7 +375,10 @@ void allocateDetectorStructureMemory() {
     // Allocation of memory
     detectorModules = malloc(sizeof(sls_detector_module));
     detectorChans = malloc(NCHIP * NCHAN * sizeof(int));
+    channelMask = malloc(NCHIP * NCHAN * sizeof(char));
+    memset(channelMask, 0, NCHIP * NCHAN * sizeof(char));
     detectorDacs = malloc(NDAC * sizeof(int));
+
     LOG(logDEBUG1,
         ("modules from 0x%x to 0x%x\n", detectorModules, detectorModules));
     LOG(logDEBUG1, ("chans from 0x%x to 0x%x\n", detectorChans, detectorChans));
@@ -422,6 +426,7 @@ void setupDetector() {
     }
 #ifdef VIRTUAL
     sharedMemory_setStatus(IDLE);
+    setupUDPCommParameters();
 #endif
 
     // pll defines
@@ -443,9 +448,16 @@ void setupDetector() {
 
     // defaults
     setHighVoltage(DEFAULT_HIGH_VOLTAGE);
-    setDefaultDacs();
+    resetToDefaultDacs(0);
     setASICDefaults();
     setADIFDefaults();
+
+    // set module id in register
+    int modid = getModuleIdInFile(&initError, initErrorMessage, ID_FILE);
+    if (initError == FAIL) {
+        return;
+    }
+    setModuleId(modid);
 
     // set trigger flow for m3 (for all timing modes)
     bus_w(FLOW_TRIGGER_REG, bus_r(FLOW_TRIGGER_REG) | FLOW_TRIGGER_MSK);
@@ -473,7 +485,7 @@ void setupDetector() {
 #ifdef VIRTUAL
     enableTenGigabitEthernet(0);
 #endif
-    readDetectorNumber();
+    getModuleIdInFile(&initError, initErrorMessage, ID_FILE);
     if (initError == FAIL) {
         return;
     }
@@ -512,29 +524,155 @@ void setupDetector() {
     }
 
     powerChip(1);
-    if (initError != FAIL) {
-      initError = setChipStatusRegister(CSR_default);
-      //loadDefaultPattern(DEFAULT_PATTERN_FILE, initErrorMessage);
-      //startStateMachine(); //this was missing in previous code! runs the default pattern
+
+    if (!initError) {
+        setChipStatusRegister(CSR_default);
     }
+
     setAllTrimbits(DEFAULT_TRIMBIT_VALUE);
 }
 
-int setDefaultDacs() {
-    int ret = OK;
-    LOG(logINFOBLUE, ("Setting Default Dac values\n"));
-    {
-        const int defaultvals[NDAC] = DEFAULT_DAC_VALS;
+int resetToDefaultDacs(int hardReset) {
+    LOG(logINFOBLUE, ("Resetting %s to Default Dac values\n",
+                      (hardReset == 1 ? "hard" : "")));
+
+    // reset defaults to hardcoded defaults
+    if (hardReset) {
+        const int vals[] = DEFAULT_DAC_VALS;
         for (int i = 0; i < NDAC; ++i) {
-            setDAC((enum DACINDEX)i, defaultvals[i], 0);
-            if (detectorDacs[i] != defaultvals[i]) {
-                ret = FAIL;
-                LOG(logERROR, ("Setting dac %d failed, wrote %d, read %d\n", i,
-                               defaultvals[i], detectorDacs[i]));
-            }
+            defaultDacValues[i] = vals[i];
+        }
+        const int vals_standard[] = SPECIAL_DEFAULT_STANDARD_DAC_VALS;
+        for (int i = 0; i < NSPECIALDACS; ++i) {
+            defaultDacValue_standard[i] = vals_standard[i];
+        }
+        const int vals_fast[] = SPECIAL_DEFAULT_FAST_DAC_VALS;
+        for (int i = 0; i < NSPECIALDACS; ++i) {
+            defaultDacValue_fast[i] = vals_fast[i];
+        }
+        const int vals_highgain[] = SPECIAL_DEFAULT_HIGHGAIN_DAC_VALS;
+        for (int i = 0; i < NSPECIALDACS; ++i) {
+            defaultDacValue_highgain[i] = vals_highgain[i];
         }
     }
-    return ret;
+
+    // remember settings
+    enum detectorSettings oldSettings = thisSettings;
+
+    // reset dacs to defaults
+    const int specialDacs[] = SPECIALDACINDEX;
+    for (int i = 0; i < NDAC; ++i) {
+        int value = defaultDacValues[i];
+
+        for (int j = 0; j < NSPECIALDACS; ++j) {
+            // special dac: replace default value
+            if (specialDacs[j] == i) {
+                switch (oldSettings) {
+                case STANDARD:
+                    value = defaultDacValue_standard[j];
+                    break;
+                case FAST:
+                    value = defaultDacValue_fast[j];
+                    break;
+                case HIGHGAIN:
+                    value = defaultDacValue_highgain[j];
+                    break;
+                default:
+                    break;
+                }
+                break;
+            }
+        }
+
+        // set to defualt
+        setDAC((enum DACINDEX)i, value, 0);
+        if (detectorDacs[i] != value) {
+            LOG(logERROR, ("Setting dac %d failed, wrote %d, read %d\n", i,
+                           value, detectorDacs[i]));
+            return FAIL;
+        }
+    }
+    return OK;
+}
+
+int getDefaultDac(enum DACINDEX index, enum detectorSettings sett,
+                  int *retval) {
+
+    // settings only for special dacs
+    if (sett != UNDEFINED) {
+        const int specialDacs[] = SPECIALDACINDEX;
+        // find special dac index
+        for (int i = 0; i < NSPECIALDACS; ++i) {
+            if ((int)index == specialDacs[i]) {
+                switch (sett) {
+                case STANDARD:
+                    *retval = defaultDacValue_standard[i];
+                    return OK;
+                case FAST:
+                    *retval = defaultDacValue_fast[i];
+                    return OK;
+                case HIGHGAIN:
+                    *retval = defaultDacValue_highgain[i];
+                    return OK;
+                    // unknown settings
+                default:
+                    return FAIL;
+                }
+            }
+        }
+        // not a special dac
+        return FAIL;
+    }
+
+    if (index < 0 || index >= NDAC)
+        return FAIL;
+    *retval = defaultDacValues[index];
+    return OK;
+}
+
+int setDefaultDac(enum DACINDEX index, enum detectorSettings sett, int value) {
+    char *dac_names[] = {DAC_NAMES};
+
+    // settings only for special dacs
+    if (sett != UNDEFINED) {
+        const int specialDacs[] = SPECIALDACINDEX;
+        // find special dac index
+        for (int i = 0; i < NSPECIALDACS; ++i) {
+            if ((int)index == specialDacs[i]) {
+                switch (sett) {
+                case STANDARD:
+                    LOG(logINFO,
+                        ("Setting Default Dac [%d - %s, standard]: %d\n",
+                         (int)index, dac_names[index], value));
+                    defaultDacValue_standard[i] = value;
+                    return OK;
+                case FAST:
+                    LOG(logINFO, ("Setting Default Dac [%d - %s, fast]: %d\n",
+                                  (int)index, dac_names[index], value));
+                    defaultDacValue_fast[i] = value;
+                    return OK;
+                case HIGHGAIN:
+                    LOG(logINFO,
+                        ("Setting Default Dac [%d - %s, highgain]: %d\n",
+                         (int)index, dac_names[index], value));
+                    defaultDacValue_highgain[i] = value;
+                    return OK;
+                    // unknown settings
+                default:
+                    return FAIL;
+                }
+            }
+        }
+        // not a special dac
+        return FAIL;
+    }
+
+    if (index < 0 || index >= NDAC)
+        return FAIL;
+    LOG(logINFO, ("Setting Default Dac [%d - %s]: %d\n", (int)index,
+                  dac_names[index], value));
+    defaultDacValues[index] = value;
+    return OK;
 }
 
 void setASICDefaults() {
@@ -930,11 +1068,17 @@ void setCounterMask(uint32_t arg) {
     }
 
     LOG(logINFO, ("\tUpdating Vth dacs\n"));
+    enum DACINDEX vthdacs[] = {M_VTH1, M_VTH2, M_VTH3};
     for (int i = 0; i < NCOUNTERS; ++i) {
         // if change in enable
         if ((arg & (1 << i)) ^ (oldmask & (1 << i))) {
-            // will disable if counter disabled
-            setDAC(VTH1, vthEnabledVals[i], 0);
+            // disable, disable value
+            int value = DEFAULT_COUNTER_DISABLED_VTH_VAL;
+            // enable, set saved values
+            if (arg & (1 << i)) {
+                value = vthEnabledVals[i];
+            }
+            setGeneralDAC(vthdacs[i], value, 0);
         }
     }
 }
@@ -1052,72 +1196,43 @@ int64_t getMeasurementTime() {
 
 /* parameters - module, speed, readout */
 
-int setModule(sls_detector_module myMod, char *mess) {
-
-    LOG(logINFO, ("Setting module\n"));
-
-    // settings
-    if (myMod.reg >= 0) {
-        setSettings((enum detectorSettings)myMod.reg);
-        if (getSettings() != (enum detectorSettings)myMod.reg) {
-            sprintf(
-                mess,
-                "Could not set module. Could not set settings to %d, read %d\n",
-                myMod.reg, (int)getSettings());
-            LOG(logERROR, (mess));
-            return FAIL;
-        }
-        detectorModules->reg = myMod.reg;
-    }
-    // custom trimbit file
-    else {
-        // changed for setsettings (direct),
-        // custom trimbit file (setmodule with myMod.reg as -1),
-        // change of dac (direct)
-        for (int i = 0; i < NCOUNTERS; ++i) {
-            setThresholdEnergy(i, -1);
-        }
-    }
-
-    // dacs
+int setDACS(int *dacs) {
     for (int i = 0; i < NDAC; ++i) {
-        // ignore dacs with -1
-        if (myMod.dacs[i] != -1) {
-            setDAC((enum DACINDEX)i, myMod.dacs[i], 0);
-            if (myMod.dacs[i] != detectorDacs[i]) {
+        if (dacs[i] != -1) {
+            setDAC((enum DACINDEX)i, dacs[i], 0);
+            if (dacs[i] != detectorDacs[i]) {
                 // dont complain if that counter was disabled
                 if ((i == M_VTH1 || i == M_VTH2 || i == M_VTH3) &&
                     (detectorDacs[i] == DEFAULT_COUNTER_DISABLED_VTH_VAL)) {
                     continue;
                 }
-                sprintf(mess,
-                        "Could not set module. Could not set dac %d, wrote %d, "
-                        "read %d\n",
-                        i, myMod.dacs[i], detectorDacs[i]);
-                LOG(logERROR, (mess));
                 return FAIL;
             }
         }
     }
+    return OK;
+}
 
-    // if settings given and cannot be validated (after setting dacs), return
-    // error
-    if (myMod.reg >= 0) {
-        if (getSettings() != (enum detectorSettings)myMod.reg) {
-            sprintf(
-                mess,
-                "Could not set module. The dacs in file do not correspond to "
-                "settings %d\n",
-                myMod.reg);
-            LOG(logERROR, (mess));
-            return FAIL;
-        }
+int setModule(sls_detector_module myMod, char *mess) {
+    LOG(logINFO, ("Setting module\n"));
+
+    if (setChipStatusRegister(myMod.reg)) {
+        sprintf(mess, "Could not CSR from module\n");
+        LOG(logERROR, (mess));
+        return FAIL;
     }
 
-    // threshold
+    if (setDACS(myMod.dacs)) {
+        sprintf(mess, "Could not set dacs\n");
+        LOG(logERROR, (mess));
+        return FAIL;
+    }
+
     for (int i = 0; i < NCOUNTERS; ++i) {
         if (myMod.eV[i] >= 0) {
             setThresholdEnergy(i, myMod.eV[i]);
+        } else {
+            setThresholdEnergy(i, -1);
         }
     }
 
@@ -1136,23 +1251,8 @@ int setModule(sls_detector_module myMod, char *mess) {
     return OK;
 }
 
-int setBit(int ibit, int patword) { return patword |= (1 << ibit); }
-
-int clearBit(int ibit, int patword) { return patword &= ~(1 << ibit); }
-
 int setTrimbits(int *trimbits) {
     LOG(logINFOBLUE, ("Setting trimbits\n"));
-
-    // validate
-    for (int ichan = 0; ichan < ((detectorModules)->nchan); ++ichan) {
-        if (trimbits[ichan] < 0 || trimbits[ichan] > 63) {
-            LOG(logERROR, ("Trimbit value (%d) for channel %d is invalid\n",
-                           trimbits[ichan], ichan));
-            return FAIL;
-        }
-    }
-    LOG(logINFO, ("Trimbits validated\n"));
-    trimmingPrint = logDEBUG5;
 
     // remember previous run clock
     uint32_t prevRunClk = clkDivider[SYSTEM_C0];
@@ -1164,147 +1264,39 @@ int setTrimbits(int *trimbits) {
         return FAIL;
     }
 
-    // trimming
+    // for every chip
     int error = 0;
-    uint64_t patword = 0;
-    int iaddr = 0;
+    char cmess[MAX_STR_LENGTH];
     for (int ichip = 0; ichip < NCHIP; ichip++) {
-        if (error != 0) {
-            break;
-        }
-        LOG(logDEBUG1, (" Chip %d\n", ichip));
-        iaddr = 0;
-        patword = 0;
-        writePatternWord(iaddr++, patword);
-
-        // chip select
-        patword = setBit(SIGNAL_TBLoad_1 + ichip, patword);
-        writePatternWord(iaddr++, patword);
-
-        // reset trimbits
-        patword = setBit(SIGNAL_resStorage, patword);
-        patword = setBit(SIGNAL_resCounter, patword);
-        writePatternWord(iaddr++, patword);
-        writePatternWord(iaddr++, patword);
-        patword = clearBit(SIGNAL_resStorage, patword);
-        patword = clearBit(SIGNAL_resCounter, patword);
-        writePatternWord(iaddr++, patword);
-        writePatternWord(iaddr++, patword);
-
-        // select first channel
-        patword = setBit(SIGNAL_CHSserialIN, patword);
-        writePatternWord(iaddr++, patword);
-        // 1 clk pulse
-        patword = setBit(SIGNAL_CHSclk, patword);
-        writePatternWord(iaddr++, patword);
-        patword = clearBit(SIGNAL_CHSclk, patword);
-        // clear 1st channel
-        writePatternWord(iaddr++, patword);
-        patword = clearBit(SIGNAL_CHSserialIN, patword);
-        // 2 clk pulses
-        for (int i = 0; i < 2; i++) {
-            patword = setBit(SIGNAL_CHSclk, patword);
-            writePatternWord(iaddr++, patword);
-            patword = clearBit(SIGNAL_CHSclk, patword);
-            writePatternWord(iaddr++, patword);
-        }
-
-        // for each channel (all chips)
-        for (int ich = 0; ich < NCHAN_1_COUNTER; ich++) {
-            LOG(logDEBUG1, (" Chip %d, Channel %d\n", ichip, ich));
-            int val = trimbits[ichip * NCHAN_1_COUNTER * NCOUNTERS +
-                               NCOUNTERS * ich] +
-                      trimbits[ichip * NCHAN_1_COUNTER * NCOUNTERS +
-                               NCOUNTERS * ich + 1] *
-                          64 +
-                      trimbits[ichip * NCHAN_1_COUNTER * NCOUNTERS +
-                               NCOUNTERS * ich + 2] *
-                          64 * 64;
-
-            // push 6 0 bits
-            for (int i = 0; i < 6; i++) {
-                patword = clearBit(SIGNAL_serialIN, patword);
-                patword = clearBit(SIGNAL_clk, patword);
-                writePatternWord(iaddr++, patword);
-                patword = setBit(SIGNAL_clk, patword);
-                writePatternWord(iaddr++, patword);
-            }
-
-            // deserialize
-            for (int i = 0; i < 18; i++) {
-                if (val & (1 << i)) {
-                    patword = setBit(SIGNAL_serialIN, patword);
-                } else {
-                    patword = clearBit(SIGNAL_serialIN, patword);
-                }
-                patword = clearBit(SIGNAL_clk, patword);
-                writePatternWord(iaddr++, patword);
-
-                patword = setBit(SIGNAL_clk, patword);
-                writePatternWord(iaddr++, patword);
-            }
-            writePatternWord(iaddr++, patword);
-            writePatternWord(iaddr++, patword);
-
-            // move to next channel
-            for (int i = 0; i < 3; i++) {
-                patword = setBit(SIGNAL_CHSclk, patword);
-                writePatternWord(iaddr++, patword);
-                patword = clearBit(SIGNAL_CHSclk, patword);
-                writePatternWord(iaddr++, patword);
-            }
-        }
-        // chip unselect
-        patword = clearBit(SIGNAL_TBLoad_1 + ichip, patword);
-        writePatternWord(iaddr++, patword);
-
-        // last iaddr check
-        if (iaddr >= MAX_PATTERN_LENGTH) {
-            LOG(logERROR, ("Addr 0x%x is past max_address_length 0x%x!\n",
-                           iaddr, MAX_PATTERN_LENGTH));
+        patternParameters *pat = setChannelRegisterChip(
+            ichip, channelMask,
+            trimbits); // change here!!! @who: Change what?
+        if (pat == NULL) {
             error = 1;
-            break;
+        } else {
+            memset(cmess, 0, MAX_STR_LENGTH);
+            error |= loadPattern(cmess, logDEBUG5, pat);
+            if (!error)
+                startPattern();
+            free(pat);
         }
-
-        // set pattern wait address
-        for (int i = 0; i <= 2; i++)
-            setPatternWaitAddress(i, MAX_PATTERN_LENGTH - 1);
-
-        // pattern loop
-        for (int i = 0; i <= 2; i++) {
-            int stop = MAX_PATTERN_LENGTH - 1, nloop = 0;
-            setPatternLoop(i, &stop, &stop, &nloop);
-        }
-
-        // pattern limits
-        {
-            int start = 0, nloop = 0;
-            setPatternLoop(-1, &start, &iaddr, &nloop);
-        }
-        // send pattern to the chips
-        startPattern();
     }
 
+    // copy trimbits locally
     if (error == 0) {
-        // copy trimbits locally
         for (int ichan = 0; ichan < ((detectorModules)->nchan); ++ichan) {
             detectorChans[ichan] = trimbits[ichan];
         }
         LOG(logINFO, ("All trimbits have been loaded\n"));
     }
 
-    trimmingPrint = logINFO;
     // set back to previous clock
     if (setClockDivider(SYSTEM_C0, prevRunClk) == FAIL) {
         LOG(logERROR, ("Could not set to previous run clock after trimming\n"));
         return FAIL;
     }
 
-    if (error != 0) {
-        return FAIL;
-    }
-
-    return OK;
+    return (error ? FAIL : OK);
 }
 
 int setAllTrimbits(int val) {
@@ -1344,24 +1336,19 @@ int getAllTrimbits() {
 }
 
 enum detectorSettings setSettings(enum detectorSettings sett) {
+    int *dacVals = NULL;
     switch (sett) {
     case STANDARD:
         LOG(logINFOBLUE, ("Setting to standard settings\n"));
-        thisSettings = sett;
-        setDAC(M_VRPREAMP, DEFAULT_STANDARD_VRPREAMP, 0);
-        setDAC(M_VRSHAPER, DEFAULT_STANDARD_VRSHAPER, 0);
+        dacVals = defaultDacValue_standard;
         break;
     case FAST:
         LOG(logINFOBLUE, ("Setting to fast settings\n"));
-        thisSettings = sett;
-        setDAC(M_VRPREAMP, DEFAULT_FAST_VRPREAMP, 0);
-        setDAC(M_VRSHAPER, DEFAULT_FAST_VRSHAPER, 0);
+        dacVals = defaultDacValue_fast;
         break;
     case HIGHGAIN:
         LOG(logINFOBLUE, ("Setting to high gain settings\n"));
-        thisSettings = sett;
-        setDAC(M_VRPREAMP, DEFAULT_HIGHGAIN_VRPREAMP, 0);
-        setDAC(M_VRSHAPER, DEFAULT_HIGHGAIN_VRSHAPER, 0);
+        dacVals = defaultDacValue_highgain;
         break;
     default:
         LOG(logERROR,
@@ -1369,34 +1356,54 @@ enum detectorSettings setSettings(enum detectorSettings sett) {
         return thisSettings;
     }
 
+    thisSettings = sett;
+
+    // set special dacs
+    const int specialDacs[] = SPECIALDACINDEX;
+    for (int i = 0; i < NSPECIALDACS; ++i) {
+        setDAC(specialDacs[i], dacVals[i], 0);
+    }
+
     LOG(logINFO, ("Settings: %d\n", thisSettings));
     return thisSettings;
 }
 
 void validateSettings() {
-    if (detectorDacs[M_VRPREAMP] == DEFAULT_STANDARD_VRPREAMP &&
-        detectorDacs[M_VRSHAPER] == DEFAULT_STANDARD_VRSHAPER) {
-        if (thisSettings != STANDARD) {
-            thisSettings = STANDARD;
-            LOG(logINFOBLUE, ("Validated Settings changed to standard!\n"));
+    // if any special dac value is changed individually => undefined
+    const int specialDacs[NSPECIALDACS] = SPECIALDACINDEX;
+    int *specialDacValues[] = {defaultDacValue_standard, defaultDacValue_fast,
+                               defaultDacValue_highgain};
+    int settList[] = {STANDARD, FAST, HIGHGAIN};
+
+    enum detectorSettings sett = UNDEFINED;
+    for (int isett = 0; isett != NUMSETTINGS; ++isett) {
+
+        // assume it matches current setting in list
+        sett = settList[isett];
+        // if one value does not match, = undefined
+        for (int i = 0; i < NSPECIALDACS; ++i) {
+            if (getDAC(specialDacs[i], 0) != specialDacValues[isett][i]) {
+                sett = UNDEFINED;
+                break;
+            }
         }
-    } else if (detectorDacs[M_VRPREAMP] == DEFAULT_FAST_VRPREAMP &&
-               detectorDacs[M_VRSHAPER] == DEFAULT_FAST_VRSHAPER) {
-        if (thisSettings != FAST) {
-            thisSettings = FAST;
-            LOG(logINFOBLUE, ("Validated Settings changed to fast!\n"));
+
+        // all values matchd a setting
+        if (sett != UNDEFINED) {
+            break;
         }
-    } else if (detectorDacs[M_VRPREAMP] == DEFAULT_HIGHGAIN_VRPREAMP &&
-               detectorDacs[M_VRSHAPER] == DEFAULT_HIGHGAIN_VRSHAPER) {
-        if (thisSettings != HIGHGAIN) {
-            thisSettings = HIGHGAIN;
-            LOG(logINFOBLUE, ("Validated Settings changed to highgain!\n"));
-        }
-    } else {
-        thisSettings = UNDEFINED;
-        LOG(logWARNING,
-            ("Settings set to undefined [vrpreamp: %d, vrshaper: %d]\n",
-             detectorDacs[M_VRPREAMP], detectorDacs[M_VRSHAPER]));
+    }
+    // update settings
+    if (thisSettings != sett) {
+        LOG(logINFOBLUE,
+            ("Validated settings to %s (%d)\n",
+             (sett == STANDARD
+                  ? "standard"
+                  : (sett == FAST
+                         ? "fast"
+                         : (sett == HIGHGAIN ? "highgain" : "undefined"))),
+             sett));
+        thisSettings = sett;
     }
 }
 
@@ -1412,45 +1419,52 @@ void setThresholdEnergy(int counterIndex, int eV) {
 
 /* parameters - dac, hv */
 void setDAC(enum DACINDEX ind, int val, int mV) {
+    // invalid value
     if (val < 0) {
         return;
     }
-
-    if (ind == M_VTHRESHOLD) {
-        LOG(logINFO,
-            ("Setting Threshold voltages to %d %s\n", val, (mV ? "mv" : "")));
-        setDAC(M_VTH1, val, mV);
-        setDAC(M_VTH2, val, mV);
-        setDAC(M_VTH3, val, mV);
+    // out of scope, NDAC + 1 for vthreshold
+    if ((int)ind > NDAC + 1) {
+        LOG(logERROR, ("Unknown dac index %d\n", ind));
         return;
     }
-    char *dac_names[] = {DAC_NAMES};
 
-    // remember vthx values and set 2800 if counter disabled
-    uint32_t counters = getCounterMask();
-    int vthdacs[] = {M_VTH1, M_VTH2, M_VTH3};
-    for (int i = 0; i < NCOUNTERS; ++i) {
-        if (vthdacs[i] == (int)ind) {
-            // remember enabled values for vthx
-            if (val != DEFAULT_COUNTER_DISABLED_VTH_VAL) {
-                int vthval = val;
-                if (mV) {
-                    if (LTC2620_D_VoltageToDac(val, &vthval) == FAIL) {
-                        return;
+    // threshold dacs (remember value, vthreshold: skip disabled)
+    if (ind == M_VTHRESHOLD || ind == M_VTH1 || ind == M_VTH2 ||
+        ind == M_VTH3) {
+        char *dac_names[] = {DAC_NAMES};
+        int vthdacs[] = {M_VTH1, M_VTH2, M_VTH3};
+        uint32_t counters = getCounterMask();
+        for (int i = 0; i < NCOUNTERS; ++i) {
+            if ((int)ind == vthdacs[i] || ind == M_VTHRESHOLD) {
+                int dacval = val;
+                // if not disabled value, remember value
+                if (dacval != DEFAULT_COUNTER_DISABLED_VTH_VAL) {
+                    // convert mv to dac
+                    if (mV) {
+                        if (LTC2620_D_VoltageToDac(val, &dacval) == FAIL) {
+                            return;
+                        }
                     }
+                    vthEnabledVals[i] = dacval;
+                    LOG(logINFO,
+                        ("Remembering %s [%d]\n", dac_names[ind], dacval));
                 }
-                vthEnabledVals[i] = vthval;
-                LOG(logINFO, ("Remembering %s [%d]\n", dac_names[ind], vthval));
-            }
-            // set vthx to disable val, if counter disabled
-            if (!(counters & (1 << i))) {
-                LOG(logINFO, ("Disabling %s\n", dac_names[ind]));
-                val = DEFAULT_COUNTER_DISABLED_VTH_VAL;
-                mV = 0;
+                // if vthreshold,skip for disabled counters
+                if ((ind == M_VTHRESHOLD) && (!(counters & (1 << i)))) {
+                    continue;
+                }
+                setGeneralDAC(vthdacs[i], val, mV);
             }
         }
+        return;
     }
 
+    setGeneralDAC(ind, val, mV);
+}
+
+void setGeneralDAC(enum DACINDEX ind, int val, int mV) {
+    char *dac_names[] = {DAC_NAMES};
     LOG(logDEBUG1, ("Setting dac[%d - %s]: %d %s \n", (int)ind, dac_names[ind],
                     val, (mV ? "mV" : "dac units")));
     int dacval = val;
@@ -1471,27 +1485,39 @@ void setDAC(enum DACINDEX ind, int val, int mV) {
         detectorDacs[ind] = dacval;
     }
 #endif
-    if (ind == M_VRPREAMP || ind == M_VRSHAPER) {
-        validateSettings();
+    const int specialDacs[NSPECIALDACS] = SPECIALDACINDEX;
+    for (int i = 0; i < NSPECIALDACS; ++i) {
+        if ((int)ind == specialDacs[i]) {
+            validateSettings();
+        }
     }
 }
 
 int getDAC(enum DACINDEX ind, int mV) {
     if (ind == M_VTHRESHOLD) {
-        int ret[NCOUNTERS] = {0};
-        ret[0] = getDAC(M_VTH1, mV);
-        ret[1] = getDAC(M_VTH2, mV);
-        ret[2] = getDAC(M_VTH3, mV);
-
-        if ((ret[0] == ret[1]) && (ret[1] == ret[2])) {
-            LOG(logINFO, ("\tvthreshold match\n"));
-            return ret[0];
-        } else {
-            LOG(logERROR, ("\tvthreshold mismatch vth1:%d vth2:%d "
-                           "vth3:%d\n",
-                           ret[0], ret[1], ret[2]));
-            return -1;
+        int ret = -1, ret1 = -1;
+        // get only for enabled counters
+        uint32_t counters = getCounterMask();
+        int vthdacs[] = {M_VTH1, M_VTH2, M_VTH3};
+        for (int i = 0; i < NCOUNTERS; ++i) {
+            if (counters & (1 << i)) {
+                ret1 = getDAC(vthdacs[i], mV);
+                // first enabled counter
+                if (ret == -1) {
+                    ret = ret1;
+                }
+                // different values for enabled counters
+                else if (ret1 != ret) {
+                    return -1;
+                }
+            }
         }
+        if (ret == -1) {
+            LOG(logERROR, ("\tvthreshold mismatch (of enabled counters)\n"));
+        } else {
+            LOG(logINFO, ("\tvthreshold match %d\n", ret));
+        }
+        return ret;
     }
 
     if (!mV) {
@@ -1522,13 +1548,15 @@ int setHighVoltage(int val) {
     return highvoltage;
 }
 
-int isMaster(){
-    return !(bus_r(0x18) >> 31);
+/* parameters - timing */
+
+int isMaster() {
+    return !((bus_r(SYSTEM_STATUS_REG) & SYSTEM_STATUS_SLV_BRD_DTCT_MSK) >>
+             SYSTEM_STATUS_SLV_BRD_DTCT_OFST);
 }
 
-/* parameters - timing */
 void setTiming(enum timingMode arg) {
-    
+
     if (!isMaster() && arg == AUTO_TIMING)
         arg = TRIGGER_EXPOSURE;
 
@@ -1699,18 +1727,18 @@ int getExtSignal(int signalIndex) {
 
 int configureMAC() {
 
-    uint32_t srcip = udpDetails.srcip;
-    uint32_t dstip = udpDetails.dstip;
-    uint64_t srcmac = udpDetails.srcmac;
-    uint64_t dstmac = udpDetails.dstmac;
-    int srcport = udpDetails.srcport;
-    int dstport = udpDetails.dstport;
+    uint32_t srcip = udpDetails[0].srcip;
+    uint32_t dstip = udpDetails[0].dstip;
+    uint64_t srcmac = udpDetails[0].srcmac;
+    uint64_t dstmac = udpDetails[0].dstmac;
+    int srcport = udpDetails[0].srcport;
+    int dstport = udpDetails[0].dstport;
 
     LOG(logINFOBLUE, ("Configuring MAC\n"));
-    char src_mac[50], src_ip[INET_ADDRSTRLEN], dst_mac[50],
-        dst_ip[INET_ADDRSTRLEN];
-    getMacAddressinString(src_mac, 50, srcmac);
-    getMacAddressinString(dst_mac, 50, dstmac);
+    char src_mac[MAC_ADDRESS_SIZE], src_ip[INET_ADDRSTRLEN],
+        dst_mac[MAC_ADDRESS_SIZE], dst_ip[INET_ADDRSTRLEN];
+    getMacAddressinString(src_mac, MAC_ADDRESS_SIZE, srcmac);
+    getMacAddressinString(dst_mac, MAC_ADDRESS_SIZE, dstmac);
     getIpAddressinString(src_ip, srcip);
     getIpAddressinString(dst_ip, dstip);
 
@@ -1723,7 +1751,7 @@ int configureMAC() {
                   src_ip, src_mac, srcport, dst_ip, dst_mac, dstport));
 
 #ifdef VIRTUAL
-    if (setUDPDestinationDetails(0, dst_ip, dstport) == FAIL) {
+    if (setUDPDestinationDetails(0, 0, dst_ip, dstport) == FAIL) {
         LOG(logERROR, ("could not set udp destination IP and port\n"));
         return FAIL;
     }
@@ -1872,273 +1900,6 @@ int enableTenGigabitEthernet(int val) {
     int oneG = ((bus_r(addr) & PKT_CONFIG_1G_INTERFACE_MSK) >>
                 PKT_CONFIG_1G_INTERFACE_OFST);
     return oneG ? 0 : 1;
-}
-
-/* pattern */
-
-void startPattern() {
-    LOG(logINFOBLUE, ("Starting Pattern\n"));
-    bus_w(CONTROL_REG, bus_r(CONTROL_REG) | CONTROL_STRT_PATTERN_MSK);
-    usleep(1);
-    while (bus_r(PAT_STATUS_REG) & PAT_STATUS_RUN_BUSY_MSK) {
-        usleep(1);
-    }
-    LOG(logINFOBLUE, ("Pattern done\n"));
-}
-
-uint64_t readPatternWord(int addr) {
-    // error (handled in tcp)
-    if (addr < 0 || addr >= MAX_PATTERN_LENGTH) {
-        LOG(logERROR, ("Cannot get Pattern - Word. Invalid addr 0x%x. "
-                       "Should be between 0 and 0x%x\n",
-                       addr, MAX_PATTERN_LENGTH));
-        return -1;
-    }
-
-    LOG(logDEBUG1, ("  Reading Pattern Word (addr:0x%x)\n", addr));
-    uint32_t reg_lsb =
-        PATTERN_STEP0_LSB_REG +
-        addr * REG_OFFSET * 2; // the first word in RAM as base plus the
-                               // offset of the word to write (addr)
-    uint32_t reg_msb = PATTERN_STEP0_MSB_REG + addr * REG_OFFSET * 2;
-
-    // read value
-    uint64_t retval = get64BitReg(reg_lsb, reg_msb);
-    LOG(logDEBUG1,
-        ("  Word(addr:0x%x) retval: 0x%llx\n", addr, (long long int)retval));
-
-    return retval;
-}
-
-uint64_t writePatternWord(int addr, uint64_t word) {
-
-    // get
-    if ((int64_t)word == -1)
-        return readPatternWord(addr);
-
-    // error (handled in tcp)
-    if (addr < 0 || addr >= MAX_PATTERN_LENGTH) {
-        LOG(logERROR, ("Cannot set Pattern - Word. Invalid addr 0x%x. "
-                       "Should be between 0 and 0x%x\n",
-                       addr, MAX_PATTERN_LENGTH));
-        return -1;
-    }
-    LOG(logDEBUG1, ("Setting Pattern Word (addr:0x%x, word:0x%llx)\n", addr,
-                    (long long int)word));
-
-    // write word
-    uint32_t reg_lsb =
-        PATTERN_STEP0_LSB_REG +
-        addr * REG_OFFSET * 2; // the first word in RAM as base plus the
-                               // offset of the word to write (addr)
-    uint32_t reg_msb = PATTERN_STEP0_MSB_REG + addr * REG_OFFSET * 2;
-    set64BitReg(word, reg_lsb, reg_msb);
-
-    LOG(logDEBUG1, ("  Wrote word. PatternIn Reg: 0x%llx\n",
-                    get64BitReg(reg_lsb, reg_msb)));
-    return readPatternWord(addr);
-}
-
-int setPatternWaitAddress(int level, int addr) {
-    // error (handled in tcp)
-    if (addr >= MAX_PATTERN_LENGTH) {
-        LOG(logERROR, ("Cannot set Pattern Wait Address. Invalid addr 0x%x. "
-                       "Should be between 0 and 0x%x\n",
-                       addr, MAX_PATTERN_LENGTH));
-        return -1;
-    }
-
-    uint32_t reg = 0;
-    uint32_t offset = 0;
-    uint32_t mask = 0;
-
-    switch (level) {
-    case 0:
-        reg = PATTERN_WAIT_0_ADDR_REG;
-        offset = PATTERN_WAIT_0_ADDR_OFST;
-        mask = PATTERN_WAIT_0_ADDR_MSK;
-        break;
-    case 1:
-        reg = PATTERN_WAIT_1_ADDR_REG;
-        offset = PATTERN_WAIT_1_ADDR_OFST;
-        mask = PATTERN_WAIT_1_ADDR_MSK;
-        break;
-    case 2:
-        reg = PATTERN_WAIT_2_ADDR_REG;
-        offset = PATTERN_WAIT_2_ADDR_OFST;
-        mask = PATTERN_WAIT_2_ADDR_MSK;
-        break;
-    default:
-        LOG(logERROR, ("Cannot set Pattern Wait Address. Invalid level 0x%x. "
-                       "Should be between 0 and 2.\n",
-                       level));
-        return -1;
-    }
-
-    // set
-    if (addr >= 0) {
-        LOG(trimmingPrint,
-            ("Setting Pattern Wait Address (level:%d, addr:0x%x)\n", level,
-             addr));
-        bus_w(reg, ((addr << offset) & mask));
-    }
-
-    // get
-    uint32_t regval = ((bus_r(reg) & mask) >> offset);
-    LOG(logDEBUG1,
-        ("  Wait Address retval (level:%d, addr:0x%x)\n", level, regval));
-    return regval;
-}
-
-uint64_t setPatternWaitTime(int level, uint64_t t) {
-    uint32_t regl = 0;
-    uint32_t regm = 0;
-
-    switch (level) {
-    case 0:
-        regl = PATTERN_WAIT_TIMER_0_LSB_REG;
-        regm = PATTERN_WAIT_TIMER_0_MSB_REG;
-        break;
-    case 1:
-        regl = PATTERN_WAIT_TIMER_1_LSB_REG;
-        regm = PATTERN_WAIT_TIMER_1_MSB_REG;
-        break;
-    case 2:
-        regl = PATTERN_WAIT_TIMER_2_LSB_REG;
-        regm = PATTERN_WAIT_TIMER_2_MSB_REG;
-        break;
-    default:
-        LOG(logERROR, ("Cannot set Pattern Wait Time. Invalid level %d. "
-                       "Should be between 0 and 2.\n",
-                       level));
-        return -1;
-    }
-
-    // set
-    if ((int64_t)t >= 0) {
-        LOG(trimmingPrint, ("Setting Pattern Wait Time (level:%d, t:%lld)\n",
-                            level, (long long int)t));
-        set64BitReg(t, regl, regm);
-    }
-
-    // get
-    uint64_t regval = get64BitReg(regl, regm);
-    LOG(logDEBUG1, ("  Wait Time retval (level:%d, t:%lld)\n", level,
-                    (long long int)regval));
-    return regval;
-}
-
-void setPatternLoop(int level, int *startAddr, int *stopAddr, int *nLoop) {
-
-    // (checked at tcp)
-    if (*startAddr >= MAX_PATTERN_LENGTH || *stopAddr >= MAX_PATTERN_LENGTH) {
-        LOG(logERROR, ("Cannot set Pattern Loop, Address (startaddr:0x%x, "
-                       "stopaddr:0x%x) must be "
-                       "less than 0x%x\n",
-                       *startAddr, *stopAddr, MAX_PATTERN_LENGTH));
-        *startAddr = -1;
-        *stopAddr = -1;
-        *nLoop = -1;
-        return;
-    }
-
-    uint32_t addr = 0;
-    uint32_t nLoopReg = 0;
-    uint32_t startOffset = 0;
-    uint32_t startMask = 0;
-    uint32_t stopOffset = 0;
-    uint32_t stopMask = 0;
-
-    switch (level) {
-    case 0:
-        addr = PATTERN_LOOP_0_ADDR_REG;
-        nLoopReg = PATTERN_LOOP_0_ITERATION_REG;
-        startOffset = PATTERN_LOOP_0_ADDR_STRT_OFST;
-        startMask = PATTERN_LOOP_0_ADDR_STRT_MSK;
-        stopOffset = PATTERN_LOOP_0_ADDR_STP_OFST;
-        stopMask = PATTERN_LOOP_0_ADDR_STP_MSK;
-        break;
-    case 1:
-        addr = PATTERN_LOOP_1_ADDR_REG;
-        nLoopReg = PATTERN_LOOP_1_ITERATION_REG;
-        startOffset = PATTERN_LOOP_1_ADDR_STRT_OFST;
-        startMask = PATTERN_LOOP_1_ADDR_STRT_MSK;
-        stopOffset = PATTERN_LOOP_1_ADDR_STP_OFST;
-        stopMask = PATTERN_LOOP_1_ADDR_STP_MSK;
-        break;
-    case 2:
-        addr = PATTERN_LOOP_2_ADDR_REG;
-        nLoopReg = PATTERN_LOOP_2_ITERATION_REG;
-        startOffset = PATTERN_LOOP_2_ADDR_STRT_OFST;
-        startMask = PATTERN_LOOP_2_ADDR_STRT_MSK;
-        stopOffset = PATTERN_LOOP_2_ADDR_STP_OFST;
-        stopMask = PATTERN_LOOP_2_ADDR_STP_MSK;
-        break;
-    case -1:
-        // complete pattern
-        addr = PATTERN_LIMIT_REG;
-        nLoopReg = -1;
-        startOffset = PATTERN_LIMIT_STRT_OFST;
-        startMask = PATTERN_LIMIT_STRT_MSK;
-        stopOffset = PATTERN_LIMIT_STP_OFST;
-        stopMask = PATTERN_LIMIT_STP_MSK;
-        break;
-    default:
-        // already checked at tcp interface
-        LOG(logERROR, ("Cannot set Pattern loop. Invalid level %d. "
-                       "Should be between -1 and 2.\n",
-                       level));
-        *startAddr = 0;
-        *stopAddr = 0;
-        *nLoop = 0;
-    }
-
-    // set iterations
-    if (level >= 0) {
-        // set iteration
-        if (*nLoop >= 0) {
-            LOG(trimmingPrint,
-                ("Setting Pattern Loop (level:%d, nLoop:%d)\n", level, *nLoop));
-            bus_w(nLoopReg, *nLoop);
-        }
-        *nLoop = bus_r(nLoopReg);
-    }
-
-    // set
-    if (*startAddr >= 0 && *stopAddr >= 0) {
-        // writing start and stop addr
-        LOG(trimmingPrint, ("Setting Pattern Loop (level:%d, startaddr:0x%x, "
-                            "stopaddr:0x%x)\n",
-                            level, *startAddr, *stopAddr));
-        bus_w(addr, ((*startAddr << startOffset) & startMask) |
-                        ((*stopAddr << stopOffset) & stopMask));
-    }
-
-    *startAddr = ((bus_r(addr) & startMask) >> startOffset);
-    LOG(logDEBUG1, ("Getting Pattern Loop Start Address (level:%d, Read "
-                    "startAddr:0x%x)\n",
-                    level, *startAddr));
-
-    *stopAddr = ((bus_r(addr) & stopMask) >> stopOffset);
-    LOG(logDEBUG1, ("Getting Pattern Loop Stop Address (level:%d, Read "
-                    "stopAddr:0x%x)\n",
-                    level, *stopAddr));
-}
-
-void setPatternMask(uint64_t mask) {
-    set64BitReg(mask, PATTERN_MASK_LSB_REG, PATTERN_MASK_MSB_REG);
-}
-
-uint64_t getPatternMask() {
-    return get64BitReg(PATTERN_MASK_LSB_REG, PATTERN_MASK_MSB_REG);
-}
-
-void setPatternBitMask(uint64_t mask) {
-    set64BitReg(mask, PATTERN_SET_LSB_REG, PATTERN_SET_MSB_REG);
-}
-
-uint64_t getPatternBitMask() {
-    return get64BitReg(PATTERN_SET_LSB_REG, PATTERN_SET_MSB_REG);
 }
 
 int checkDetectorType() {
@@ -2534,7 +2295,7 @@ void *start_timer(void *arg) {
                    imageData + srcOffset, dataSize);
             srcOffset += dataSize;
 
-            sendUDPPacket(0, packetData, packetSize);
+            sendUDPPacket(0, 0, packetData, packetSize);
         }
         LOG(logINFO, ("Sent frame: %d [%lld]\n", frameNr,
                       (long long unsigned int)virtual_currentFrameNumber));
@@ -2780,76 +2541,56 @@ int getNumberOfDACs() { return NDAC; }
 int getNumberOfChannelsPerChip() { return NCHAN; }
 
 int setChipStatusRegister(int csr) {
-  int iaddr=0;
-  int  nbits=18;
-  int error=0;
-  //int start=0, stop=MAX_PATTERN_LENGTH, loop=0;
-  int patword=0;
-  patword=setBit(SIGNAL_STATLOAD,patword);
-  for (int i=0; i<2; i++)
-    writePatternWord(iaddr++, patword);
-  patword=setBit(SIGNAL_resStorage,patword);
-  patword=setBit(SIGNAL_resCounter,patword);
-  for (int i=0; i<8; i++)
-    writePatternWord(iaddr++, patword);
-  patword=clearBit(SIGNAL_resStorage,patword);
-  patword=clearBit(SIGNAL_resCounter,patword);
-  for (int i=0; i<8; i++)
-    writePatternWord(iaddr++, patword);
-  //#This version of the serializer pushes in the MSB first (compatible with the CSR bit numbering)
-  for (int ib=nbits-1; ib>=0; ib--) {
-    if (csr&(1<<ib))
-      patword=setBit(SIGNAL_serialIN,patword);
-    else
-      patword=clearBit(SIGNAL_serialIN,patword);
-    for (int i=0; i<4; i++)
-      writePatternWord(iaddr++, patword);
-    patword=setBit(SIGNAL_CHSclk,patword);
-    writePatternWord(iaddr++, patword);
-    patword=clearBit(SIGNAL_CHSclk,patword);
-    writePatternWord(iaddr++, patword);
-  }
 
-  patword=clearBit(SIGNAL_serialIN,patword);
-  for (int i=0; i<2; i++)
-      writePatternWord(iaddr++, patword);
-  patword=setBit(SIGNAL_STO,patword);
-  for (int i=0; i<5; i++)
-      writePatternWord(iaddr++, patword);
-  patword=clearBit(SIGNAL_STO,patword);
-  for (int i=0; i<5; i++)
-    writePatternWord(iaddr++, patword);
-  patword=clearBit(SIGNAL_STATLOAD,patword);
-  for (int i=0; i<5; i++)
-    writePatternWord(iaddr++, patword);
+    // remember previous run clock
+    uint32_t prevRunClk = clkDivider[SYSTEM_C0];
 
-  if (iaddr >= MAX_PATTERN_LENGTH) {
-    LOG(logERROR, ("Addr 0x%x is past max_address_length 0x%x!\n",
-		   iaddr, MAX_PATTERN_LENGTH));
-    error = 1;
-  }
-  // set pattern wait address
-  for (int i = 0; i <= 2; i++)
-    setPatternWaitAddress(i, MAX_PATTERN_LENGTH - 1);
-  
-  // pattern loop
-  for (int i = 0; i <= 2; i++) {
-    int stop = MAX_PATTERN_LENGTH - 1, nloop = 0;
-    setPatternLoop(i, &stop, &stop, &nloop);
-  }
-  
-  // pattern limits
-  {
-    int start = 0, nloop = 0;
-    setPatternLoop(-1, &start, &iaddr, &nloop);
-  }
-  // send pattern to the chips
-  startPattern();
-  
-  if (error != 0) {
-    return FAIL;
-  }
-  
-  return OK;
+    // set to trimming clock
+    if (setClockDivider(SYSTEM_C0, DEFAULT_TRIMMING_RUN_CLKDIV) == FAIL) {
+        LOG(logERROR,
+            ("Could not set to trimming clock in order to change CSR\n"));
+        return FAIL;
+    }
 
+    int iret = OK;
+    char cmess[MAX_STR_LENGTH];
+    patternParameters *pat = setChipStatusRegisterPattern(csr);
+    if (pat == NULL) {
+        iret = FAIL;
+    } else {
+        memset(cmess, 0, MAX_STR_LENGTH);
+        iret = loadPattern(cmess, logDEBUG5, pat);
+        if (iret == OK) {
+            startPattern();
+            LOG(logINFO, ("CSR is now: 0x%x\n", csr));
+        }
+        free(pat);
+    }
+
+    // set back to previous clock
+    if (setClockDivider(SYSTEM_C0, prevRunClk) == FAIL) {
+        LOG(logERROR,
+            ("Could not set to previous run clock after changing CSR\n"));
+        return FAIL;
+    }
+
+    return iret;
+}
+
+int setGainCaps(int caps) {
+    LOG(logINFO, ("Setting gain caps to: %u\n", caps));
+    // Update only gain caps, leave the rest of the CSR unchanged
+    int csr = getChipStatusRegister();
+    csr &= ~GAIN_MASK;
+
+    caps = gainCapsToCsr(caps);
+    // caps &= GAIN_MASK;
+    csr |= caps;
+    return setChipStatusRegister(csr);
+}
+
+int getGainCaps() {
+    int csr = getChipStatusRegister();
+    int caps = csrToGainCaps(csr);
+    return caps;
 }

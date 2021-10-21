@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #pragma once
 
 #include "sls/sls_detector_defs.h"
@@ -48,3 +50,7 @@ int writeDataFile(std::string fname, int nch, short int *data);
 
 // mkdir -p path implemented by recursive calls
 void mkdir_p(const std::string &path, std::string dir = "");
+
+namespace sls {
+int getFileSize(std::ifstream &ifs);
+}

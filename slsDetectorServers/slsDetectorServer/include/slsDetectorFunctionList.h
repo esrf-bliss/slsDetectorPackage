@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #include "sls/sls_detector_defs.h"
 #include "slsDetectorServer_defs.h" // DAC_INDEX, ADC_INDEX, also include RegisterDefs.h
 #ifdef GOTTHARDD
@@ -7,9 +9,6 @@
 #if defined(GOTTHARDD) || defined(JUNGFRAUD) || defined(CHIPTESTBOARDD) ||     \
     defined(MOENCHD)
 #include "AD9257.h" // commonServerFunctions.h, blackfin.h, ansi.h
-#endif
-#if defined(MOENCHD) || defined(MYTHEN3D)
-#include "readDefaultPattern.h"
 #endif
 
 #if defined(MYTHEN3D) || defined(GOTTHARD2D)
@@ -23,6 +22,10 @@
 #elif defined(GOTTHARDD) || defined(JUNGFRAUD) || defined(CHIPTESTBOARDD) ||   \
     defined(MOENCHD)
 #include "blackfin.h"
+#endif
+
+#ifdef MYTHEN3D
+#include "mythen3.h"
 #endif
 
 #include <stdio.h> // FILE
@@ -51,6 +54,7 @@ typedef struct udpStruct_s {
     uint32_t dstip;
     uint32_t dstip2;
 } udpStruct;
+#define MAC_ADDRESS_SIZE 18
 
 // basic tests
 int isInitCheckDone();
@@ -86,11 +90,18 @@ u_int16_t getHardwareSerialNumber();
 #endif
 #ifdef JUNGFRAUD
 int isHardwareVersion2();
+int getChipVersion();
+void setChipVersion(int version);
 #endif
-#if defined(EIGERD) || defined(MYTHEN3D)
-void readDetectorNumber();
-#endif
+#ifndef EIGERD
 u_int32_t getDetectorNumber();
+#endif
+#if defined(GOTTHARD2D) || defined(EIGERD) || defined(MYTHEN3D)
+int getModuleId(int *ret, char *mess);
+#endif
+#if defined(GOTTHARD2D) || defined(MYTHEN3D)
+void setModuleId(int modid);
+#endif
 u_int64_t getDetectorMAC();
 u_int32_t getDetectorIP();
 #ifdef GOTTHARDD
@@ -115,13 +126,17 @@ void updateDataBytes();
 #endif
 
 #ifndef CHIPTESTBOARDD
-int setDefaultDacs();
+int resetToDefaultDacs(int hardReset);
+int getDefaultDac(enum DACINDEX index, enum detectorSettings sett, int *retval);
+int setDefaultDac(enum DACINDEX index, enum detectorSettings sett, int value);
+#endif
+#if defined(MYTHEN3D) || defined(GOTTHARD2D)
+void setASICDefaults();
 #endif
 #ifdef MYTHEN3D
-void setASICDefaults();
 void setADIFDefaults();
 #endif
-#if defined(GOTTHARD2D) || defined(EIGERD)
+#if defined(GOTTHARD2D) || defined(EIGERD) || defined(JUNGFRAUD)
 int readConfigFile();
 #endif
 #ifdef EIGERD
@@ -198,6 +213,7 @@ int getReadoutMode();
 // parameters - timer
 #ifdef JUNGFRAUD
 int selectStoragecellStart(int pos);
+int getMaxStoragecellStart();
 #endif
 #if defined(JUNGFRAUD) || defined(EIGERD)
 int setNextFrameNumber(uint64_t value);
@@ -285,8 +301,6 @@ int64_t getMeasurementTime();
 int setModule(sls_detector_module myMod, char *mess);
 #endif
 #ifdef MYTHEN3D
-int setBit(int ibit, int patword);
-int clearBit(int ibit, int patword);
 int setTrimbits(int *trimbits);
 int setAllTrimbits(int val);
 int getAllTrimbits();
@@ -294,10 +308,11 @@ int getAllTrimbits();
 #ifndef CHIPTESTBOARDD
 enum detectorSettings setSettings(enum detectorSettings sett);
 #endif
-#ifdef MYTHEN3D
-void validateSettings();
-#endif
 enum detectorSettings getSettings();
+#ifdef JUNGFRAUD
+enum gainMode getGainMode();
+void setGainMode(enum gainMode mode);
+#endif
 
 // parameters - threshold
 #ifdef EIGERD
@@ -315,6 +330,9 @@ int setOnChipDAC(enum ONCHIP_DACINDEX ind, int chipIndex, int val);
 int getOnChipDAC(enum ONCHIP_DACINDEX ind, int chipIndex);
 #endif
 void setDAC(enum DACINDEX ind, int val, int mV);
+#ifdef MYTHEN3D
+void setGeneralDAC(enum DACINDEX ind, int val, int mV);
+#endif
 int getDAC(enum DACINDEX ind, int mV);
 int getMaxDacSteps();
 #if defined(CHIPTESTBOARDD) || defined(MOENCHD)
@@ -345,6 +363,9 @@ int getADC(enum ADCINDEX ind);
 int setHighVoltage(int val);
 
 // parameters - timing, extsig
+#if defined(MYTHEN3D) || defined(EIGERD) || defined(GOTTHARDD)
+int isMaster();
+#endif
 #ifdef GOTTHARD2D
 void updatingRegisters();
 #endif
@@ -352,7 +373,10 @@ void setTiming(enum timingMode arg);
 enum timingMode getTiming();
 #ifdef MYTHEN3D
 void setInitialExtSignals();
-int isMaster();
+int setGainCaps(int caps);
+int getGainCaps();
+int setChipStatusRegister(int csr);
+int setDACS(int *dacs);
 #endif
 #if defined(GOTTHARDD) || defined(MYTHEN3D)
 void setExtSignal(int signalIndex, enum externalSignalFlag mode);
@@ -367,7 +391,14 @@ void calcChecksum(mac_conf *mac, int sourceip, int destip);
 void setNumberofUDPInterfaces(int val);
 int getNumberofUDPInterfaces();
 #endif
+
+#if defined(JUNGFRAUD) || defined(EIGERD)
+int getNumberofDestinations(int *retval);
+int setNumberofDestinations(int value);
+#endif
 #ifdef JUNGFRAUD
+int getFirstUDPDestination();
+void setFirstUDPDestination(int value);
 void selectPrimaryInterface(int val);
 int getPrimaryInterface();
 void setupHeader(int iRxEntry, enum interfaceType type, uint32_t destip,
@@ -391,8 +422,8 @@ int setQuad(int value);
 int getQuad();
 int setInterruptSubframe(int value);
 int getInterruptSubframe();
-int setReadNLines(int value);
-int getReadNLines();
+int setReadNRows(int value);
+int getReadNRows();
 #endif
 #if defined(CHIPTESTBOARDD) || defined(MOENCHD) || defined(EIGERD) ||          \
     defined(MYTHEN3D)
@@ -417,34 +448,32 @@ int validatePhaseinDegrees(enum CLKINDEX ind, int val, int retval);
 int setFrequency(enum CLKINDEX ind, int val);
 int getFrequency(enum CLKINDEX ind);
 void configureSyncFrequency(enum CLKINDEX ind);
-void setPipeline(enum CLKINDEX ind, int val);
-int getPipeline(enum CLKINDEX ind);
-// patterns
-uint64_t writePatternIOControl(uint64_t word);
-uint64_t readPatternWord(int addr);
-uint64_t writePatternWord(int addr, uint64_t word);
-int setPatternWaitAddress(int level, int addr);
-uint64_t setPatternWaitTime(int level, uint64_t t);
-void setPatternLoop(int level, int *startAddr, int *stopAddr, int *nLoop);
+void setADCPipeline(int val);
+int getADCPipeline();
+#endif
+
 #ifdef CHIPTESTBOARDD
+void setDBITPipeline(int val);
+int getDBITPipeline();
 int setLEDEnable(int enable);
 void setDigitalIODelay(uint64_t pinMask, int delay);
-#endif
-void setPatternMask(uint64_t mask);
-uint64_t getPatternMask();
-void setPatternBitMask(uint64_t mask);
-uint64_t getPatternBitMask();
 #endif
 
 // jungfrau specific - powerchip, autocompdisable, clockdiv, asictimer, clock,
 // pll, flashing firmware
 #ifdef JUNGFRAUD
+int setReadNRows(int value);
+int getReadNRows();
 void initReadoutConfiguration();
 int powerChip(int on);
+int isChipConfigured();
+void configureChip();
 int autoCompDisable(int on);
+int setComparatorDisableTime(int64_t val);
+int64_t getComparatorDisableTime();
 void configureASICTimer();
-int setClockDivider(enum CLKINDEX ind, int val);
-int getClockDivider(enum CLKINDEX ind);
+int setReadoutSpeed(int val);
+int getReadoutSpeed(int *retval);
 int setPhase(enum CLKINDEX ind, int val, int degrees);
 int getPhase(enum CLKINDEX ind, int degrees);
 int getMaxPhase(enum CLKINDEX ind);
@@ -453,11 +482,23 @@ int setThresholdTemperature(int val);
 int setTemperatureControl(int val);
 int setTemperatureEvent(int val);
 void alignDeserializer();
+int getFlipRows();
+void setFlipRows(int arg);
+int setFilterResistor(int value);
+int getFilterResistor();
+int getNumberOfFilterCells();
+void setNumberOfFilterCells(int iCell);
+void disableCurrentSource();
+void enableCurrentSource(int fix, uint64_t select, int normal);
+int getCurrentSource();
+int getFixCurrentSource();
+int getNormalCurrentSource();
+uint64_t getSelectCurrentSource();
 
 // eiger specific - iodelay, pulse, rate, temp, activate, delay nw parameter
 #elif EIGERD
-int setClockDivider(enum CLKINDEX ind, int val);
-int getClockDivider(enum CLKINDEX ind);
+int setReadoutSpeed(int val);
+int getReadoutSpeed(int *retval);
 int setIODelay(int val);
 int setCounterBit(int val);
 int pulsePixel(int n, int x, int y);
@@ -476,22 +517,14 @@ int getAllTrimbits();
 int getBebFPGATemp();
 int setActivate(int enable);
 int getActivate(int *retval);
+int getDataStream(enum portPosition port, int *retval);
+int setDataStream(enum portPosition port, int enable);
 
 // gotthard specific - adc phase
 #elif GOTTHARDD
 int setPhase(enum CLKINDEX ind, int val, int degrees);
 
 #elif MYTHEN3D
-void startPattern();
-uint64_t readPatternWord(int addr);
-uint64_t writePatternWord(int addr, uint64_t word);
-int setPatternWaitAddress(int level, int addr);
-uint64_t setPatternWaitTime(int level, uint64_t t);
-void setPatternLoop(int level, int *startAddr, int *stopAddr, int *nLoop);
-void setPatternMask(uint64_t mask);
-uint64_t getPatternMask();
-void setPatternBitMask(uint64_t mask);
-uint64_t getPatternBitMask();
 int checkDetectorType();
 int powerChip(int on);
 int setPhase(enum CLKINDEX ind, int val, int degrees);
@@ -508,6 +541,8 @@ int getClockDivider(enum CLKINDEX ind);
 #elif GOTTHARD2D
 int checkDetectorType();
 int powerChip(int on);
+void setDBITPipeline(int val);
+int getDBITPipeline();
 int setPhase(enum CLKINDEX ind, int val, int degrees);
 int getPhase(enum CLKINDEX ind, int degrees);
 int getMaxPhase(enum CLKINDEX ind);
@@ -515,6 +550,8 @@ int validatePhaseinDegrees(enum CLKINDEX ind, int val, int retval);
 // void       	setFrequency(enum CLKINDEX ind, int val);
 int getFrequency(enum CLKINDEX ind);
 int getVCOFrequency(enum CLKINDEX ind);
+int setReadoutSpeed(int val);
+int getReadoutSpeed(int *retval);
 int getMaxClockDivider();
 int setClockDivider(enum CLKINDEX ind, int val);
 int getClockDivider(enum CLKINDEX ind);
@@ -532,14 +569,19 @@ int configureASICGlobalSettings();
 enum burstMode getBurstMode();
 int setCDSGain(int enable);
 int getCDSGain();
-int setFilter(int value);
-int getFilter();
+int setFilterResistor(int value);
+int getFilterResistor();
 void setCurrentSource(int value);
 int getCurrentSource();
 void setTimingSource(enum timingSourceType value);
 enum timingSourceType getTimingSource();
 void setVeto(int enable);
 int getVeto();
+void setVetoStream(int value);
+int getVetoStream();
+enum vetoAlgorithm getVetoAlgorithm(enum streamingInterface interface);
+void setVetoAlgorithm(enum vetoAlgorithm alg,
+                      enum streamingInterface interface);
 void setBadChannels(int nch, int *channels);
 int *getBadChannels(int *nch);
 #endif
@@ -568,8 +610,11 @@ int startStateMachine();
 void *start_timer(void *arg);
 #endif
 int stopStateMachine();
-#if defined(EIGERD) || defined(MYTHEN3D)
+#ifdef MYTHEN3D
 int softwareTrigger();
+#endif
+#ifdef EIGERD
+int softwareTrigger(int block);
 #endif
 #if defined(EIGERD) || defined(MYTHEN3D)
 int startReadOut();

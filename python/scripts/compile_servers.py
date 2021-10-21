@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: LGPL-3.0-or-other
+# Copyright (C) 2021 Contributors to the SLS Detector Package
 import subprocess
 import os
 import sys
@@ -49,13 +51,13 @@ args = parser.parse_args()
 
 
 servers = [
-     "eigerDetectorServer",
-     "jungfrauDetectorServer",
+#     "eigerDetectorServer",
+#     "jungfrauDetectorServer",
       "mythen3DetectorServer",
-     "gotthard2DetectorServer",
-     "gotthardDetectorServer",
-     "ctbDetectorServer",
-     "moenchDetectorServer",
+#     "gotthard2DetectorServer",
+#     "gotthardDetectorServer",
+#     "ctbDetectorServer",
+#     "moenchDetectorServer",
 ]
 
 

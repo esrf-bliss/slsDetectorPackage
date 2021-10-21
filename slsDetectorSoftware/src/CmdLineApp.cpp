@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 
 /*
 This file is used to generate the command line binaries
@@ -67,7 +69,7 @@ int main(int argc, char *argv[]) {
         sls::Detector det(parser.multi_id());
         sls::CmdProxy proxy(&det);
         proxy.Call(parser.command(), parser.arguments(), parser.detector_id(),
-                   action);
+                   action, std::cout, parser.receiver_id());
     } catch (const sls::RuntimeError &e) {
         exit(EXIT_FAILURE);
     }

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: LGPL-3.0-or-other
+# Copyright (C) 2021 Contributors to the SLS Detector Package
 add_executable(gotthard2DetectorServer_virtual
     slsDetectorFunctionList.c
     ../slsDetectorServer/src/slsDetectorServer.c
@@ -12,6 +14,7 @@ add_executable(gotthard2DetectorServer_virtual
     ../slsDetectorServer/src/ASIC_Driver.c
     ../slsDetectorServer/src/programFpgaNios.c
     ../slsDetectorServer/src/sharedMemory.c
+    ../../slsSupportLib/src/md5.c
 )
 
 include_directories(
@@ -40,3 +43,4 @@ install(TARGETS gotthard2DetectorServer_virtual
 )
 
 configure_file(config_gotthard2.txt ${CMAKE_BINARY_DIR}/bin/config_gotthard2.txt COPYONLY)
+configure_file(detid_gotthard2.txt ${CMAKE_BINARY_DIR}/bin/detid_gotthard2.txt COPYONLY)

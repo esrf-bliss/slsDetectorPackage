@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #pragma once
 /************************************************
  * @file DataStreamer.h
@@ -30,13 +32,13 @@ class DataStreamer : private virtual slsDetectorDefs, public ThreadObject {
      * @param dr pointer to dynamic range
      * @param r roi
      * @param fi pointer to file index
-     * @param fd flipped data enable for x dimension
-     * @param nd pointer to number of detectors in each dimension
+     * @param fr flip rows
+     * @param nm pointer to number of modules in each dimension
      * @param qe pointer to quad Enable
      * @param tot pointer to total number of frames
      */
-    DataStreamer(int ind, Fifo *f, uint32_t *dr, ROI *r, uint64_t *fi, int fd,
-                 int *nd, bool *qe, uint64_t *tot);
+    DataStreamer(int ind, Fifo *f, uint32_t *dr, ROI *r, uint64_t *fi, bool fr,
+                 int *nm, bool *qe, uint64_t *tot);
 
     /**
      * Destructor
@@ -63,15 +65,15 @@ class DataStreamer : private virtual slsDetectorDefs, public ThreadObject {
 
     /**
      * Set number of detectors
-     * @param nd number of detectors in both dimensions
+     * @param nm number of modules in both dimensions
      */
-    void SetNumberofDetectors(int *nd);
+    void SetNumberofModules(int *nm);
 
     /**
-     * Set Flipped data enable across x dimension
-     * @param fd data enable in x dimension
+     * Set Flipped rows
+     * @param fd flip rows enable
      */
-    void SetFlippedDataX(int fd);
+    void SetFlipRows(bool fd);
 
     /**
      * Set additional json header
@@ -165,8 +167,8 @@ class DataStreamer : private virtual slsDetectorDefs, public ThreadObject {
     /** Pointer to file index */
     uint64_t *fileIndex;
 
-    /** flipped data across x axis */
-    int flippedDataX;
+    /** flip rows */
+    bool flipRows;
 
     /** additional json header */
     std::map<std::string, std::string> additionalJsonHeader;
@@ -193,8 +195,8 @@ class DataStreamer : private virtual slsDetectorDefs, public ThreadObject {
     /** Complete buffer used for roi, eg. shortGotthard */
     char *completeBuffer{nullptr};
 
-    /** Number of Detectors in X and Y dimension */
-    int numDet[2];
+    /** Number of Modules in X and Y dimension */
+    int numMods[2];
 
     /** Quad Enable */
     bool *quadEnable;

@@ -1,16 +1,17 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #include <pybind11/chrono.h>
 #include <pybind11/operators.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include "mythenFileIO.h"
 #include "sls/Detector.h"
 #include "sls/Result.h"
-#include "mythenFileIO.h"
 #include <chrono>
 #include <vector>
 
 #include "typecaster.h"
-
 
 using ds = std::chrono::duration<double>;
 
@@ -21,6 +22,7 @@ void init_det(py::module &);
 void init_network(py::module &);
 void init_pattern(py::module &);
 void init_scan(py::module &);
+void init_source(py::module &);
 PYBIND11_MODULE(_slsdet, m) {
     m.doc() = R"pbdoc(
         C/C++ API
@@ -32,13 +34,13 @@ PYBIND11_MODULE(_slsdet, m) {
 
     )pbdoc";
 
-     init_enums(m);
-     init_det(m);
-     init_network(m);
-     init_pattern(m);
-     init_scan(m);
+    init_enums(m);
+    init_det(m);
+    init_network(m);
+    init_pattern(m);
+    init_scan(m);
+    init_source(m);
     //  init_experimental(m);
-    
 
     py::module io = m.def_submodule("io", "Submodule for io");
     io.def("read_my302_file", &read_my302_file, "some");

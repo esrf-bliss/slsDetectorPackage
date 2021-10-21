@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #pragma once
 
 #include "sls/Detector.h"
@@ -529,7 +531,8 @@ class CmdProxy {
 
     void Call(const std::string &command,
               const std::vector<std::string> &arguments, int detector_id = -1,
-              int action = -1, std::ostream &os = std::cout);
+              int action = -1, std::ostream &os = std::cout,
+              int receiver_id = -1);
 
     bool ReplaceIfDepreciated(std::string &command);
     size_t GetFunctionMapSize() const noexcept { return functions.size(); };
@@ -541,6 +544,7 @@ class CmdProxy {
     std::string cmd;
     std::vector<std::string> args;
     int det_id{-1};
+    int rx_id{-1};
 
     template <typename V> std::string OutStringHex(const V &value) {
         if (value.equal())
@@ -571,20 +575,6 @@ class CmdProxy {
         return ToString(value, unit);
     }
 
-    // inline unsigned int stoiHex(const std::string& s) {
-    //     unsigned long lresult = stoul(s, nullptr, 16);
-    //     unsigned int result = lresult;
-    //     if (result != lresult) {
-    //         throw std::out_of_range("cannot convert to unsigned int");
-    //     }
-    //     return result;
-    // }
-
-    // inline unsigned long int stoulHex(const std::string& s) {
-    //     unsigned long result = stoul(s, nullptr, 16);
-    //     return result;
-    // }
-
     using FunctionMap = std::map<std::string, std::string (CmdProxy::*)(int)>;
     using StringMap = std::map<std::string, std::string>;
 
@@ -598,13 +588,17 @@ class CmdProxy {
         {"detsizechan", "detsize"},
         {"trimdir", "settingspath"},
         {"settingsdir", "settingspath"},
+        {"flippeddatax", "fliprows"},
 
         /* acquisition parameters */
         {"cycles", "triggers"},
         {"cyclesl", "triggersl"},
-        {"clkdivider", "speed"},
+        {"clkdivider", "readoutspeed"},
+        {"speed", "readoutspeed"},
         {"vhighvoltage", "highvoltage"},
         {"digitest", "imagetest"},
+        {"filter", "filterresistor"},
+        {"readnlines", "readnrows"},
 
         /** temperature */
 
@@ -685,6 +679,8 @@ class CmdProxy {
         {"vipre_cds", "dac"},
         {"ibias_sfp", "dac"},
 
+        {"defaultdacs", "resetdacs"},
+
         /* acquisition */
         {"busy", "clearbusy"},
         {"receiver", "rx_status"},
@@ -729,6 +725,10 @@ class CmdProxy {
         {"resmat", "partialreset"},
 
         /* Jungfrau Specific */
+        {"storagecells", "extrastoragecells"},
+        {"auto_comp_disable", "autocompdisable"},
+        {"comp_disable_time", "compdisabletime"},
+
         /* Gotthard Specific */
         /* Gotthard2 Specific */
         /* Mythen3 Specific */
@@ -769,6 +769,7 @@ class CmdProxy {
         {"detectorserverversion", &CmdProxy::detectorserverversion},
         {"rx_version", &CmdProxy::rx_version},
         {"serialnumber", &CmdProxy::serialnumber},
+        {"moduleid", &CmdProxy::moduleid},
         {"type", &CmdProxy::type},
         {"nmod", &CmdProxy::nmod},
         {"detsize", &CmdProxy::DetectorSize},
@@ -781,6 +782,7 @@ class CmdProxy {
         {"trimval", &CmdProxy::trimval},
         {"trimen", &CmdProxy::TrimEnergies},
         {"gappixels", &CmdProxy::GapPixels},
+        {"fliprows", &CmdProxy::fliprows},
 
         /* acquisition parameters */
         {"acquire", &CmdProxy::Acquire},
@@ -797,7 +799,8 @@ class CmdProxy {
         {"drlist", &CmdProxy::drlist},
         {"timing", &CmdProxy::timing},
         {"timinglist", &CmdProxy::timinglist},
-        {"speed", &CmdProxy::Speed},
+        {"readoutspeed", &CmdProxy::ReadoutSpeed},
+        {"readoutspeedlist", &CmdProxy::readoutspeedlist},
         {"adcphase", &CmdProxy::Adcphase},
         {"maxadcphaseshift", &CmdProxy::maxadcphaseshift},
         {"dbitphase", &CmdProxy::Dbitphase},
@@ -811,6 +814,10 @@ class CmdProxy {
         {"imagetest", &CmdProxy::imagetest},
         {"extsig", &CmdProxy::ExternalSignal},
         {"parallel", &CmdProxy::parallel},
+        {"filterresistor", &CmdProxy::filterresistor},
+        {"currentsource", &CmdProxy::CurrentSource},
+        {"dbitpipeline", &CmdProxy::dbitpipeline},
+        {"readnrows", &CmdProxy::readnrows},
 
         /** temperature */
         {"templist", &CmdProxy::templist},
@@ -830,7 +837,8 @@ class CmdProxy {
         {"dac", &CmdProxy::Dac},
         {"daclist", &CmdProxy::daclist},
         {"dacvalues", &CmdProxy::DacValues},
-        {"defaultdacs", &CmdProxy::defaultdacs},
+        {"resetdacs", &CmdProxy::ResetDacs},
+        {"defaultdac", &CmdProxy::DefaultDac},
 
         /* on chip dacs */
         {"vchip_comp_fe", &CmdProxy::vchip_comp_fe},
@@ -852,13 +860,17 @@ class CmdProxy {
         {"rx_framescaught", &CmdProxy::rx_framescaught},
         {"rx_missingpackets", &CmdProxy::rx_missingpackets},
         {"nextframenumber", &CmdProxy::nextframenumber},
-        {"trigger", &CmdProxy::trigger},
+        {"trigger", &CmdProxy::Trigger},
         {"scan", &CmdProxy::Scan},
         {"scanerrmsg", &CmdProxy::scanerrmsg},
 
         /* Network Configuration (Detector<->Receiver) */
         {"numinterfaces", &CmdProxy::numinterfaces},
         {"selinterface", &CmdProxy::selinterface},
+        {"udp_dstlist", &CmdProxy::UDPDestinationList},
+        {"udp_numdst", &CmdProxy::udp_numdst},
+        {"udp_cleardst", &CmdProxy::udp_cleardst},
+        {"udp_firstdst", &CmdProxy::udp_firstdst},
         {"udp_srcip", &CmdProxy::udp_srcip},
         {"udp_srcip2", &CmdProxy::udp_srcip2},
         {"udp_dstip", &CmdProxy::UDPDestinationIP},
@@ -913,30 +925,34 @@ class CmdProxy {
         {"rx_zmqhwm", &CmdProxy::rx_zmqhwm},
 
         /* Eiger Specific */
+        {"blockingtrigger", &CmdProxy::Trigger},
         {"subexptime", &CmdProxy::subexptime},
         {"subdeadtime", &CmdProxy::subdeadtime},
         {"overflow", &CmdProxy::overflow},
-        {"flippeddatax", &CmdProxy::flippeddatax},
         {"ratecorr", &CmdProxy::RateCorrection},
-        {"readnlines", &CmdProxy::readnlines},
         {"interruptsubframe", &CmdProxy::interruptsubframe},
         {"measuredperiod", &CmdProxy::measuredperiod},
         {"measuredsubperiod", &CmdProxy::measuredsubperiod},
-        {"activate", &CmdProxy::Activate},
+        {"activate", &CmdProxy::activate},
         {"partialreset", &CmdProxy::partialreset},
         {"pulse", &CmdProxy::PulsePixel},
         {"pulsenmove", &CmdProxy::PulsePixelAndMove},
         {"pulsechip", &CmdProxy::PulseChip},
         {"quad", &CmdProxy::Quad},
+        {"datastream", &CmdProxy::DataStream},
 
         /* Jungfrau Specific */
+        {"chipversion", &CmdProxy::chipversion},
         {"temp_threshold", &CmdProxy::temp_threshold},
         {"temp_control", &CmdProxy::temp_control},
         {"temp_event", &CmdProxy::TemperatureEvent},
-        {"auto_comp_disable", &CmdProxy::auto_comp_disable},
-        {"storagecells", &CmdProxy::storagecells},
+        {"autocompdisable", &CmdProxy::autocompdisable},
+        {"compdisabletime", &CmdProxy::compdisabletime},
+        {"extrastoragecells", &CmdProxy::extrastoragecells},
         {"storagecell_start", &CmdProxy::storagecell_start},
         {"storagecell_delay", &CmdProxy::storagecell_delay},
+        {"gainmode", &CmdProxy::gainmode},
+        {"filtercells", &CmdProxy::filtercells},
 
         /* Gotthard Specific */
         {"roi", &CmdProxy::ROI},
@@ -953,10 +969,10 @@ class CmdProxy {
         {"vetofile", &CmdProxy::VetoFile},
         {"burstmode", &CmdProxy::BurstMode},
         {"cdsgain", &CmdProxy::cdsgain},
-        {"filter", &CmdProxy::filter},
-        {"currentsource", &CmdProxy::currentsource},
         {"timingsource", &CmdProxy::timingsource},
         {"veto", &CmdProxy::veto},
+        {"vetostream", &CmdProxy::VetoStreaming},
+        {"vetoalg", &CmdProxy::VetoAlgorithm},
         {"confadc", &CmdProxy::ConfigureADC},
         {"badchannels", &CmdProxy::BadChannels},
 
@@ -970,6 +986,7 @@ class CmdProxy {
         {"gatedelay1", &CmdProxy::GateDelay},
         {"gatedelay2", &CmdProxy::GateDelay},
         {"gatedelay3", &CmdProxy::GateDelay},
+        {"gaincaps", &CmdProxy::GainCaps},
 
         /* CTB/ Moench Specific */
         {"samples", &CmdProxy::Samples},
@@ -986,7 +1003,6 @@ class CmdProxy {
         {"dsamples", &CmdProxy::dsamples},
         {"romode", &CmdProxy::romode},
         {"dbitclk", &CmdProxy::dbitclk},
-        {"dbitpipeline", &CmdProxy::dbitpipeline},
         {"v_a", &CmdProxy::v_a},
         {"v_b", &CmdProxy::v_b},
         {"v_c", &CmdProxy::v_c},
@@ -1089,7 +1105,7 @@ class CmdProxy {
     std::string Acquire(int action);
     std::string Exptime(int action);
     std::string DynamicRange(int action);
-    std::string Speed(int action);
+    std::string ReadoutSpeed(int action);
     std::string Adcphase(int action);
     std::string Dbitphase(int action);
     std::string ClockFrequency(int action);
@@ -1097,16 +1113,23 @@ class CmdProxy {
     std::string MaxClockPhaseShift(int action);
     std::string ClockDivider(int action);
     std::string ExternalSignal(int action);
+    std::string CurrentSource(int action);
     /** temperature */
     std::string TemperatureValues(int action);
     /* dacs */
     std::string Dac(int action);
     std::string DacValues(int action);
+    std::string ResetDacs(int action);
+    std::string DefaultDac(int action);
     /* acquisition */
     std::string ReceiverStatus(int action);
     std::string DetectorStatus(int action);
     std::string Scan(int action);
+    std::string Trigger(int action);
     /* Network Configuration (Detector<->Receiver) */
+    IpAddr getIpFromAuto();
+    UdpDestination getUdpEntry();
+    std::string UDPDestinationList(int action);
     std::string UDPDestinationIP(int action);
     std::string UDPDestinationIP2(int action);
     /* Receiver Config */
@@ -1116,11 +1139,11 @@ class CmdProxy {
     std::string ZMQHWM(int action);
     /* Eiger Specific */
     std::string RateCorrection(int action);
-    std::string Activate(int action);
     std::string PulsePixel(int action);
     std::string PulsePixelAndMove(int action);
     std::string PulseChip(int action);
     std::string Quad(int action);
+    std::string DataStream(int action);
     /* Jungfrau Specific */
     std::string TemperatureEvent(int action);
     /* Gotthard Specific */
@@ -1132,11 +1155,14 @@ class CmdProxy {
     std::string VetoReference(int action);
     std::string VetoFile(int action);
     std::string BurstMode(int action);
+    std::string VetoStreaming(int action);
+    std::string VetoAlgorithm(int action);
     std::string ConfigureADC(int action);
     std::string BadChannels(int action);
     /* Mythen3 Specific */
     std::string Counters(int action);
     std::string GateDelay(int action);
+    std::string GainCaps(int action);
     /* CTB/ Moench Specific */
     std::string Samples(int action);
     /* CTB Specific */
@@ -1184,7 +1210,13 @@ class CmdProxy {
                     "\n\tReceiver version in format [0xYYMMDD].");
 
     GET_COMMAND_HEX(serialnumber, getSerialNumber,
-                    "\n\tSerial number of detector.");
+                    "\n\t[Jungfrau][Gotthard][Mythen3][Gotthard2][CTB][Moench]"
+                    "Serial number of detector.");
+
+    GET_COMMAND(moduleid, getModuleId,
+                "\n\t[Gotthard2][Eiger][Mythen3] 16 bit value (ideally unique) "
+                "that is streamed out in the UDP header of the detector. "
+                "Picked up from a file on the module.");
 
     GET_COMMAND(type, getDetectorType,
                 "\n\tReturns detector type. Can be Eiger, Jungfrau, Gotthard, "
@@ -1199,13 +1231,12 @@ class CmdProxy {
         settings, getSettings, setSettings,
         sls::StringTo<slsDetectorDefs::detectorSettings>,
         "[standard, fast, highgain, dynamicgain, lowgain, "
-        "mediumgain, veryhighgain, dynamichg0, "
+        "mediumgain, veryhighgain, highgain0, "
         "fixgain1, fixgain2, forceswitchg1, forceswitchg2, "
         "verylowgain, g1_hg, g1_lg, g2_hc_hg, g2_hc_lg, "
-        "g2_lc_hg, g2_lc_lg, g4_hg, g4_lg]"
+        "g2_lc_hg, g2_lc_lg, g4_hg, g4_lg, gain0]"
         "\n\t Detector Settings"
-        "\n\t[Jungfrau] - [dynamicgain | dynamichg0 | fixgain1 | "
-        "fixgain2 | forceswitchg1 | forceswitchg2]"
+        "\n\t[Jungfrau] - [ gain0 | highgain0]"
         "\n\t[Gotthard] - [dynamicgain | highgain | lowgain | "
         "mediumgain | veryhighgain]"
         "\n\t[Gotthard2] - [dynamicgain | fixgain1 | fixgain2]"
@@ -1229,6 +1260,14 @@ class CmdProxy {
         trimval, getAllTrimbits, setAllTrimbits, StringTo<int>,
         "[n_trimval]\n\t[Eiger][Mythen3] All trimbits set to this "
         "value. Returns -1 if all trimbits are different values.");
+
+    INTEGER_COMMAND_VEC_ID(
+        fliprows, getFlipRows, setFlipRows, StringTo<int>,
+        "[0, 1]\n\t[Eiger] flips rows paramater sent to slsreceiver "
+        "to stream as json parameter to flip rows in gui \n\t[Jungfrau] flips "
+        "rows in the detector itself. For bottom module and number of "
+        "interfaces must be set to 2. slsReceiver and slsDetectorGui "
+        "does not handle.");
 
     /* acquisition parameters */
 
@@ -1297,6 +1336,10 @@ class CmdProxy {
     GET_COMMAND_NOID(timinglist, getTimingModeList,
                      "\n\tGets the list of timing modes for this detector.");
 
+    GET_COMMAND_NOID(
+        readoutspeedlist, getReadoutSpeedList,
+        "\n\tList of readout speed levels implemented for this detector.");
+
     GET_COMMAND(maxadcphaseshift, getMaxADCPhaseShift,
                 "\n\t[Jungfrau][CTB][Moench] Absolute maximum Phase shift of "
                 "ADC clock.");
@@ -1318,7 +1361,8 @@ class CmdProxy {
         "the chip. \n\t[Moench] Default is 0. \n\t[Jungfrau] Default is 0. Get "
         "will return power status. Can be off if temperature event occured "
         "(temperature over temp_threshold with temp_control "
-        "enabled.\n\t[Mythen3][Gotthard2] Default is 1. If module not "
+        "enabled. Will configure chip (only chip v1.1)\n\t[Mythen3][Gotthard2] "
+        "Default is 1. If module not "
         "connected or wrong module, powerchip will fail.");
 
     INTEGER_COMMAND_VEC_ID(
@@ -1334,6 +1378,27 @@ class CmdProxy {
         "mode.\n\t[Mythen3] If exptime is too short, the "
         "acquisition will return ERROR status and take fewer "
         "frames than expected.");
+
+    INTEGER_COMMAND_VEC_ID(
+        filterresistor, getFilterResistor, setFilterResistor, StringTo<int>,
+        "[value] [Gotthard2][Jungfrau] Set filter resistor. Increasing values "
+        "for increasing resistance.\n\t[Gotthard2] Options: [0|1|2|3]. Default "
+        "is 0.\n\t[Jungfrau] Options: [0|1]. Default is 1.");
+
+    INTEGER_COMMAND_VEC_ID(dbitpipeline, getDBITPipeline, setDBITPipeline,
+                           StringTo<int>,
+                           "[n_value]\n\t[Ctb][Gotthard2] Pipeline of the "
+                           "clock for latching digital bits.\n\t[Gotthard2] "
+                           "Options: 0-7\n\t[CTB] Options: 0-255");
+
+    INTEGER_COMMAND_VEC_ID(
+        readnrows, getReadNRows, setReadNRows, StringTo<int>,
+        "\n\t[1-256]\n\t\t[Eiger] Number of rows to readout per half module "
+        "starting from the centre. Options: 0 - 256. 256 is default. The "
+        "permissible values depend on dynamic range and 10Gbe "
+        "enabled.\n\t[8-512 (multiple of 8)]\n\t\t[Jungfrau] Number of rows "
+        "per module starting from the centre. Options: 8 - 512, must be "
+        "multiples of 8. Default is 512.");
 
     /** temperature */
     GET_COMMAND_NOID(
@@ -1384,10 +1449,6 @@ class CmdProxy {
     GET_COMMAND_NOID(
         daclist, getDacList,
         "\n\tGets the list of commands for every dac for this detector.");
-
-    EXECUTE_SET_COMMAND(defaultdacs, setDefaultDacs,
-                        "\n\t[Eiger][Jungfrau][Gotthard][Moench][Gotthard2]["
-                        "Mythen3]Sets default dacs on to the detector.");
 
     /* on chip dacs */
     INTEGER_USER_IND_COMMAND(
@@ -1455,9 +1516,9 @@ class CmdProxy {
         "\n\t[Mythen3] Starts detector readout. Status changes to TRANSMITTING "
         "and automatically returns to idle at the end of readout.");
 
-    EXECUTE_SET_COMMAND_NOID(stop, stopDetector,
-                             "\n\tAbort detector acquisition. Status changes "
-                             "to IDLE or STOPPED. Goes to stop server.");
+    EXECUTE_SET_COMMAND(stop, stopDetector,
+                        "\n\tAbort detector acquisition. Status changes "
+                        "to IDLE or STOPPED. Goes to stop server.");
 
     GET_COMMAND(rx_framescaught, getFramesCaught,
                 "\n\tNumber of frames caught by receiver.");
@@ -1471,10 +1532,6 @@ class CmdProxy {
                            "Stopping acquisition might result in "
                            "different frame numbers for different modules.");
 
-    EXECUTE_SET_COMMAND(
-        trigger, sendSoftwareTrigger,
-        "\n\t[Eiger][Mythen3] Sends software trigger signal to detector.");
-
     GET_COMMAND(scanerrmsg, getScanErrorMessage,
                 "\n\tGets Scan error message if scan ended in error for non "
                 "blocking acquisitions.");
@@ -1484,19 +1541,35 @@ class CmdProxy {
     INTEGER_COMMAND_VEC_ID(
         numinterfaces, getNumberofUDPInterfaces, setNumberofUDPInterfaces,
         StringTo<int>,
-        "[1, 2]\n\t[Jungfrau][Gotthard2] Number of udp interfaces to stream "
+        "[1, 2]\n\t[Jungfrau] Number of udp interfaces to stream "
         "data from detector. Default: 1.\n\tAlso enables second interface in "
         "receiver for listening (Writes a file per interface if writing "
         "enabled).\n\tAlso restarts client and receiver zmq sockets if zmq "
-        "streaming enabled.\n\t[Gotthard2] second interface enabled to send "
-        "veto information via 10Gbps for debugging. By default, if veto "
-        "enabled, it is sent via 2.5 gbps interface.");
+        "streaming enabled.");
 
     INTEGER_COMMAND_VEC_ID(
         selinterface, getSelectedUDPInterface, selectUDPInterface,
         StringTo<int>,
         "[0, 1]\n\t[Jungfrau] The udp interface to stream data from detector. "
         "Effective only when number of interfaces is 1. Default: 0 (outer)");
+
+    GET_COMMAND(
+        udp_numdst, getNumberofUDPDestinations,
+        "\n\t[Jungfrau][Eiger] One can enter upto 32 "
+        "destinations that the detector will stream images "
+        "out in a round robin fashion. This is get only command. Default: 1");
+
+    EXECUTE_SET_COMMAND(udp_cleardst, clearUDPDestinations,
+                        "\n\tClears udp destination details on the detector.");
+
+    INTEGER_COMMAND_VEC_ID(
+        udp_firstdst, getFirstUDPDestination, setFirstUDPDestination,
+        StringTo<int>,
+        "[0 - 31 (or number of udp destinations)]\n\t[Jungfrau] One can set "
+        "which is the first "
+        "destination that the detector will stream images "
+        "out from in a round robin fashion. The entry must not have been "
+        "empty. Default: 0");
 
     INTEGER_COMMAND_VEC_ID(
         udp_srcip, getSourceUDPIP, setSourceUDPIP, IpAddr,
@@ -1786,19 +1859,6 @@ class CmdProxy {
         "32 bit mode. Default is disabled.");
 
     INTEGER_COMMAND_VEC_ID(
-        flippeddatax, getBottom, setBottom, StringTo<int>,
-        "[0, 1]\n\t[Eiger] Top or Bottom Half of Eiger module. 1 is bottom, 0 "
-        "is top. Used to let Gui (via zmq from receiver) know to flip the "
-        "bottom image over the x axis. Files are not written without the flip "
-        "however.");
-
-    INTEGER_COMMAND_VEC_ID(
-        readnlines, getPartialReadout, setPartialReadout, StringTo<int>,
-        "[1 - 256]\n\t[Eiger] Number of rows to readout per half module "
-        "starting from the centre. Options: 0 - 256. 256 is default. The "
-        "permissible values depend on dynamic range and 10Gbe enabled.");
-
-    INTEGER_COMMAND_VEC_ID(
         interruptsubframe, getInterruptSubframe, setInterruptSubframe,
         StringTo<int>,
         "[0, 1]\n\t[Eiger] 1 interrupts last subframe at required "
@@ -1814,6 +1874,10 @@ class CmdProxy {
                      "[(optional unit) ns|us|ms|s]\n\t[Eiger] Measured sub "
                      "frame period between last sub frame and previous one.");
 
+    INTEGER_COMMAND_VEC_ID(activate, getActive, setActive, StringTo<int>,
+                           "[0, 1] \n\t[Eiger] 1 is default. 0 deactivates "
+                           "readout and does not send data.");
+
     INTEGER_COMMAND_VEC_ID(
         partialreset, getPartialReset, setPartialReset, StringTo<int>,
         "[0, 1]\n\t[Eiger] Sets up detector to do partial or complete reset at "
@@ -1821,6 +1885,9 @@ class CmdProxy {
         "complete reset. Advanced function!");
 
     /* Jungfrau Specific */
+
+    GET_COMMAND(chipversion, getChipVersion,
+                "\n\t[Jungfrau] Returns chip version. Can be 1.0 or 1.1");
 
     INTEGER_COMMAND_VEC_ID(
         temp_threshold, getThresholdTemperature, setThresholdTemperature,
@@ -1842,33 +1909,56 @@ class CmdProxy {
         "cleared.");
 
     INTEGER_COMMAND_VEC_ID(
-        auto_comp_disable, getAutoCompDisable, setAutoCompDisable,
+        autocompdisable, getAutoComparatorDisable, setAutoComparatorDisable,
         StringTo<int>,
         "[0, 1]\n\t[Jungfrau] Auto comparator disable mode. By default, the "
         "on-chip gain switching is active during the entire exposure.This mode "
         "disables the on - chip gain switching comparator automatically after "
-        "93.75% of exposure time (only for longer than 100us). \n\tDefault is "
-        "0 or this mode disabled(comparator enabled throughout). 1 enables "
-        "mode. 0 disables mode. ");
+        "93.75% (only for chipv1.0) of exposure time (only for longer than "
+        "100us). It is possible to set the duration for chipv1.1 using "
+        "compdisabletime command.\n\tDefault is 0 or this mode "
+        "disabled(comparator enabled throughout). 1 enables mode. 0 disables "
+        "mode. ");
+
+    TIME_COMMAND(compdisabletime, getComparatorDisableTime,
+                 setComparatorDisableTime,
+                 "[duration] [(optional unit) ns|us|ms|s]\n\t[Jungfrau] Time "
+                 "before end of exposure when comparator is disabled. It is "
+                 "only possible for chipv1.1.");
 
     INTEGER_COMMAND_SET_NOID_GET_ID(
-        storagecells, getNumberOfAdditionalStorageCells,
+        extrastoragecells, getNumberOfAdditionalStorageCells,
         setNumberOfAdditionalStorageCells, StringTo<int>,
-        "[0-15]\n\t[Jungfrau] Number of additional storage cells. Default is "
+        "[0-15]\n\t[Jungfrau] Only for chipv1.0. Number of additional storage "
+        "cells. Default is "
         "0. For advanced users only. \n\tThe #images = #frames x #triggers x "
-        "(#storagecells + 1).");
+        "(#extrastoragecells + 1).");
 
     INTEGER_COMMAND_VEC_ID(
         storagecell_start, getStorageCellStart, setStorageCellStart,
         StringTo<int>,
-        "[0-15]\n\t[Jungfrau] Storage cell that stores the first acquisition "
-        "of the series. Default is 15. For advanced users only.");
+        "[0-max]\n\t[Jungfrau] Storage cell that stores the first acquisition "
+        "of the series. max is 15 (default) for chipv1.0 and 3 (default) for "
+        "chipv1.1. For advanced users only.");
 
     TIME_COMMAND(
         storagecell_delay, getStorageCellDelay, setStorageCellDelay,
         "[duration (0-1638375 ns)] [(optional unit) ns|us|ms|s]\n\t[Jungfrau] "
         "Additional time delay between 2 consecutive exposures in burst mode "
-        "(resolution of 25ns). For advanced users only.");
+        "(resolution of 25ns). Only applicable for chipv1.0. For advanced "
+        "users only.");
+
+    INTEGER_COMMAND_VEC_ID(
+        gainmode, getGainMode, setGainMode,
+        sls::StringTo<slsDetectorDefs::gainMode>,
+        "[dynamicgain|forceswitchg1|forceswitchg2|fixg1|fixg2|fixg0]\n\t["
+        "Jungfrau] Gain mode.\n\tCAUTION: Do not use fixg0 without caution, "
+        "you can damage the detector!!!");
+
+    INTEGER_COMMAND_VEC_ID(filtercells, getNumberOfFilterCells,
+                           setNumberOfFilterCells, sls::StringTo<int>,
+                           "[0-12]\n\t[Jungfrau] Set Filter Cell. Only for "
+                           "chipv1.1. Advanced user Command");
 
     /* Gotthard Specific */
     TIME_GET_COMMAND(exptimel, getExptimeLeft,
@@ -1897,15 +1987,6 @@ class CmdProxy {
         "is disabled.");
 
     INTEGER_COMMAND_VEC_ID(
-        filter, getFilter, setFilter, StringTo<int>,
-        "[0|1|2|3]\n\t[Gotthard2] Set filter resistor. Default is 0.");
-
-    INTEGER_COMMAND_VEC_ID(
-        currentsource, getCurrentSource, setCurrentSource, StringTo<int>,
-        "[0, 1]\n\t[Gotthard2] Enable or disable current source. "
-        "Default is disabled.");
-
-    INTEGER_COMMAND_VEC_ID(
         timingsource, getTimingSource, setTimingSource,
         sls::StringTo<slsDetectorDefs::timingSourceType>,
         "[internal|external]\n\t[Gotthard2] Timing source. Internal is crystal "
@@ -1913,7 +1994,7 @@ class CmdProxy {
 
     INTEGER_COMMAND_VEC_ID(veto, getVeto, setVeto, StringTo<int>,
                            "[0, 1]\n\t[Gotthard2] Enable or disable veto data "
-                           "streaming from detector. Default is 0.");
+                           "data from chip. Default is 0.");
 
     /* Mythen3 Specific */
 
@@ -1976,10 +2057,6 @@ class CmdProxy {
     INTEGER_COMMAND_VEC_ID(
         dbitclk, getDBITClock, setDBITClock, StringTo<int>,
         "[n_clk in MHz]\n\t[Ctb] Clock for latching the digital bits in MHz.");
-
-    INTEGER_COMMAND_VEC_ID(
-        dbitpipeline, getDBITPipeline, setDBITPipeline, StringTo<int>,
-        "[n_value]\n\t[Ctb] Pipeline of the clock for latching digital bits.");
 
     INTEGER_IND_COMMAND(v_a, getVoltage, setVoltage, StringTo<int>,
                         defs::V_POWER_A,

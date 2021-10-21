@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #include "slsDetectorFunctionList.h"
 #include "clogger.h"
 #include "common.h"
@@ -21,7 +23,8 @@
 // Global variable from slsDetectorServer_funcs
 extern int debugflag;
 extern int updateFlag;
-extern udpStruct udpDetails;
+extern udpStruct udpDetails[MAX_UDP_DESTINATION];
+extern int numUdpDestinations;
 extern const enum detectorType myDetectorType;
 
 // Global variable from communication_funcs.c
@@ -40,19 +43,11 @@ int *detectorChans = NULL;
 int *detectorDacs = NULL;
 
 int send_to_ten_gig = 0;
-int ndsts_in_use = 32;
 unsigned int nimages_per_request = 1;
-int on_dst = 0;
-int dst_requested[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-enum masterFlags masterMode = IS_SLAVE;
 int top = 0;
 int master = 0;
 int normal = 0;
-#ifndef VIRTUAL
-uint32_t detid = 0;
-#endif
 
 int eiger_highvoltage = 0;
 int eiger_theo_highvoltage = 0;
@@ -89,9 +84,12 @@ uint64_t eiger_virtual_nextframenumber = 1;
 int eiger_virtual_detPos[2] = {0, 0};
 int eiger_virtual_test_mode = 0;
 int eiger_virtual_quad_mode = 0;
-int eiger_virtual_read_nlines = 256;
+int eiger_virtual_read_n_rows = 256;
 int eiger_virtual_interrupt_subframe = 0;
+int eiger_virtual_left_datastream = 1;
+int eiger_virtual_right_datastream = 1;
 #endif
+int defaultDacValues[NDAC] = DEFAULT_DAC_VALS;
 
 int isInitCheckDone() { return initCheckDone; }
 
@@ -134,8 +132,10 @@ void basictests() {
 
     // update default udpdstip and udpdstmac (1g is hardware ip and hardware
     // mac)
-    udpDetails.srcip = ipadd;
-    udpDetails.srcmac = macadd;
+    for (int iRxEntry = 0; iRxEntry != MAX_UDP_DESTINATION; ++iRxEntry) {
+        udpDetails[iRxEntry].srcip = ipadd;
+        udpDetails[iRxEntry].srcmac = macadd;
+    }
 
 #ifdef VIRTUAL
     return;
@@ -221,25 +221,8 @@ u_int64_t getFirmwareAPIVersion() {
 #endif
 }
 
-void readDetectorNumber() {
-#ifndef VIRTUAL
-    char output[255];
-    FILE *sysFile = popen(IDFILECOMMAND, "r");
-    fgets(output, sizeof(output), sysFile);
-    pclose(sysFile);
-    sscanf(output, "%u", &detid);
-    if (isControlServer) {
-        LOG(logINFOBLUE, ("Detector ID: %u\n", detid));
-    }
-#endif
-}
-
-u_int32_t getDetectorNumber() {
-#ifdef VIRTUAL
-    return 0;
-#else
-    return detid;
-#endif
+int getModuleId(int *ret, char *mess) {
+    return getModuleIdInFile(ret, mess, ID_FILE);
 }
 
 u_int64_t getDetectorMAC() {
@@ -282,7 +265,7 @@ u_int64_t getDetectorMAC() {
 }
 
 u_int32_t getDetectorIP() {
-    char temp[50] = "";
+    char temp[INET_ADDRSTRLEN] = "";
     u_int32_t res = 0;
     // execute and get address
     char output[255];
@@ -321,7 +304,14 @@ u_int32_t getDetectorIP() {
 void initControlServer() {
     LOG(logINFOBLUE, ("Configuring Control server\n"));
     if (!updateFlag && initError == OK) {
-        readDetectorNumber();
+#ifndef VIRTUAL
+        int modid = getModuleIdInFile(&initError, initErrorMessage, ID_FILE);
+#else
+        getModuleIdInFile(&initError, initErrorMessage, ID_FILE);
+#endif
+        if (initError == FAIL) {
+            return;
+        }
         getModuleConfiguration();
 #ifndef VIRTUAL
         sharedMemory_lockLocalLink();
@@ -329,7 +319,7 @@ void initControlServer() {
         Feb_Interface_FebInterface();
         Feb_Control_FebControl();
         // same addresses for top and bottom
-        if (!Feb_Control_Init(master, normal, getDetectorNumber())) {
+        if (!Feb_Control_Init(master, normal)) {
             initError = FAIL;
             sprintf(initErrorMessage, "Could not intitalize feb control\n");
             LOG(logERROR, (initErrorMessage));
@@ -353,8 +343,8 @@ void initControlServer() {
         sharedMemory_unlockLocalLink();
         LOG(logDEBUG1, ("Control server: FEB Initialization done\n"));
         Beb_SetTopVariable(top);
-        Beb_Beb(detid);
-        Beb_SetDetectorNumber(getDetectorNumber());
+        Beb_Beb();
+        Beb_SetModuleId(modid);
         LOG(logDEBUG1, ("Control server: BEB Initialization done\n"));
 #endif
         // also reads config file and deactivates
@@ -375,14 +365,13 @@ void initStopServer() {
     usleep(WAIT_STOP_SERVER_START);
     LOG(logINFOBLUE, ("Configuring Stop server\n"));
     // exit(-1);
-    readDetectorNumber();
     getModuleConfiguration();
     sharedMemory_lockLocalLink();
     Feb_Control_SetMasterVariable(master);
     Feb_Interface_FebInterface();
     Feb_Control_FebControl();
     // same addresses for top and bottom
-    Feb_Control_Init(master, normal, getDetectorNumber());
+    Feb_Control_Init(master, normal);
     sharedMemory_unlockLocalLink();
     LOG(logDEBUG1, ("Stop server: FEB Initialization done\n"));
 #endif
@@ -433,8 +422,9 @@ int readConfigFile() {
     master = -1;
     top = -1;
 
-    char fname[128];
-    if (getAbsPath(fname, 128, CONFIG_FILE) == FAIL) {
+    const int fileNameSize = 128;
+    char fname[fileNameSize];
+    if (getAbsPath(fname, fileNameSize, CONFIG_FILE) == FAIL) {
         return FAIL;
     }
 
@@ -683,9 +673,10 @@ void allocateDetectorStructureMemory() {
 void setupDetector() {
 
     allocateDetectorStructureMemory();
-    setDefaultDacs();
+    resetToDefaultDacs(0);
 #ifdef VIRTUAL
     sharedMemory_setStatus(IDLE);
+    setupUDPCommParameters();
 #endif
 
     LOG(logINFOBLUE, ("Setting Default Parameters\n"));
@@ -701,11 +692,11 @@ void setupDetector() {
     eiger_photonenergy = DEFAULT_PHOTON_ENERGY;
     setParallelMode(DEFAULT_PARALLEL_MODE);
     setOverFlowMode(DEFAULT_READOUT_OVERFLOW32_MODE);
-    setClockDivider(RUN_CLK, DEFAULT_CLK_SPEED); // clk_devider,half speed
+    setReadoutSpeed(DEFAULT_CLK_SPEED);
     setIODelay(DEFAULT_IO_DELAY);
     setTiming(DEFAULT_TIMING_MODE);
     setNextFrameNumber(DEFAULT_STARTING_FRAME_NUMBER);
-    setReadNLines(MAX_ROWS_PER_READOUT);
+    setReadNRows(MAX_ROWS_PER_READOUT);
     // SetPhotonEnergyCalibrationParameters(-5.8381e-5,1.838515,5.09948e-7,-4.32390e-11,1.32527e-15);
     eiger_tau_ns = DEFAULT_RATE_CORRECTION;
     setRateCorrection(DEFAULT_RATE_CORRECTION);
@@ -736,28 +727,66 @@ void setupDetector() {
         ("Module: %s %s %s\n", (top ? "TOP" : "BOTTOM"),
          (master ? "MASTER" : "SLAVE"), (normal ? "NORMAL" : "SPECIAL")));
 
+    if (setNumberofDestinations(numUdpDestinations) == FAIL) {
+        initError = FAIL;
+        strcpy(initErrorMessage, "Could not set number of udp destinations\n");
+        LOG(logERROR, (initErrorMessage));
+    }
+
     // client first connect (from shm) will activate
     if (setActivate(0) == FAIL) {
         initError = FAIL;
-        sprintf(initErrorMessage, "Could not deactivate\n");
+        strcpy(initErrorMessage, "Could not deactivate\n");
         LOG(logERROR, (initErrorMessage));
     }
     LOG(logDEBUG1, ("Setup detector done\n\n"));
 }
 
-int setDefaultDacs() {
+int resetToDefaultDacs(int hardReset) {
+    // reset defaults to hardcoded defaults
+    if (hardReset) {
+        const int vals[] = DEFAULT_DAC_VALS;
+        for (int i = 0; i < NDAC; ++i) {
+            defaultDacValues[i] = vals[i];
+        }
+    }
+    // reset dacs to defaults
     int ret = OK;
     LOG(logINFOBLUE, ("Setting Default Dac values\n"));
-    const int defaultvals[NDAC] = DEFAULT_DAC_VALS;
     for (int i = 0; i < NDAC; ++i) {
-        setDAC((enum DACINDEX)i, defaultvals[i], 0);
-        if ((detectorModules)->dacs[i] != defaultvals[i]) {
+        setDAC((enum DACINDEX)i, defaultDacValues[i], 0);
+        if ((detectorModules)->dacs[i] != defaultDacValues[i]) {
             ret = FAIL;
             LOG(logERROR, ("Setting dac %d failed, wrote %d, read %d\n", i,
-                           defaultvals[i], (detectorModules)->dacs[i]));
+                           defaultDacValues[i], (detectorModules)->dacs[i]));
         }
     }
     return ret;
+}
+
+int getDefaultDac(enum DACINDEX index, enum detectorSettings sett,
+                  int *retval) {
+    if (sett != UNDEFINED) {
+        return FAIL;
+    }
+    if (index < 0 || index >= NDAC)
+        return FAIL;
+    *retval = defaultDacValues[index];
+    return OK;
+}
+
+int setDefaultDac(enum DACINDEX index, enum detectorSettings sett, int value) {
+    if (sett != UNDEFINED) {
+        return FAIL;
+    }
+    if (index < 0 || index >= NDAC)
+        return FAIL;
+
+    char *dac_names[] = {DAC_NAMES};
+    LOG(logINFO, ("Setting Default Dac [%d - %s]: %d\n", (int)index,
+                  dac_names[index], value));
+    defaultDacValues[index] = value;
+    return OK;
 }
 
 /* advanced read/write reg */
@@ -798,9 +827,6 @@ int setDynamicRange(int dr) {
 #ifndef VIRTUAL
         sharedMemory_lockLocalLink();
         if (Feb_Control_SetDynamicRange(dr)) {
-            on_dst = 0;
-            for (int i = 0; i < 32; ++i)
-                dst_requested[i] = 0; // clear dst requested
             if (!Beb_SetUpTransferParameters(dr)) {
                 LOG(logERROR, ("Could not set bit mode in the back end\n"));
                 sharedMemory_unlockLocalLink();
@@ -878,10 +904,6 @@ void setNumFrames(int64_t val) {
         sharedMemory_lockLocalLink();
         if (Feb_Control_SetNExposures((unsigned int)val * eiger_ntriggers)) {
             eiger_nexposures = val;
-            on_dst = 0;
-            for (int i = 0; i < 32; ++i)
-                dst_requested[i] = 0; // clear dst requested
-            ndsts_in_use = 1;
             nimages_per_request = eiger_nexposures * eiger_ntriggers;
         }
         sharedMemory_unlockLocalLink();
@@ -901,9 +923,6 @@ void setNumTriggers(int64_t val) {
         sharedMemory_lockLocalLink();
         if (Feb_Control_SetNExposures((unsigned int)val * eiger_nexposures)) {
             eiger_ntriggers = val;
-            on_dst = 0;
-            for (int i = 0; i < 32; ++i)
-                dst_requested[i] = 0; // clear dst requested
             nimages_per_request = eiger_nexposures * eiger_ntriggers;
         }
         sharedMemory_unlockLocalLink();
@@ -1136,15 +1155,33 @@ int setModule(sls_detector_module myMod, char *mess) {
 
         // set trimbits
         sharedMemory_lockLocalLink();
+
+        // if quad, set M8 and PROGRAM manually
+        if (!Feb_Control_SetChipSignalsToTrimQuad(1)) {
+            return FAIL;
+        }
+
         if (!Feb_Control_SetTrimbits(tt, top)) {
             sprintf(mess, "Could not set module. Could not set trimbits\n");
             LOG(logERROR, (mess));
             setSettings(UNDEFINED);
             LOG(logERROR, ("Settings has been changed to undefined (random "
                            "trim file)\n"));
+
+            // if quad, reset M8 and PROGRAM manually
+            if (!Feb_Control_SetChipSignalsToTrimQuad(0)) {
+                return FAIL;
+            }
+
             sharedMemory_unlockLocalLink();
             return FAIL;
         }
+
+        // if quad, reset M8 and PROGRAM manually
+        if (!Feb_Control_SetChipSignalsToTrimQuad(0)) {
+            return FAIL;
+        }
+
         sharedMemory_unlockLocalLink();
     }
 #endif
@@ -1413,6 +1450,8 @@ int setHighVoltage(int val) {
 
 /* parameters - timing, extsig */
 
+int isMaster() { return master; }
+
 void setTiming(enum timingMode arg) {
     int ret = 0;
     switch (arg) {
@@ -1462,80 +1501,96 @@ enum timingMode getTiming() {
 
 /* configure mac */
 
-int configureMAC() {
-    uint32_t srcip = udpDetails.srcip;
-    uint32_t dstip = udpDetails.dstip;
-    uint64_t srcmac = udpDetails.srcmac;
-    uint64_t dstmac = udpDetails.dstmac;
-    int srcport = udpDetails.srcport;
-    int dstport = udpDetails.dstport;
-    int dstport2 = udpDetails.dstport2;
-
-    LOG(logINFOBLUE, ("Configuring MAC\n"));
-    char src_mac[50], src_ip[INET_ADDRSTRLEN], dst_mac[50],
-        dst_ip[INET_ADDRSTRLEN];
-    getMacAddressinString(src_mac, 50, srcmac);
-    getMacAddressinString(dst_mac, 50, dstmac);
-    getIpAddressinString(src_ip, srcip);
-    getIpAddressinString(dst_ip, dstip);
-
-    LOG(logINFO,
-        ("\tSource IP   : %s\n"
-         "\tSource MAC  : %s\n"
-         "\tSource Port : %d\n"
-         "\tDest IP     : %s\n"
-         "\tDest MAC    : %s\n"
-         "\tDest Port   : %d\n"
-         "\tDest Port2  : %d\n",
-         src_ip, src_mac, srcport, dst_ip, dst_mac, dstport, dstport2));
-
+int getNumberofDestinations(int *retval) {
 #ifdef VIRTUAL
-    if (setUDPDestinationDetails(0, dst_ip, dstport) == FAIL) {
-        LOG(logERROR, ("could not set udp destination IP and port\n"));
-        return FAIL;
-    }
-    if (setUDPDestinationDetails(1, dst_ip, dstport2) == FAIL) {
-        LOG(logERROR, ("could not set udp destination IP and port2\n"));
-        return FAIL;
-    }
+    *retval = numUdpDestinations;
     return OK;
 #else
-
-    int beb_num = detid;
-    int header_number = 0;
-    int dst_port = dstport;
-    if (!top)
-        dst_port = dstport2;
-
-    if (Beb_SetBebSrcHeaderInfos(beb_num, send_to_ten_gig, src_mac, src_ip,
-                                 srcport) &&
-        Beb_SetUpUDPHeader(beb_num, send_to_ten_gig, header_number, dst_mac,
-                           dst_ip, dst_port)) {
-        LOG(logDEBUG1, ("\tset up left ok\n"));
-    } else {
-        return FAIL;
-    }
-
-    header_number = 32;
-    dst_port = dstport2;
-    if (!top)
-        dst_port = dstport;
-
-    if (Beb_SetBebSrcHeaderInfos(beb_num, send_to_ten_gig, src_mac, src_ip,
-                                 srcport) &&
-        Beb_SetUpUDPHeader(beb_num, send_to_ten_gig, header_number, dst_mac,
-                           dst_ip, dst_port)) {
-        LOG(logDEBUG1, (" set up right ok\n"));
-    } else {
-        return FAIL;
-    }
-
-    on_dst = 0;
-
-    for (int i = 0; i < 32; ++i)
-        dst_requested[i] = 0; // clear dst requested
-    nimages_per_request = eiger_nexposures * eiger_ntriggers;
+    return Beb_GetNumberofDestinations(retval);
 #endif
+}
+
+int setNumberofDestinations(int value) {
+#ifdef VIRTUAL
+    // already set in funcs.c
+    return OK;
+#else
+    return Beb_SetNumberofDestinations(value);
+#endif
+}
+
+int configureMAC() {
+
+    LOG(logINFOBLUE, ("Configuring MAC\n"));
+
+    LOG(logINFO, ("Number of entries: %d\n", numUdpDestinations));
+    for (int iRxEntry = 0; iRxEntry != MAX_UDP_DESTINATION; ++iRxEntry) {
+        uint32_t srcip = udpDetails[iRxEntry].srcip;
+        uint32_t dstip = udpDetails[iRxEntry].dstip;
+        uint64_t srcmac = udpDetails[iRxEntry].srcmac;
+        uint64_t dstmac = udpDetails[iRxEntry].dstmac;
+        int srcport = udpDetails[iRxEntry].srcport;
+        int dstport = udpDetails[iRxEntry].dstport;
+        int dstport2 = udpDetails[iRxEntry].dstport2;
+
+        char src_mac[MAC_ADDRESS_SIZE], src_ip[INET_ADDRSTRLEN],
+            dst_mac[MAC_ADDRESS_SIZE], dst_ip[INET_ADDRSTRLEN];
+        getMacAddressinString(src_mac, MAC_ADDRESS_SIZE, srcmac);
+        getMacAddressinString(dst_mac, MAC_ADDRESS_SIZE, dstmac);
+        getIpAddressinString(src_ip, srcip);
+        getIpAddressinString(dst_ip, dstip);
+
+        if (iRxEntry < numUdpDestinations) {
+            LOG(logINFOBLUE, ("\tEntry %d\n", iRxEntry));
+            LOG(logINFO,
+                ("\tSource IP   : %s\n"
+                 "\tSource MAC  : %s\n"
+                 "\tSource Port : %d\n"
+                 "\tDest IP     : %s\n"
+                 "\tDest MAC    : %s\n"
+                 "\tDest Port   : %d\n"
+                 "\tDest Port2  : %d\n",
+                 src_ip, src_mac, srcport, dst_ip, dst_mac, dstport, dstport2));
+        }
+
+#ifdef VIRTUAL
+        if (setUDPDestinationDetails(iRxEntry, 0, dst_ip, dstport) == FAIL) {
+            LOG(logERROR,
+                ("could not set udp destination IP and port [entry:%d]\n",
+                 iRxEntry));
+            return FAIL;
+        }
+        if (setUDPDestinationDetails(iRxEntry, 1, dst_ip, dstport2) == FAIL) {
+            LOG(logERROR,
+                ("could not set udp destination IP and port2 [entry:%d]\n",
+                 iRxEntry));
+            return FAIL;
+        }
+#else
+        uint16_t dst_port = dstport;
+        if (!top)
+            dst_port = dstport2;
+
+        if (Beb_SetUpUDPHeader(iRxEntry, send_to_ten_gig, srcmac, srcip,
+                               srcport, dstmac, dstip, dst_port)) {
+            LOG(logDEBUG1, ("\tset up left ok\n"));
+        } else {
+            return FAIL;
+        }
+
+        dst_port = dstport2;
+        if (!top)
+            dst_port = dstport;
+
+        if (Beb_SetUpUDPHeader(iRxEntry + MAX_UDP_DESTINATION, send_to_ten_gig,
+                               srcmac, srcip, srcport, dstmac, dstip,
+                               dst_port)) {
+            LOG(logDEBUG1, ("\tset up right ok\n"));
+        } else {
+            return FAIL;
+        }
+#endif
+    }
     return OK;
 }
 
@@ -1620,29 +1675,29 @@ int getInterruptSubframe() {
 #endif
 }
 
-int setReadNLines(int value) {
+int setReadNRows(int value) {
     if (value < 0)
         return FAIL;
 #ifndef VIRTUAL
     sharedMemory_lockLocalLink();
-    if (!Feb_Control_SetReadNLines(value)) {
+    if (!Feb_Control_SetReadNRows(value)) {
         sharedMemory_unlockLocalLink();
         return FAIL;
     }
     sharedMemory_unlockLocalLink();
-    Beb_SetReadNLines(value);
+    Beb_SetReadNRows(value);
 #else
-    eiger_virtual_read_nlines = value;
+    eiger_virtual_read_n_rows = value;
 #endif
     return OK;
 }
 
-int getReadNLines() {
+int getReadNRows() {
 #ifdef VIRTUAL
-    return eiger_virtual_read_nlines;
+    return eiger_virtual_read_n_rows;
 #else
     sharedMemory_lockLocalLink();
-    int retval = Feb_Control_GetReadNLines();
+    int retval = Feb_Control_GetReadNRows();
     sharedMemory_unlockLocalLink();
     return retval;
 #endif
@@ -1655,16 +1710,15 @@ int enableTenGigabitEthernet(int val) {
             send_to_ten_gig = 1;
         else
             send_to_ten_gig = 0;
+#ifndef VIRTUAL
+        Beb_ClearHeaderData(send_to_ten_gig == 0 ? 1 : 0);
+#endif
     }
     return send_to_ten_gig;
 }
 
 /* eiger specific - iodelay, pulse, rate, temp, activate, delay nw parameter */
-int setClockDivider(enum CLKINDEX ind, int val) {
-    if (ind != RUN_CLK) {
-        LOG(logERROR, ("Unknown clock index: %d\n", ind));
-        return FAIL;
-    }
+int setReadoutSpeed(int val) {
     if (val >= 0) {
         LOG(logINFO, ("Setting Read out Speed: %d\n", val));
 #ifndef VIRTUAL
@@ -1680,12 +1734,9 @@ int setClockDivider(enum CLKINDEX ind, int val) {
     return OK;
 }
 
-int getClockDivider(enum CLKINDEX ind) {
-    if (ind != RUN_CLK) {
-        LOG(logERROR, ("Unknown clock index: %d\n", ind));
-        return FAIL;
-    }
-    return eiger_readoutspeed;
+int getReadoutSpeed(int *retval) {
+    *retval = eiger_readoutspeed;
+    return OK;
 }
 
 int setIODelay(int val) {
@@ -1995,17 +2046,17 @@ int setAllTrimbits(int val) {
 }
 
 int getAllTrimbits() {
-    int value = *((detectorModules->chanregs));
     if (detectorModules) {
+        int value = (*((detectorModules->chanregs)));
         for (int ichan = 0; ichan < (detectorModules->nchan); ichan++) {
             if (*((detectorModules->chanregs) + ichan) != value) {
-                value = -1;
-                break;
+                return -1;
             }
         }
+        LOG(logINFO, ("Value of all Trimbits: %d\n", value));
+        return value;
     }
-    LOG(logINFO, ("Value of all Trimbits: %d\n", value));
-    return value;
+    return -1;
 }
 
 int getBebFPGATemp() {
@@ -2046,6 +2097,40 @@ int getActivate(int *retval) {
     *retval = eiger_virtual_activate;
 #else
     if (!Beb_GetActivate(retval)) {
+        return FAIL;
+    }
+#endif
+    return OK;
+}
+
+int setDataStream(enum portPosition port, int enable) {
+    if (enable < 0) {
+        LOG(logERROR, ("Invalid setDataStream enable argument: %d\n", enable));
+        return FAIL;
+    }
+#ifdef VIRTUAL
+    if (port == LEFT) {
+        eiger_virtual_left_datastream = enable;
+    } else {
+        eiger_virtual_right_datastream = enable;
+    }
+#else
+    if (!Beb_SetDataStream(port, enable)) {
+        return FAIL;
+    }
+#endif
+    return OK;
+}
+
+int getDataStream(enum portPosition port, int *retval) {
+#ifdef VIRTUAL
+    if (port == LEFT) {
+        *retval = eiger_virtual_left_datastream;
+    } else {
+        *retval = eiger_virtual_right_datastream;
+    }
+#else
+    if (!Beb_GetDataStream(port, retval)) {
         return FAIL;
     }
 #endif
@@ -2199,6 +2284,19 @@ void *start_timer(void *arg) {
         return NULL;
     }
 
+    int skipData = 0;
+    if (!eiger_virtual_activate ||
+        (!eiger_virtual_left_datastream && !eiger_virtual_right_datastream)) {
+        skipData = 1;
+        LOG(logWARNING, ("Not sending Left and Right datastream\n"));
+    }
+    if (!eiger_virtual_left_datastream) {
+        LOG(logWARNING, ("Not sending Left datastream\n"));
+    }
+    if (!eiger_virtual_right_datastream) {
+        LOG(logWARNING, ("Not sending Right datastream\n"));
+    }
+
     int64_t periodNs = eiger_virtual_period;
     int numFrames = nimages_per_request;
     int64_t expUs = eiger_virtual_exptime / 1000;
@@ -2208,61 +2306,76 @@ void *start_timer(void *arg) {
     int tgEnable = send_to_ten_gig;
     int datasize = (tgEnable ? 4096 : 1024);
     int packetsize = datasize + sizeof(sls_detector_header);
-    int numPacketsPerFrame = (tgEnable ? 4 : 16) * dr;
+    int maxPacketsPerFrame = (tgEnable ? 4 : 16) * dr;
     int npixelsx = 256 * 2 * bytesPerPixel;
     int databytes = 256 * 256 * 2 * bytesPerPixel;
     int row = eiger_virtual_detPos[0];
     int colLeft = top ? eiger_virtual_detPos[1] : eiger_virtual_detPos[1] + 1;
     int colRight = top ? eiger_virtual_detPos[1] + 1 : eiger_virtual_detPos[1];
-    int ntotpixels = 256 * 256 * 4;
+
+    int readNRows = getReadNRows();
+    if (readNRows == -1) {
+        LOG(logERROR, ("readNRows is -1. Assuming no readNRows.\n"));
+        readNRows = MAX_ROWS_PER_READOUT;
+    }
+    const int maxRows = MAX_ROWS_PER_READOUT;
+    const int packetsPerFrame = (maxPacketsPerFrame * readNRows) / maxRows;
 
     LOG(logDEBUG1,
         (" dr:%d\n bytesperpixel:%f\n tgenable:%d\n datasize:%d\n "
-         "packetsize:%d\n numpackes:%d\n npixelsx:%d\n databytes:%d\n "
-         "ntotpixels:%d\n",
-         dr, bytesPerPixel, tgEnable, datasize, packetsize, numPacketsPerFrame,
-         npixelsx, databytes, ntotpixels));
+         "packetsize:%d\n maxnumpackes:%d\n npixelsx:%d\n databytes:%d\n",
+         dr, bytesPerPixel, tgEnable, datasize, packetsize, maxPacketsPerFrame,
+         npixelsx, databytes));
 
     // Generate data
     char imageData[databytes * 2];
     memset(imageData, 0, databytes * 2);
     {
-        switch (dr) {
-        case 4:
-            for (int i = 0; i < ntotpixels / 2; ++i) {
+        int npixels = NCHAN * NCHIP;
+        const int pixelsPerPacket = (double)datasize / bytesPerPixel;
+        int pixelVal = 0;
+        if (dr == 4) {
+            npixels /= 2;
+        }
+        LOG(logDEBUG1,
+            ("pixels:%d pixelsperpacket:%d\n", npixels, pixelsPerPacket));
+        for (int i = 0; i < npixels; ++i) {
+            if (i > 0 && i % pixelsPerPacket == 0) {
+                ++pixelVal;
+            }
+            switch (dr) {
+            case 4:
                 *((uint8_t *)(imageData + i)) =
                     eiger_virtual_test_mode
                         ? 0xEE
-                        : (uint8_t)(((2 * i & 0xF) << 4) | ((2 * i + 1) & 0xF));
-            }
-            break;
-        case 8:
-            for (int i = 0; i < ntotpixels; ++i) {
+                        : (uint8_t)(((2 * pixelVal & 0xF) << 4) |
+                                    ((2 * pixelVal) & 0xF));
+                //: (uint8_t)(((2 * pixelVal & 0xF) << 4) | ((2 * pixelVal + 1)
+                //& 0xF));
+                break;
+            case 8:
                 *((uint8_t *)(imageData + i)) =
-                    eiger_virtual_test_mode ? 0xFE : (uint8_t)i;
-            }
-            break;
-        case 16:
-            for (int i = 0; i < ntotpixels; ++i) {
+                    eiger_virtual_test_mode ? 0xFE : (uint8_t)pixelVal;
+                break;
+            case 16:
                 *((uint16_t *)(imageData + i * sizeof(uint16_t))) =
-                    eiger_virtual_test_mode ? 0xFFE : (uint16_t)i;
-            }
-            break;
-        case 32:
-            for (int i = 0; i < ntotpixels; ++i) {
+                    eiger_virtual_test_mode ? 0xFFE : (uint16_t)pixelVal;
+                break;
+            case 32:
                 *((uint32_t *)(imageData + i * sizeof(uint32_t))) =
-                    eiger_virtual_test_mode ? 0xFFFFFE : (uint32_t)i;
+                    eiger_virtual_test_mode ? 0xFFFFFE : (uint32_t)pixelVal;
+                break;
+            default:
+                break;
             }
-            break;
-        default:
-            break;
         }
     }
 
     // Send data
-    {
+    if (!skipData) {
         uint64_t frameNr = 0;
         getNextFrameNumber(&frameNr);
+        int iRxEntry = 0;
         // loop over number of frames
         for (int iframes = 0; iframes != numFrames; ++iframes) {
 
@@ -2283,7 +2396,12 @@ void *start_timer(void *arg) {
             int srcOffset2 = npixelsx;
 
             // loop packet
-            for (int i = 0; i != numPacketsPerFrame; ++i) {
+            for (int i = 0; i != maxPacketsPerFrame; ++i) {
+
+                // calculate for readNRows
+                const int startval = 0;
+                const int endval = startval + packetsPerFrame - 1;
+
                 // set header
                 char packetData[packetsize];
                 memset(packetData, 0, packetsize);
@@ -2345,13 +2463,21 @@ void *start_timer(void *arg) {
                         }
                     }
                 }
-                usleep(eiger_virtual_transmission_delay_left);
-                sendUDPPacket(0, packetData, packetsize);
-                usleep(eiger_virtual_transmission_delay_right);
-                sendUDPPacket(1, packetData2, packetsize);
+                if (eiger_virtual_left_datastream && i >= startval &&
+                    i <= endval) {
+                    usleep(eiger_virtual_transmission_delay_left);
+                    sendUDPPacket(iRxEntry, 0, packetData, packetsize);
+                    LOG(logDEBUG1, ("Sent left packet: %d\n", i));
+                }
+                if (eiger_virtual_right_datastream && i >= startval &&
+                    i <= endval) {
+                    usleep(eiger_virtual_transmission_delay_right);
+                    sendUDPPacket(iRxEntry, 1, packetData2, packetsize);
+                    LOG(logDEBUG1, ("Sent right packet: %d\n", i));
+                }
             }
-            LOG(logINFO, ("Sent frame: %d[%lld]\n", iframes,
-                          (long long unsigned int)(frameNr + iframes)));
+            LOG(logINFO, ("Sent frame %d [#%ld] to E%d\n", iframes,
+                          frameNr + iframes, iRxEntry));
             clock_gettime(CLOCK_REALTIME, &end);
             int64_t timeNs = ((end.tv_sec - begin.tv_sec) * 1E9 +
                               (end.tv_nsec - begin.tv_nsec));
@@ -2361,6 +2487,10 @@ void *start_timer(void *arg) {
                 if (periodNs > timeNs) {
                     usleep((periodNs - timeNs) / 1000);
                 }
+            }
+            ++iRxEntry;
+            if (iRxEntry == numUdpDestinations) {
+                iRxEntry = 0;
             }
         }
         setNextFrameNumber(frameNr + numFrames);
@@ -2391,29 +2521,53 @@ int stopStateMachine() {
     return OK;
 #else
     sharedMemory_lockLocalLink();
-    if ((Feb_Control_StopAcquisition() != STATUS_IDLE) ||
-        (!Beb_StopAcquisition())) {
+    // sends last frames from fifo and wait for feb processing done
+    if ((Feb_Control_StopAcquisition() != STATUS_IDLE)) {
         LOG(logERROR, ("failed to stop acquisition\n"));
         sharedMemory_unlockLocalLink();
         return FAIL;
     }
     sharedMemory_unlockLocalLink();
 
+    // wait for beb to finish sending packets
+    int isTransmitting = 1;
+    while (isTransmitting) {
+        // wait for beb to send out all packets
+        if (Beb_IsTransmitting(&isTransmitting, send_to_ten_gig, 1) == FAIL) {
+            LOG(logERROR, ("failed to stop beb acquisition\n"));
+            return FAIL;
+        }
+        if (isTransmitting) {
+            printf("Transmitting...\n");
+        }
+    }
+    LOG(logINFO, ("Beb: Detector has sent all data (stop)\n"));
+
+    // reset feb and beb
+    sharedMemory_lockLocalLink();
+    Feb_Control_Reset();
+    sharedMemory_unlockLocalLink();
+    if (!Beb_StopAcquisition()) {
+        LOG(logERROR, ("failed to stop acquisition\n"));
+        return FAIL;
+    }
+
     // ensure all have same starting frame numbers
     uint64_t retval = 0;
     if (Beb_GetNextFrameNumber(&retval, send_to_ten_gig) == -2) {
         Beb_SetNextFrameNumber(retval + 1);
     }
+    LOG(logINFOBLUE, ("Stopping state machine complete\n\n"));
     return OK;
 #endif
 }
 
-int softwareTrigger() {
+int softwareTrigger(int block) {
 #ifdef VIRTUAL
     return OK;
 #else
     sharedMemory_lockLocalLink();
-    if (!Feb_Control_SoftwareTrigger()) {
+    if (!Feb_Control_SoftwareTrigger(block)) {
         sharedMemory_unlockLocalLink();
         return FAIL;
     }
@@ -2423,30 +2577,13 @@ int softwareTrigger() {
 }
 
 int startReadOut() {
-
     LOG(logINFO, ("Requesting images...\n"));
-#ifdef VIRTUAL
-    return OK;
-#else
-    // RequestImages();
-    int ret_val = 0;
-    dst_requested[0] = 1;
-    while (dst_requested[on_dst]) {
-        // waits on data
-        int beb_num = detid;
-        if ((ret_val = (!Beb_RequestNImages(beb_num, send_to_ten_gig, on_dst,
-                                            nimages_per_request, 0))))
-            break;
-
-        dst_requested[on_dst++] = 0;
-        on_dst %= ndsts_in_use;
-    }
-
-    if (ret_val)
+#ifndef VIRTUAL
+    if (!Beb_RequestNImages(send_to_ten_gig, nimages_per_request, 0)) {
         return FAIL;
-    else
-        return OK;
+    }
 #endif
+    return OK;
 }
 
 enum runStatus getRunStatus() {
@@ -2514,6 +2651,21 @@ void readFrame(int *ret, char *mess) {
     // wait for detector to send
     int isTransmitting = 1;
     while (isTransmitting) {
+        // wait for feb processing to be done
+        sharedMemory_lockLocalLink();
+        int i = Feb_Control_ProcessingInProgress();
+        sharedMemory_unlockLocalLink();
+        if (i == STATUS_ERROR) {
+            strcpy(mess, "Could not read feb processing done register\n");
+            *ret = (int)FAIL;
+            return;
+        }
+        if (i == RUNNING) {
+            LOG(logINFOBLUE, ("Status: TRANSMITTING (feb processing)\n"));
+            isTransmitting = 1;
+        }
+
+        // wait for beb to send out all packets
         if (Beb_IsTransmitting(&isTransmitting, send_to_ten_gig, 1) == FAIL) {
             strcpy(mess, "Could not read delay counters\n");
             *ret = (int)FAIL;
@@ -2523,7 +2675,7 @@ void readFrame(int *ret, char *mess) {
             printf("Transmitting...\n");
         }
     }
-    LOG(logINFO, ("Detector has sent all data\n"));
+    LOG(logINFO, ("Beb: Detector has sent all data (acquire)\n"));
     LOG(logINFOGREEN, ("Acquisition successfully finished\n"));
 #endif
 }

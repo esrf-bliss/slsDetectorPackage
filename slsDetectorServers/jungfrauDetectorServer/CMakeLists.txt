@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: LGPL-3.0-or-other
+# Copyright (C) 2021 Contributors to the SLS Detector Package
 add_executable(jungfrauDetectorServer_virtual
     slsDetectorFunctionList.c
     ../slsDetectorServer/src/slsDetectorServer.c
@@ -13,6 +15,7 @@ add_executable(jungfrauDetectorServer_virtual
     ../slsDetectorServer/src/programFpgaBlackfin.c
     ../slsDetectorServer/src/communication_funcs_UDP.c    
     ../slsDetectorServer/src/sharedMemory.c
+    ../../slsSupportLib/src/md5.c
 )
 
 target_include_directories(jungfrauDetectorServer_virtual
@@ -37,3 +40,5 @@ install(TARGETS jungfrauDetectorServer_virtual
     EXPORT "${TARGETS_EXPORT_NAME}"
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+configure_file(config_jungfrau.txt ${CMAKE_BINARY_DIR}/bin/config_jungfrau.txt COPYONLY)

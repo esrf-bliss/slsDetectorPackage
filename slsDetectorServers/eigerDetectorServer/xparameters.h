@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 /* ONLY THOSE ARE USED IN THIS SOFTWARE. If one of those is modified in xilinx
 compilation, this file should be replaced with updated values
 XPAR_PLB_LL_FIFO_AURORA_DUAL_CTRL_FEB_RIGHT_BASEADDR
@@ -35,7 +37,7 @@ XPAR_PLB_LL_FIFO_AURORA_DUAL_CTRL_FEB_LEFT_BASEADDR
 
 /* Definitions for peripheral PLB_BRAM_10G */
 #define XPAR_PLB_BRAM_10G_MEM0_BASEADDR 0xD4100000
-#define XPAR_PLB_BRAM_10G_MEM0_HIGHADDR 0xD410FFFF
+#define XPAR_PLB_BRAM_10G_MEM0_HIGHADDR
 
 /* Definitions for peripheral PLB_BRAM_TEMAC */
 #define XPAR_PLB_BRAM_TEMAC_MEM0_BASEADDR 0xD4000000
@@ -44,6 +46,18 @@ XPAR_PLB_LL_FIFO_AURORA_DUAL_CTRL_FEB_LEFT_BASEADDR
 /* Definitions for peripheral PLB_GPIO_SYS */
 #define XPAR_PLB_GPIO_SYS_BASEADDR 0xD1000000
 #define XPAR_PLB_GPIO_SYS_HIGHADDR 0xD100FFFF
+
+// data streaming register
+// clang-format off
+#define XPAR_GPIO_P15_STREAMING_REG    0x01e0
+#define XPAR_GPIO_FRAME_PKT_ENBL_OFST   (0)
+#define XPAR_GPIO_FRAME_PKT_ENBL_MSK    (0x00000001 << XPAR_GPIO_FRAME_PKT_ENBL_OFST)
+#define XPAR_GPIO_RGHT_STRM_DSBL_OFST   (1)
+#define XPAR_GPIO_RGHT_STRM_DSBL_MSK    (0x00000001 << XPAR_GPIO_RGHT_STRM_DSBL_OFST)
+#define XPAR_GPIO_LFT_STRM_DSBL_OFST    (2)
+#define XPAR_GPIO_LFT_STRM_DSBL_MSK     (0x00000001 << XPAR_GPIO_LFT_STRM_DSBL_OFST)
+
+// clang-format on
 
 /** Command Generator */
 #define XPAR_CMD_GENERATOR 0xC5000000

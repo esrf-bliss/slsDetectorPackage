@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-or-other
+// Copyright (C) 2021 Contributors to the SLS Detector Package
 #include "Module.h"
 #include "SharedMemory.h"
 #include "catch.hpp"
@@ -29,7 +31,7 @@ TEST_CASE("Is shm fixed pattern shm compatible") {
     REQUIRE(m.isFixedPatternSharedMemoryCompatible() == true);
 
     // Set shm version to 0
-    sls::SharedMemory<sls::sharedSlsDetector> shm(0, 0);
+    sls::SharedMemory<sls::sharedModule> shm(0, 0);
     REQUIRE(shm.IsExisting() == true);
     shm.OpenSharedMemory();
     shm()->shmversion = 0;
