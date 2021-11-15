@@ -93,7 +93,7 @@ class MPFrameAssembler {
     virtual FrameDims getAssembledFrameDims() = 0;
 };
 
-using MPFrameAssemblerPtr = std::unique_ptr<MPFrameAssembler>;
+using MPFrameAssemblerPtr = std::shared_ptr<MPFrameAssembler>;
 
 /**
  *@short Raw frame assembler: vertical concatenation of default assemblers
