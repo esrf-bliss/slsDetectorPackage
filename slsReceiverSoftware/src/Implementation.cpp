@@ -114,6 +114,7 @@ Implementation::CreateFrameAssembler(AssemblerType asm_type) {
     MPFrameAssemblerPtr fa;
     GeneralDataPtr gd = generalData;
     detectorType d = detType;
+    bool tg_enable = tengigaEnable;
     int nb_ports = listener.size();
     int recv_idx = modulePos;
     uint32_t src_dr = gd->dynamicRange;
@@ -131,8 +132,8 @@ Implementation::CreateFrameAssembler(AssemblerType asm_type) {
         auto det_recvs = det_ifaces.area() / recv_ifaces;
         if (dst_dr == 4)
             dst_dr = 8;
-        fa = std::make_unique<RawFrameAssembler>(d, recv_idx, det_recvs,
-                                                 nb_ports, src_dr, dst_dr);
+        fa = std::make_unique<RawFrameAssembler>(
+            d, recv_idx, det_recvs, tg_enable, nb_ports, src_dr, dst_dr);
     } else if (d == slsDetectorDefs::EIGER) {
         using namespace sls::Eiger::Geom;
         auto mod_pos = getModPos(RecvIfaces, ModRecvs);

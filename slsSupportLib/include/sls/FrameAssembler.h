@@ -103,12 +103,12 @@ class RawFrameAssembler : public MPFrameAssembler {
 
   public:
     RawFrameAssembler(slsDetectorDefs::detectorType det_type, int recv_idx,
-                      int det_recvs, int num_udp_ifaces, uint32_t src_dr,
-                      uint32_t dst_dr = 0)
+                      int det_recvs, bool tg_enable, int num_udp_ifaces,
+                      uint32_t src_dr, uint32_t dst_dr = 0)
         : nb_recvs(det_recvs) {
         for (int i = 0; i < num_udp_ifaces; ++i)
             assembler.emplace_back(CreateDefaultFrameAssembler(
-                det_type, num_udp_ifaces, src_dr, dst_dr));
+                det_type, tg_enable, num_udp_ifaces, src_dr, dst_dr));
         int iface_size = assembler[0]->getAssembledFrameDims().size;
         data_offset = assembler.size() * iface_size * recv_idx;
     }
