@@ -275,7 +275,7 @@ std::string CmdProxy::Versions(int action) {
         if (!args.empty()) {
             WrongNumberOfParameters(0);
         }
-        auto t = det->getFirmwareVersion();
+        auto t = det->getFirmwareVersion(std::vector<int>{det_id});
         os << "\nDetector Type: " << OutString(det->getDetectorType())
            << "\nPackage Version: " << det->getPackageVersion() << std::hex
            << "\nClient Version: 0x" << det->getClientVersion();
@@ -285,10 +285,14 @@ std::string CmdProxy::Versions(int action) {
             os << "\nFirmware Version: " << OutStringHex(t);
         }
         os << "\nDetector Server Version: "
-           << OutStringHex(det->getDetectorServerVersion());
+           << OutStringHex(
+                  det->getDetectorServerVersion(std::vector<int>{det_id}));
+        os << "\nDetector Server Version: "
+           << OutString(det->getKernelVersion({std::vector<int>{det_id}}));
         if (det->getUseReceiverFlag().squash(true)) {
             os << "\nReceiver Version: "
-               << OutStringHex(det->getReceiverVersion());
+               << OutStringHex(
+                      det->getReceiverVersion(std::vector<int>{det_id}));
         }
         os << std::dec << '\n';
     } else if (action == defs::PUT_ACTION) {
@@ -1430,8 +1434,9 @@ std::string CmdProxy::UDPDestinationList(int action) {
             throw sls::RuntimeError("udp_dstlist must be at module level.");
         }
         if (rx_id < 0 || rx_id >= MAX_UDP_DESTINATION) {
-            throw sls::RuntimeError(
-                "Invalid receiver index to get round robin entry.");
+            throw sls::RuntimeError(std::string("Invalid receiver index ") +
+                                    std::to_string(rx_id) +
+                                    std::string(" to set round robin entry."));
         }
         auto t = det->getDestinationUDPList(rx_id, std::vector<int>{det_id});
         os << OutString(t) << '\n';
@@ -1443,8 +1448,9 @@ std::string CmdProxy::UDPDestinationList(int action) {
             throw sls::RuntimeError("udp_dstlist must be at module level.");
         }
         if (rx_id < 0 || rx_id >= MAX_UDP_DESTINATION) {
-            throw sls::RuntimeError(
-                "Invalid receiver index to set round robin entry.");
+            throw sls::RuntimeError(std::string("Invalid receiver index ") +
+                                    std::to_string(rx_id) +
+                                    std::string(" to set round robin entry."));
         }
         auto t = getUdpEntry();
         det->setDestinationUDPList(t, det_id);
@@ -1464,7 +1470,7 @@ std::string CmdProxy::UDPDestinationIP(int action) {
               "rx_hostname."
            << '\n';
     } else if (action == defs::GET_ACTION) {
-        auto t = det->getDestinationUDPIP(std::vector<int>{det_id});
+        auto t = det->getDestinationUDPIP(std::vector<int>{det_id}, rx_id);
         if (!args.empty()) {
             WrongNumberOfParameters(0);
         }
@@ -1477,11 +1483,11 @@ std::string CmdProxy::UDPDestinationIP(int action) {
             auto val = getIpFromAuto();
             LOG(logINFO) << "Setting udp_dstip of detector " << det_id << " to "
                          << val;
-            det->setDestinationUDPIP(val, std::vector<int>{det_id});
+            det->setDestinationUDPIP(val, std::vector<int>{det_id}, rx_id);
             os << val << '\n';
         } else {
             auto val = IpAddr(args[0]);
-            det->setDestinationUDPIP(val, std::vector<int>{det_id});
+            det->setDestinationUDPIP(val, std::vector<int>{det_id}, rx_id);
             os << args.front() << '\n';
         }
     } else {
@@ -1500,7 +1506,7 @@ std::string CmdProxy::UDPDestinationIP2(int action) {
               "\n\t[Gotthard2] veto debugging. "
            << '\n';
     } else if (action == defs::GET_ACTION) {
-        auto t = det->getDestinationUDPIP2(std::vector<int>{det_id});
+        auto t = det->getDestinationUDPIP2(std::vector<int>{det_id}, rx_id);
         if (!args.empty()) {
             WrongNumberOfParameters(0);
         }
@@ -1513,11 +1519,11 @@ std::string CmdProxy::UDPDestinationIP2(int action) {
             auto val = getIpFromAuto();
             LOG(logINFO) << "Setting udp_dstip2 of detector " << det_id
                          << " to " << val;
-            det->setDestinationUDPIP2(val, std::vector<int>{det_id});
+            det->setDestinationUDPIP2(val, std::vector<int>{det_id}, rx_id);
             os << val << '\n';
         } else {
             auto val = IpAddr(args[0]);
-            det->setDestinationUDPIP2(val, std::vector<int>{det_id});
+            det->setDestinationUDPIP2(val, std::vector<int>{det_id}, rx_id);
             os << args.front() << '\n';
         }
     } else {
@@ -1553,33 +1559,55 @@ std::string CmdProxy::ReceiverHostname(int action) {
         }
         // multiple arguments
         if (args.size() > 1) {
-            // multiple in mulitple
+            if (rx_id != -1) {
+                throw sls::RuntimeError(
+                    "Cannot add multiple receivers at RR level");
+            }
+            // multiple arguments (multiple rxr each)// backwards compatibility
             if (args[0].find('+') != std::string::npos) {
-                throw sls::RuntimeError(
-                    "Cannot add multiple receivers at module level");
+                if (det_id != -1) {
+                    throw sls::RuntimeError("Cannot add multiple receivers for "
+                                            "multiple modules at module level");
+                }
+                for (int i = 0; i < (int)args.size(); ++i) {
+                    auto t = sls::split(args[i], '+');
+                    det->setRxHostname(t, {i});
+                    os << ToString(t) << '\n';
+                }
             }
-            if (det_id != -1) {
-                throw sls::RuntimeError(
-                    "Cannot add multiple receivers at module level");
+            // multiple arguments (single rxr each) (for both: each module and
+            // RR)
+            else {
+                det->setRxHostname(args, {det_id});
+                os << ToString(args) << '\n';
             }
-            det->setRxHostname(args);
-            os << ToString(args) << '\n';
         }
         // single argument
         else {
             // multiple receivers concatenated with +
             if (args[0].find('+') != std::string::npos) {
-                if (det_id != -1) {
-                    throw sls::RuntimeError(
-                        "Cannot add multiple receivers at module level");
-                }
                 auto t = sls::split(args[0], '+');
-                det->setRxHostname(t);
-                os << ToString(t) << '\n';
+                if (t.size() <= 0) {
+                    throw sls::RuntimeError("Invalid argument for rx_hostname");
+                }
+                // single receiver
+                if (t.size() == 1) {
+                    det->setRxHostname(t[0], std::vector<int>{det_id});
+                    os << ToString(t[0]) << '\n';
+                }
+                // multiple receivers
+                else {
+                    if (rx_id != -1) {
+                        throw sls::RuntimeError(
+                            "Cannot add multiple receivers at RR level");
+                    }
+                    det->setRxHostname(t, {det_id});
+                    os << ToString(t) << '\n';
+                }
             }
             // single receiver
             else {
-                det->setRxHostname(args[0], std::vector<int>{det_id});
+                det->setRxHostname(args[0], std::vector<int>{det_id}, rx_id);
                 os << ToString(args) << '\n';
             }
         }
@@ -2848,11 +2876,14 @@ std::string CmdProxy::CopyDetectorServer(int action) {
     std::ostringstream os;
     os << cmd << ' ';
     if (action == defs::HELP_ACTION) {
+        LOG(logWARNING) << "Deprecated! Replaced by updatedetectorserver that "
+                           "requires no tftp.\n";
         os << "[server_name (in tftp folder)] "
               "[pc_host_name]\n\t[Jungfrau][Eiger][Ctb][Moench][Mythen3]["
-              "Gotthard2] Copies detector server via tftp from pc. Ensure that "
+              "Gotthard2] Copies detector server via TFTP from pc. Ensure that "
               "server is in the pc's tftp folder. Makes a symbolic link with a "
-              "shorter name (without vx.x.x). Then, detector reboots (except "
+              "shorter name (without vx.x.x). Then, detector controller "
+              "reboots (except "
               "Eiger).\n\t[Jungfrau][Ctb][Moench]Also changes respawn server "
               "to the link, which is effective after a reboot."
            << '\n';
@@ -2870,30 +2901,98 @@ std::string CmdProxy::CopyDetectorServer(int action) {
     return os.str();
 }
 
-std::string CmdProxy::UpdateFirmwareAndDetectorServer(int action) {
+std::string CmdProxy::UpdateDetectorServer(int action) {
     std::ostringstream os;
     os << cmd << ' ';
     if (action == defs::HELP_ACTION) {
-        os << "[server_name (in tftp folder)] [pc_host_name] [fname.pof (incl "
-              "full path)]\n\t[Jungfrau][Gotthard][CTB][Moench] Updates the "
-              "firmware, detector server, creates the symbolic link and then "
-              "reboots detector controller. \n\t[Mythen3][Gotthard2] will "
-              "require a script to start up the shorter named server link at "
-              "start up. \n\tsname is name of detector server binary found on "
-              "tftp folder of host pc \n\thostname is name of pc to tftp from "
-              "\n\tfname is programming file name"
+        os << "[server_name  with full "
+              "path]\n\t[Jungfrau][Eiger][Ctb][Moench][Mythen3]["
+              "Gotthard2] Copies detector server via TCP (without tftp). Makes "
+              "a symbolic link with a shorter name (without vx.x.x). Then, "
+              "detector controller reboots (except "
+              "Eiger).\n\t[Jungfrau][Ctb][Moench]Also changes respawn server "
+              "to the link, which is effective after a reboot."
            << '\n';
     } else if (action == defs::GET_ACTION) {
         throw sls::RuntimeError("Cannot get");
     } else if (action == defs::PUT_ACTION) {
-        if (args.size() != 3) {
-            WrongNumberOfParameters(3);
+        if (args.size() != 1) {
+            WrongNumberOfParameters(1);
         }
-        if (args[2].find(".pof") == std::string::npos) {
-            throw sls::RuntimeError("Programming file must be a pof file.");
+        det->updateDetectorServer(args[0], std::vector<int>{det_id});
+        os << "successful\n";
+    } else {
+        throw sls::RuntimeError("Unknown action");
+    }
+    return os.str();
+}
+
+std::string CmdProxy::UpdateKernel(int action) {
+    std::ostringstream os;
+    os << cmd << ' ';
+    if (action == defs::HELP_ACTION) {
+        os << "[kernel_name with full "
+              "path]\n\t[Jungfrau][Ctb][Moench][Mythen3]["
+              "Gotthard2] Advanced Command!! You could damage the detector. "
+              "Please use"
+              " with caution.\n\tUpdates the kernel image. Then, detector "
+              "controller "
+              "reboots with new kernel."
+           << '\n';
+    } else if (action == defs::GET_ACTION) {
+        throw sls::RuntimeError("Cannot get");
+    } else if (action == defs::PUT_ACTION) {
+        if (args.size() != 1) {
+            WrongNumberOfParameters(1);
         }
-        det->updateFirmwareAndServer(args[0], args[1], args[2],
-                                     std::vector<int>{det_id});
+        det->updateKernel(args[0], std::vector<int>{det_id});
+        os << "successful\n";
+    } else {
+        throw sls::RuntimeError("Unknown action");
+    }
+    return os.str();
+}
+
+std::string CmdProxy::UpdateFirmwareAndDetectorServer(int action) {
+    std::ostringstream os;
+    os << cmd << ' ';
+    if (action == defs::HELP_ACTION) {
+        os << "\n\tUsing tftp: Deprecated!! [server_name"
+              " (in tftp folder)] [pc_host_name] [fname.pof (incl full path)]"
+              "\n\tWithout tftp: Recommended [server_name (incl fullpath)] "
+              "[fname.pof (incl full path)] "
+              "This does not use tftp."
+              "\n\t\t[Jungfrau][Gotthard][CTB][Moench] Updates the "
+              "firmware, detector server, creates the symbolic link and then "
+              "reboots detector controller. \n\t\t[Mythen3][Gotthard2] will "
+              "require a script to start up the shorter named server link at "
+              "start up. \n\t\tsname is full path name of detector server "
+              "binary"
+              "\n\t\tfname is full path of programming file"
+           << '\n';
+    } else if (action == defs::GET_ACTION) {
+        throw sls::RuntimeError("Cannot get");
+    } else if (action == defs::PUT_ACTION) {
+        if (args.size() != 3 && args.size() != 2) {
+            WrongNumberOfParameters(2);
+        }
+
+        int fpos = args.size() - 1;
+        if (args[fpos].find(".pof") == std::string::npos &&
+            args[fpos].find(".rbf") == std::string::npos) {
+            throw sls::RuntimeError("Programming file must be a pof/rbf file.");
+        }
+
+        if (args.size() == 3) {
+            LOG(logWARNING)
+                << "Deprecated! Recommend to use same command without tftp (no "
+                   "pc name) and using full path to the server binary";
+            det->updateFirmwareAndServer(args[0], args[1], args[2],
+                                         std::vector<int>{det_id});
+        } else {
+            det->updateFirmwareAndServer(args[0], args[1],
+                                         std::vector<int>{det_id});
+        }
         os << "successful\n";
     } else {
         throw sls::RuntimeError("Unknown action");

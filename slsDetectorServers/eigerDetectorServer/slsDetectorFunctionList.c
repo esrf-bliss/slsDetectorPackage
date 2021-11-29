@@ -2703,9 +2703,6 @@ int copyModule(sls_detector_module *destMod, sls_detector_module *srcMod) {
 
     LOG(logDEBUG1, ("DACs: src %d, dest %d\n", srcMod->ndac, destMod->ndac));
     LOG(logDEBUG1, ("Chans: src %d, dest %d\n", srcMod->nchan, destMod->nchan));
-    destMod->ndac = srcMod->ndac;
-    destMod->nchip = srcMod->nchip;
-    destMod->nchan = srcMod->nchan;
     if (srcMod->reg >= 0)
         destMod->reg = srcMod->reg;
     if (srcMod->iodelay >= 0)
@@ -2716,7 +2713,7 @@ int copyModule(sls_detector_module *destMod, sls_detector_module *srcMod) {
         destMod->eV[0] = srcMod->eV[0];
     LOG(logDEBUG1, ("Copying register %x (%x)\n", destMod->reg, srcMod->reg));
 
-    if (destMod->nchan != 0) {
+    if (destMod->nchan != 0 && srcMod->nchan != 0) {
         for (int ichan = 0; ichan < (srcMod->nchan); ichan++) {
             if (*((srcMod->chanregs) + ichan) >= 0)
                 *((destMod->chanregs) + ichan) = *((srcMod->chanregs) + ichan);

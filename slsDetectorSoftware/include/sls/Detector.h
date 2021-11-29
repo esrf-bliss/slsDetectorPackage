@@ -81,6 +81,8 @@ class Detector {
 
     Result<int64_t> getDetectorServerVersion(Positions pos = {}) const;
 
+    Result<std::string> getKernelVersion(Positions pos = {}) const;
+
     /* [Jungfrau][Gotthard][Mythen3][Gotthard2][CTB][Moench] */
     Result<int64_t> getSerialNumber(Positions pos = {}) const;
 
@@ -691,48 +693,60 @@ class Detector {
     /**[Jungfrau] Options 0-31 (or number of udp destinations) */
     void setFirstUDPDestination(const int value, Positions pos = {});
 
-    Result<IpAddr> getDestinationUDPIP(Positions pos = {}) const;
+    Result<IpAddr> getDestinationUDPIP(Positions pos = {},
+                                       const int rx_index = 0) const;
 
     /** IP of the interface in receiver that the detector sends data to */
-    void setDestinationUDPIP(const IpAddr ip, Positions pos = {});
+    void setDestinationUDPIP(const IpAddr ip, Positions pos = {},
+                             const int rx_index = 0);
 
     /** [Jungfrau] bottom half \n [Gotthard2] veto debugging */
-    Result<IpAddr> getDestinationUDPIP2(Positions pos = {}) const;
+    Result<IpAddr> getDestinationUDPIP2(Positions pos = {},
+                                        const int rx_index = 0) const;
 
     /** [Jungfrau] bottom half \n [Gotthard2] veto debugging */
-    void setDestinationUDPIP2(const IpAddr ip, Positions pos = {});
+    void setDestinationUDPIP2(const IpAddr ip, Positions pos = {},
+                              const int rx_index = 0);
 
-    Result<MacAddr> getDestinationUDPMAC(Positions pos = {}) const;
+    Result<MacAddr> getDestinationUDPMAC(Positions pos = {},
+                                         const int rxIndex = 0) const;
 
     /** Mac address of the receiver (destination) udp interface. Not mandatory
      * to set as setDestinationUDPIP (udp_dstip) retrieves it from slsReceiver
      * process but must be set if you use a custom receiver (not slsReceiver).
      */
-    void setDestinationUDPMAC(const MacAddr mac, Positions pos = {});
+    void setDestinationUDPMAC(const MacAddr mac, Positions pos = {},
+                              const int rx_index = 0);
 
     /** [Jungfrau] bottom half \n [Gotthard2] veto debugging */
-    Result<MacAddr> getDestinationUDPMAC2(Positions pos = {}) const;
+    Result<MacAddr> getDestinationUDPMAC2(Positions pos = {},
+                                          const int rx_index = 0) const;
 
     /* [Jungfrau][Gotthard2] Mac address of the receiver (destination) udp
     interface 2. \n Not mandatory to set as udp_dstip2 retrieves it from
     slsReceiver process but must be set if you use a custom receiver (not
     slsReceiver). \n [Jungfrau] bottom half \n [Gotthard2] veto debugging \n
     */
-    void setDestinationUDPMAC2(const MacAddr mac, Positions pos = {});
+    void setDestinationUDPMAC2(const MacAddr mac, Positions pos = {},
+                               const int rx_index = 0);
 
-    Result<int> getDestinationUDPPort(Positions pos = {}) const;
+    Result<int> getDestinationUDPPort(Positions pos = {},
+                                      const int rx_index = 0) const;
 
     /** Default is 50001. \n If module_id is -1, ports for each module is
      * calculated (incremented by 1 if no 2nd interface) */
-    void setDestinationUDPPort(int port, int module_id = -1);
+    void setDestinationUDPPort(int port, int module_id = -1,
+                               const int rxIndex = 0);
 
     /** [Eiger] right port[Jungfrau] bottom half [Gotthard2] veto debugging */
-    Result<int> getDestinationUDPPort2(Positions pos = {}) const;
+    Result<int> getDestinationUDPPort2(Positions pos = {},
+                                       const int rx_index = 0) const;
 
     /** [Eiger] right port[Jungfrau] bottom half [Gotthard2] veto debugging \n
      * Default is 50002. \n If module_id is -1, ports for each module is
      * calculated (incremented by 1 if no 2nd interface)*/
-    void setDestinationUDPPort2(int port, int module_id = -1);
+    void setDestinationUDPPort2(int port, int module_id = -1,
+                                const int rxIndex = 0);
 
     /** Reconfigures Detector with UDP destination. More for debugging as the
      * configuration is done automatically when the detector has sufficient UDP
@@ -744,7 +758,8 @@ class Detector {
      * information */
     void validateUDPConfiguration(Positions pos = {});
 
-    Result<std::string> printRxConfiguration(Positions pos = {}) const;
+    Result<std::string> printRxConfiguration(Positions pos = {},
+                                             const int rx_index = 0) const;
 
     /** [Eiger][CTB][Moench][Mythen3] */
     Result<bool> getTenGiga(Positions pos = {}) const;
@@ -803,7 +818,8 @@ class Detector {
     /** true when slsReceiver is used */
     Result<bool> getUseReceiverFlag(Positions pos = {}) const;
 
-    Result<std::string> getRxHostname(Positions pos = {}) const;
+    Result<std::string> getRxHostname(Positions pos = {},
+                                      const int rx_index = 0) const;
 
     /**
      * Sets receiver hostname or IP address for each module. \n Used for TCP
@@ -811,20 +827,26 @@ class Detector {
      * Also updates receiver with detector parameters. \n Also resets any prior
      * receiver property (not on detector). \n receiver is receiver hostname or
      * IP address, can include tcp port eg. hostname:port
+     *
+     * rxIndex of -1 is rewritten as 0 (for backwards compatibility)
      */
-    void setRxHostname(const std::string &receiver, Positions pos = {});
+    void setRxHostname(const std::string &receiver, Positions pos = {},
+                       const int rxIndex = 0);
 
-    /** multiple rx hostnames. Single element will set it for all */
-    void setRxHostname(const std::vector<std::string> &name);
+    /** - single element, assumes rxIndex is 0 (for backwards compatibility).
+     * - muliple element with pos empty or -1, sets each element for each module
+     * (1:1 for backwards compatibility, rxIndex = 0) multiple element for
+     * specific position, each element for each RR rxr */
+    void setRxHostname(const std::vector<std::string> &name, Positions pos);
 
-    Result<int> getRxPort(Positions pos = {}) const;
+    Result<int> getRxPort(Positions pos = {}, const int rx_index = 0) const;
 
     /** TCP port for client-receiver communication. \n
      *  Default is 1954. \n  Must be different if multiple receivers on same pc.
      * \n Must be first command to set a receiver parameter to be able to
      * communicate. \n Multi command will automatically increment port for
      * individual modules.*/
-    void setRxPort(int port, int module_id = -1);
+    void setRxPort(int port, int module_id = -1, const int rx_index = 0);
 
     Result<int> getRxFifoDepth(Positions pos = {}) const;
 
@@ -994,13 +1016,14 @@ class Detector {
      */
     void setRxZmqPort(int port, int module_id = -1);
 
-    Result<IpAddr> getRxZmqIP(Positions pos = {}) const;
+    Result<IpAddr> getRxZmqIP(Positions pos = {}, const int rx_index = 0) const;
 
     /** Zmq Ip Address from which data is to be streamed out of the receiver. \n
      * Also restarts receiver zmq streaming if enabled. \n Default is from
      * rx_hostname. \n Modified only when using an intermediate process between
      * receiver. */
-    void setRxZmqIP(const IpAddr ip, Positions pos = {});
+    void setRxZmqIP(const IpAddr ip, Positions pos = {},
+                    const int rx_index = 0);
 
     Result<int> getClientZmqPort(Positions pos = {}) const;
 
@@ -1731,7 +1754,8 @@ class Detector {
     /** [Jungfrau][CTB][Moench]  Advanced user Function!  */
     void resetFPGA(Positions pos = {});
 
-    /** [Jungfrau][Eiger][Gotthard][CTB][Moench][Mythen3][Gotthard2]
+    /** [[deprecated ("Replaced by updateDetectorServer, which does not require
+     * tftp")]] [Jungfrau][Eiger][Gotthard][CTB][Moench][Mythen3][Gotthard2]
      * Advanced user Function! \n
      * Copy detector server fname from tftp folder of hostname to detector. Also
      * creates a symbolic link to a shorter name (without vx.x.x). Then the
@@ -1742,21 +1766,54 @@ class Detector {
     void copyDetectorServer(const std::string &fname,
                             const std::string &hostname, Positions pos = {});
 
+    /** [Jungfrau][Eiger][Ctb][Moench][Mythen3][Gotthard2] Copies detector
+     * server via TCP (without tftp).\nMakes a symbolic link with a shorter
+     * name (without vx.x.x).\nThen, detector controller reboots (except
+     * Eiger).\n[Jungfrau][Ctb][Moench]Also changes respawn server to the
+     * link, which is effective after a reboot.
+     */
+    void updateDetectorServer(const std::string &fname, Positions pos = {});
+
+    /** [Jungfrau][Ctb][Moench][Mythen3][Gotthard2] \n
+     * Advanced Command!! You could damage the detector. Please use with
+     * caution.\nUpdates the kernel image. Then, detector controller reboots
+     *  with new kernel
+     */
+    void updateKernel(const std::string &fname, Positions pos = {});
+
     /** [Jungfrau][Gotthard][CTB][Moench][Mythen3][Gotthard2] Advanced user
      * Function! */
     void rebootController(Positions pos = {});
+
+    /** [[deprecated ("Replaced by overloaded updateDetectorServer, which does
+     * not require tftp and has one less argument")]] Advanced user Function!\n
+     * [Jungfrau][Gotthard][CTB][Moench] Updates the firmware, detector server,
+     * make a soft link and then reboots detector controller. \n
+     * [Mythen3][Gotthard2] Will require a script to start up the shorter named
+     * server link at start up \n sname is name of detector server binary found
+     * on tftp folder of host pc \n hostname is name of pc to tftp from \n fname
+     * is programming file name with full path to it
+     */
+    void updateFirmwareAndServer(const std::string &sname,
+                                 const std::string &hostname,
+                                 const std::string &fname, Positions pos = {});
 
     /**
      * Advanced user Function!\n [Jungfrau][Gotthard][CTB][Moench] Updates the
      * firmware, detector server, make a soft link and then reboots detector
      * controller. \n [Mythen3][Gotthard2] Will require a script to start up the
-     * shorter named server link at start up \n sname is name of detector
-     * server binary found on tftp folder of host pc \n hostname is name of pc
-     * to tftp from \n fname is programming file name with full path to it
+     * shorter named server link at start up \n sname is full path name of
+     * detector server  \n fname is programming file name with full path to it
      */
     void updateFirmwareAndServer(const std::string &sname,
-                                 const std::string &hostname,
                                  const std::string &fname, Positions pos = {});
+
+    Result<bool> getUpdateMode(Positions pos = {}) const;
+
+    /** Restarts detector server in update mode. This is useful when
+     * server-firmware compatibility is at its worst and server cannot start up
+     * normally */
+    void setUpdateMode(const bool updatemode, Positions pos = {});
 
     /** Advanced user Function! \n
      * Goes to stop server. Hence, can be called while calling blocking
