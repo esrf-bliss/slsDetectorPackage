@@ -43,10 +43,12 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
      * @param as pointer to actual udp socket buffer size
      * @param fdp frame discard policy
      * @param sm pointer to silent mode
+     * @param rrnb number of round-robin recvs
+     * @param rridx index of round-robin recv
      */
     Listener(int ind, detectorType dtype, Fifo *f, std::atomic<runStatus> *s,
              uint32_t *portno, std::string *e, int *us, int *as,
-             frameDiscardPolicy *fdp, bool *sm);
+             frameDiscardPolicy *fdp, bool *sm, int rrnb, int rridx);
 
     /**
      * Destructor
@@ -186,4 +188,8 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
 
     /** frame assembler CPU affinity **/
     AnyCPUAffinity cpuAffinity;
+
+    /** Round-Robin */
+    int rrNbRecvs;
+    int rrRecvIdx;
 };

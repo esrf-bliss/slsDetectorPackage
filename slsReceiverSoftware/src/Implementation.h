@@ -280,6 +280,13 @@ class Implementation : private virtual slsDetectorDefs {
     sls::AnyPacketBlockList GetFramePacketBlocks();
     void clearAllBuffers();
 
+    /**************************************************
+     *                                                *
+     *    Round-robin
+     *                                                *
+     * ************************************************/
+    void setRoundRobin(int nb_rr_recvs, int rr_idx);
+
   private:
     typedef std::array<int, MAX_DIMENSIONS> PortGeometry;
 
@@ -437,4 +444,8 @@ class Implementation : private virtual slsDetectorDefs {
     /** Frame memory assembler in passive mode */
     bool passiveMode;
     MPFrameAssemblerPtr frameAssembler;
+
+    /** Round-Robin */
+    int rrNbRecvs{1};
+    int rrRecvIdx{0};
 };

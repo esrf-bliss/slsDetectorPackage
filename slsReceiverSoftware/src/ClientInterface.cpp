@@ -498,6 +498,9 @@ void ClientInterface::setDetectorType(detectorType arg) {
         throw RuntimeError("Could not set detector type");
     }
 
+    // round-robin
+    impl()->setRoundRobin(rrNbRecvs, rrRecvIdx);
+
     // callbacks after (in setdetectortype, the object is reinitialized)
     if (startAcquisitionCallBack != nullptr)
         impl()->registerCallBackStartAcquisition(startAcquisitionCallBack,
@@ -1697,6 +1700,11 @@ int ClientInterface::set_all_threshold(Interface &socket) {
     verifyIdle(socket);
     impl()->setThresholdEnergy(eVs);
     return socket.Send(OK);
+}
+
+void ClientInterface::setRoundRobin(int nb_rr_recvs, int rr_idx) {
+    rrNbRecvs = nb_rr_recvs;
+    rrRecvIdx = rr_idx;
 }
 
 int ClientInterface::set_detector_datastream(Interface &socket) {

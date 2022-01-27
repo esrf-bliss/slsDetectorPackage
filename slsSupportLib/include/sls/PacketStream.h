@@ -70,8 +70,8 @@ template <class PC, class SD, class FP> class PacketStream {
 
     using AnyCPUAffinity = sls::CPUAffinity::AnyCPUAffinity;
 
-    PacketStream(UdpRxSocketPtr s, AnyCPUAffinity cpu_affinity,
-                 AnyPacketContainerPtr any_pc);
+    PacketStream(UdpRxSocketPtr s, int rr_nb, int rr_idx,
+                 AnyCPUAffinity cpu_affinity, AnyPacketContainerPtr any_pc);
     ~PacketStream();
 
     void threadFunction();
@@ -86,16 +86,36 @@ template <class PC, class SD, class FP> class PacketStream {
 
     void printStats();
 
+    static constexpr int64_t DefaultFirstFrameIdx = 1;
+
+    uint64_t calcDetFrameNumber(uint64_t recv_frame,
+                                int64_t first_idx = DefaultFirstFrameIdx) {
+        if (!isValid(recv_frame))
+            return -1;
+        return (recv_frame - first_idx) * rr_nb_recvs + rr_recv_idx + first_idx;
+    }
+
+    uint64_t calcRecvFrameNumber(uint64_t det_frame,
+                                 int64_t first_idx = DefaultFirstFrameIdx) {
+        if (!isValid(det_frame))
+            return -1;
+        return (det_frame - first_idx - rr_recv_idx) / rr_nb_recvs + first_idx;
+    }
+
   private:
     struct WriterThread;
 
     BlockPtr getEmptyBlock() { return packet_cont->getFreePacketBlock(); }
     void addPacketBlock(BlockPtr block);
 
+    bool isValid(uint64_t frame) { return frame != uint64_t(-1); }
+
     bool wasStopped();
 
     UdpRxSocketPtr socket;
     std::mutex mutex;
+    int rr_nb_recvs;
+    int rr_recv_idx;
     int packets_caught{0};
     uint64_t first_frame{uint64_t(-1)};
     uint64_t frames_caught{0};
@@ -104,9 +124,9 @@ template <class PC, class SD, class FP> class PacketStream {
     StreamData stream_data;
     int header_pad;
     int packet_len;
+    AnyCPUAffinity any_cpu_affinity;
     typename PacketContainer::Ptr packet_cont;
     bool stopped{false};
-    AnyCPUAffinity any_cpu_affinity;
     XYStat packet_delay_stat{1e6};
     std::unique_ptr<WriterThread> thread;
 };
@@ -153,6 +173,7 @@ using AnyPacketStream = std::variant<
 std::shared_ptr<AnyPacketStream>
 CreatePacketStream(UdpRxSocketPtr s, slsDetectorDefs::detectorType det_type,
                    bool tg_enable, int num_udp_ifaces, uint32_t dr, int idx,
+                   int rr_nb, int rr_idx,
                    sls::CPUAffinity::AnyCPUAffinity cpu_affinity,
                    FramePolicy fp, AnyPacketContainerPtr any_pc);
 

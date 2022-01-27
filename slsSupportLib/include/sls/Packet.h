@@ -153,14 +153,18 @@ template <class P> class PacketBlock {
 
     NetworkHeader *getNetworkHeader() const { return header; }
 
-    uint64_t getFrameNumber() const {
+    uint64_t getDetFrameNumber() const {
         return header ? header->frameNumber : -1;
     }
+
+    uint64_t getRecvFrameNumber() const { return recv_frame_number; }
+    void setRecvFrameNumber(uint64_t frame) { recv_frame_number = frame; }
 
   private:
     LayoutPtr layout;
     sls_bitset valid_packet_mask;
     NetworkHeader *header{nullptr};
+    uint64_t recv_frame_number{uint64_t(-1)};
 };
 
 template <class P> using PacketBlockPtr = std::unique_ptr<PacketBlock<P>>;

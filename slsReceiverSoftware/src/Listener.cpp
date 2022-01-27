@@ -23,10 +23,12 @@ const std::string Listener::TypeName = "Listener";
 
 Listener::Listener(int ind, detectorType dtype, Fifo *f,
                    std::atomic<runStatus> *s, uint32_t *portno, std::string *e,
-                   int *us, int *as, frameDiscardPolicy *fdp, bool *sm)
+                   int *us, int *as, frameDiscardPolicy *fdp, bool *sm,
+                   int rrnb, int rridx)
     : ThreadObject(ind, TypeName), fifo(f), myDetectorType(dtype), status(s),
       udpPortNumber(portno), eth(e), udpSocketBufferSize(us),
-      actualUDPSocketBufferSize(as), frameDiscardMode(fdp), silentMode(sm) {
+      actualUDPSocketBufferSize(as), frameDiscardMode(fdp), silentMode(sm),
+      rrNbRecvs(rrnb), rrRecvIdx(rridx) {
     LOG(logDEBUG) << "Listener " << ind << " created";
 }
 
@@ -133,7 +135,8 @@ void Listener::CreateUDPSockets() {
         packetStream = CreatePacketStream(
             udpSocket, generalData->myDetectorType, generalData->tgEnable,
             generalData->numUDPInterfaces, generalData->dynamicRange, index,
-            cpuAffinity, *frameDiscardMode, packetContainer);
+            rrNbRecvs, rrRecvIdx, cpuAffinity, *frameDiscardMode,
+            packetContainer);
         LOG(logINFO) << index << ": PacketStream for port " << *udpPortNumber;
     } catch (...) {
         throw sls::RuntimeError("Could not create PacketStream on port " +

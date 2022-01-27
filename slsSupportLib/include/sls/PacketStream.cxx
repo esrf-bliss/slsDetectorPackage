@@ -14,10 +14,12 @@
 
 template <class PC, class SD, class FP>
 PacketStream<PC, SD, FP>::PacketStream(UdpRxSocketPtr s,
+				       int rr_nb, int rr_idx,
                                        AnyCPUAffinity cpu_affinity,
                                        AnyPacketContainerPtr any_pc)
-    : socket(s), packet_cont(PacketContainerPtrFromAny<Packet>(any_pc)),
-      any_cpu_affinity(cpu_affinity) {
+    : socket(s), rr_nb_recvs(rr_nb), rr_recv_idx(rr_idx),
+      any_cpu_affinity(cpu_affinity),
+      packet_cont(PacketContainerPtrFromAny<Packet>(any_pc)) {
     packet_cont->prepare();
     thread = std::make_unique<WriterThread>(*this);
 }
@@ -85,15 +87,17 @@ template <class PC, class SD, class FP>
 void PacketStream<PC, SD, FP>::addPacketBlock(BlockPtr block) {
     bool full_frame = block->hasFullFrame();
     {
-        uint64_t frame = block->getFrameNumber();
+        uint64_t det_frame = block->getDetFrameNumber();
+	uint64_t recv_frame = calcRecvFrameNumber(det_frame);
+	block->setRecvFrameNumber(recv_frame);
         std::lock_guard<std::mutex> l(mutex);
         if (first_frame == uint64_t(-1))
-            first_frame = frame;
+            first_frame = recv_frame;
 	++frames_caught;
         if (full_frame)
             ++complete_frames_caught;
-        if (frame > last_frame)
-            last_frame = frame;
+        if (recv_frame > last_frame)
+            last_frame = recv_frame;
     }
     if (full_frame || !FP::canDiscardFrame(block->getValidPackets()))
         packet_cont->putReadyPacketBlock(std::move(block));
@@ -187,7 +191,8 @@ class PacketStream<PC, SD, FP>::WriterThread {
 
     void addPacketDelayStat(Packet &packet, uint32_t index) {
         Clock::time_point t = Clock::now();
-        long packet_idx = ((packet.frame() - 1) * ps.FramePackets + index);
+	uint64_t packet_frame = ps.calcRecvFrameNumber(packet.frame());
+        long packet_idx = ((packet_frame - 1) * ps.FramePackets + index);
         if (packet_idx == 0)
             t0 = t;
         std::lock_guard<std::mutex> l(ps.mutex);
@@ -206,14 +211,14 @@ class PacketStream<PC, SD, FP>::WriterThread {
                           << "unexpected " << msg << ": "
                           << "packet_frame=" << packet_frame << ", "
                           << "packet_number=" << packet_number << ", "
-                          << "curr_frame=" << block->getFrameNumber() << ", "
+                          << "curr_frame=" << block->getDetFrameNumber() << ", "
                           << "curr_packet=" << curr_packet << ", "
                           << "curr_idx=" << curr_idx;
         };
 
         // moveToGood manages both src & dst valid flags
         bool first_packet = !block->getNetworkHeader();
-        if (!first_packet && (packet_frame != block->getFrameNumber())) {
+        if (!first_packet && (packet_frame != block->getDetFrameNumber())) {
             trace_unexpected("new frame");
             BlockPtr new_block = ps.getEmptyBlock();
             if (new_block)
