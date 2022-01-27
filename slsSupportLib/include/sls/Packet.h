@@ -131,12 +131,12 @@ template <class P> class PacketBlock {
     Packet operator[](unsigned int i) const { return Packet(&(*layout)[i]); }
 
     void setValid(unsigned int i, bool valid) {
+        if (!valid) // default valid mask is false: nothing to do
+            return;
         Packet p = (*this)[i];
-        if (valid) {
-            valid_packet_mask[i] = true;
-            if (!header || (p.number() < header->packetNumber))
-                header = p.networkHeader();
-        }
+        valid_packet_mask[i] = true;
+        if (!header || (p.number() < header->packetNumber))
+            header = p.networkHeader();
     }
 
     void moveToGood(Packet &p) {
