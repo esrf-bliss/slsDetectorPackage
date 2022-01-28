@@ -56,6 +56,6 @@ TEST_CASE("Get default stop port") {
 
 TEST_CASE("Get default receiver TCP port") {
     sls::Module m(dt::MYTHEN3);
-    REQUIRE(m.getReceiverPort() == 1954);
+    REQUIRE(m.getReceiverPort(0) == 1954);
     m.freeSharedMemory();
 }
