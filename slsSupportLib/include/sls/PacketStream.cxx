@@ -180,14 +180,12 @@ class PacketStream<PC, SD, FP>::WriterThread {
     }
 
     void setInvalidPacketsUntil(uint32_t good_packet) {
-        // curr_packet validity was already set
-        while (incPacketCounters().second != good_packet)
+        for (; curr_packet != good_packet; incPacketCounters())
             block->setValid(curr_packet, false);
     }
 
     void setInvalidRemainingPackets() {
-        // curr_packet validity was already set
-        while (incPacketCounters().first != ps.FramePackets)
+        for (; curr_idx != ps.FramePackets; incPacketCounters())
             block->setValid(curr_packet, false);
     }
 
@@ -225,13 +223,13 @@ class PacketStream<PC, SD, FP>::WriterThread {
             BlockPtr new_block = ps.getEmptyBlock();
             if (new_block)
                 new_block->moveToGood(packet);
-            else
-                block->setValid(curr_packet, false);
             setInvalidRemainingPackets();
             finishPacketBlock();
             if (!new_block)
                 return false;
+            // initialize new block
             block = std::move(new_block);
+            incPacketCounters();
             setInvalidPacketsUntil(packet_number);
         } else if (packet_number != curr_packet) {
             trace_unexpected("bad frame");
