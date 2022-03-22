@@ -1483,8 +1483,9 @@ std::string CmdProxy::UDPDestinationList(int action) {
             throw sls::RuntimeError("udp_dstlist must be at module level.");
         }
         if (rx_id < 0 || rx_id >= MAX_UDP_DESTINATION) {
-            throw sls::RuntimeError(
-                std::string("Invalid receiver index ") + std::to_string(rx_id) + std::string(" to set round robin entry."));
+            throw sls::RuntimeError(std::string("Invalid receiver index ") +
+                                    std::to_string(rx_id) +
+                                    std::string(" to set round robin entry."));
         }
         auto t = getUdpEntry();
         det->setDestinationUDPList(t, det_id);
@@ -1595,21 +1596,22 @@ std::string CmdProxy::ReceiverHostname(int action) {
         if (args.size() > 1) {
             if (rx_id != -1) {
                 throw sls::RuntimeError(
-                "Cannot add multiple receivers at RR level");
+                    "Cannot add multiple receivers at RR level");
             }
             // multiple arguments (multiple rxr each)// backwards compatibility
             if (args[0].find('+') != std::string::npos) {
                 if (det_id != -1) {
-                    throw sls::RuntimeError(
-                    "Cannot add multiple receivers for multiple modules at module level");
-                }             
+                    throw sls::RuntimeError("Cannot add multiple receivers for "
+                                            "multiple modules at module level");
+                }
                 for (int i = 0; i < (int)args.size(); ++i) {
                     auto t = sls::split(args[i], '+');
                     det->setRxHostname(t, {i});
                     os << ToString(t) << '\n';
                 }
             }
-            // multiple arguments (single rxr each) (for both: each module and RR)
+            // multiple arguments (single rxr each) (for both: each module and
+            // RR)
             else {
                 det->setRxHostname(args, {det_id});
                 os << ToString(args) << '\n';
@@ -1627,15 +1629,15 @@ std::string CmdProxy::ReceiverHostname(int action) {
                 if (t.size() == 1) {
                     det->setRxHostname(t[0], std::vector<int>{det_id});
                     os << ToString(t[0]) << '\n';
-                } 
+                }
                 // multiple receivers
                 else {
                     if (rx_id != -1) {
                         throw sls::RuntimeError(
-                        "Cannot add multiple receivers at RR level");
+                            "Cannot add multiple receivers at RR level");
                     }
                     det->setRxHostname(t, {det_id});
-                    os << ToString(t) << '\n';                    
+                    os << ToString(t) << '\n';
                 }
             }
             // single receiver

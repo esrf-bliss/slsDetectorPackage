@@ -376,7 +376,7 @@ int setHighVoltage(int val);
 // parameters - timing, extsig
 #ifdef EIGERD
 int setMaster(enum MASTERINDEX m);
-int setTop(enum TOPINDEX  t);
+int setTop(enum TOPINDEX t);
 int isTop(int *retval);
 #endif
 #if defined(MYTHEN3D) || defined(EIGERD) || defined(GOTTHARDD) ||              \
