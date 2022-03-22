@@ -215,9 +215,21 @@ void Module::setThresholdEnergy(int e_eV, detectorSettings isettings,
         myMod.iodelay = myMod1.iodelay;
         myMod.tau =
             linearInterpolation(e_eV, trim1, trim2, myMod1.tau, myMod2.tau);
+        // m3, reg is used for gaincaps
+        if (shm()->detType == MYTHEN3) {
+            if (myMod1.reg != myMod2.reg) {
+                throw RuntimeError(
+                    "setThresholdEnergyAndSettings: gaincaps do not "
+                    "match between files");
+            }
+            myMod.reg = myMod1.reg;
+        }
+    }
+    // m3, reg is used for gaincaps
+    if (shm()->detType != MYTHEN3) {
+        myMod.reg = isettings;
     }
 
-    myMod.reg = isettings;
     myMod.eV[0] = e_eV;
     setModule(myMod, trimbits);
     if (getSettings() != isettings) {
@@ -233,6 +245,7 @@ void Module::setThresholdEnergy(int e_eV, detectorSettings isettings,
 
 void Module::setAllThresholdEnergy(std::array<int, 3> e_eV,
                                    detectorSettings isettings, bool trimbits) {
+    // only mythen3
     if (shm()->trimEnergies.empty()) {
         throw RuntimeError(
             "Trim energies have not been defined for this module yet!");
@@ -313,6 +326,13 @@ void Module::setAllThresholdEnergy(std::array<int, 3> e_eV,
 
             myMods[i] = interpolateTrim(&myMod1, &myMod2, energy[i], trim1,
                                         trim2, trimbits);
+            // gaincaps
+            if (myMod1.reg != myMod2.reg) {
+                throw RuntimeError("setAllThresholdEnergy: gaincaps do not "
+                                   "match between files for energy (eV) " +
+                                   std::to_string(energy[i]));
+            }
+            myMods[i].reg = myMod1.reg;
         }
     }
 
@@ -358,6 +378,11 @@ void Module::setAllThresholdEnergy(std::array<int, 3> e_eV,
         // replace correct trim values (interleaved)
         for (int i = 0; i < myMod.nchan; ++i) {
             myMod.chanregs[i] = myMods[i % 3].chanregs[i];
+        }
+        // gain caps
+        if (myMods[0].reg != myMods[1].reg || myMods[1].reg != myMods[2].reg) {
+            throw RuntimeError("setAllThresholdEnergy: gaincaps do not "
+                               "match between files for all energies");
         }
     }
 
@@ -488,6 +513,13 @@ void Module::setFlipRows(bool value) {
     } else {
         sendToDetector(F_SET_FLIP_ROWS, static_cast<int>(value), nullptr);
     }
+}
+
+bool Module::isMaster() const { return sendToDetectorStop<int>(F_GET_MASTER); }
+
+void Module::setMaster(const bool master) {
+    sendToDetector(F_SET_MASTER, static_cast<int>(master), nullptr);
+    sendToDetectorStop(F_SET_MASTER, static_cast<int>(master), nullptr);
 }
 
 bool Module::isVirtualDetectorServer() const {
@@ -702,7 +734,23 @@ void Module::setImageTestMode(const int value) {
 }
 
 int Module::getADC(dacIndex index) const {
-    return sendToDetectorStop<int>(F_GET_ADC, index);
+    switch (index) {
+    case TEMPERATURE_ADC:
+    case TEMPERATURE_FPGA:
+    case TEMPERATURE_FPGAEXT:
+    case TEMPERATURE_10GE:
+    case TEMPERATURE_DCDC:
+    case TEMPERATURE_SODL:
+    case TEMPERATURE_SODR:
+    case TEMPERATURE_FPGA2:
+    case TEMPERATURE_FPGA3:
+        // only the temperatures go to the control server, others need
+        // configuration of adc in control server
+        return sendToDetectorStop<int>(F_GET_ADC, index);
+
+    default:
+        return sendToDetector<int>(F_GET_ADC, index);
+    }
 }
 
 int Module::getOnChipDAC(slsDetectorDefs::dacIndex index, int chipIndex) const {
@@ -848,7 +896,7 @@ int64_t Module::getFramesCaughtByReceiver() const {
     return sendToReceiver<int64_t>(rxIndex, F_GET_RECEIVER_FRAMES_CAUGHT);
 }
 
-std::vector<uint64_t> Module::getNumMissingPackets() const {
+std::vector<int64_t> Module::getNumMissingPackets() const {
     // TODO!(Erik) Refactor
     LOG(logDEBUG1) << "Getting num missing packets";
     if (shm()->useReceiverFlag) {
@@ -862,7 +910,7 @@ std::vector<uint64_t> Module::getNumMissingPackets() const {
                 " returned error: " + client.readErrorMessage());
         } else {
             auto nports = client.Receive<int>();
-            std::vector<uint64_t> retval(nports);
+            std::vector<int64_t> retval(nports);
             client.Receive(retval);
             LOG(logDEBUG1) << "Missing packets of Receiver" << moduleIndex
                            << ": " << sls::ToString(retval);
@@ -911,9 +959,7 @@ int Module::getNumberofUDPInterfacesFromShm() const {
 }
 
 int Module::getNumberofUDPInterfaces() const {
-    int udp_interfaces = sendToDetector<int>(F_GET_NUM_INTERFACES);
-    bool is_eiger = (shm()->detType == EIGER);
-    shm()->numUDPInterfaces = is_eiger ? 2 : udp_interfaces;
+    shm()->numUDPInterfaces = sendToDetector<int>(F_GET_NUM_INTERFACES);
     return shm()->numUDPInterfaces;
 }
 
@@ -1040,6 +1086,11 @@ void Module::setDestinationUDPIP(const IpAddr ip, const int rxIndex) {
         throw RuntimeError("Invalid destination udp ip address");
     }
 
+    if (ip.str() == LOCALHOST_IP && !isVirtualDetectorServer()) {
+        throw RuntimeError("Invalid destination udp ip. Change rx_hostname "
+                           "from localhost or change udp_dstip from auto?");
+    }
+
     std::vector<int> entries = getEntryList(rxIndex);
     for (int iEntry = 0; iEntry != (int)entries.size(); ++iEntry) {
         if (entries[iEntry] == 0) {
@@ -1082,6 +1133,11 @@ void Module::setDestinationUDPIP2(const IpAddr ip, const int rxIndex) {
     LOG(logDEBUG1) << "Setting destination udp ip2 to " << ip;
     if (ip == 0) {
         throw RuntimeError("Invalid destination udp ip address2");
+    }
+
+    if (ip.str() == LOCALHOST_IP && !isVirtualDetectorServer()) {
+        throw RuntimeError("Invalid destination udp ip2. Change rx_hostname "
+                           "from localhost or change udp_dstip from auto?");
     }
 
     std::vector<int> entries = getEntryList(rxIndex);
@@ -1512,6 +1568,17 @@ std::array<pid_t, NUM_RX_THREAD_IDS> Module::getReceiverThreadIds() const {
         rxIndex, F_GET_RECEIVER_THREAD_IDS);
 }
 
+bool Module::getRxArping() const {
+    const int rxIndex = 0;
+    return sendToReceiver<int>(rxIndex, F_GET_RECEIVER_ARPING);
+}
+
+void Module::setRxArping(bool enable) {
+    const int rxIndex = -1;
+    sendToReceiver(rxIndex, F_SET_RECEIVER_ARPING, static_cast<int>(enable),
+                   nullptr);
+}
+
 // File
 slsDetectorDefs::fileFormat Module::getFileFormat() const {
     const int rxIndex = 0;
@@ -1874,6 +1941,14 @@ void Module::setDataStream(const portPosition port, const bool enable) {
         const int rxIndex = -1;
         sendToReceiver(rxIndex, F_RECEIVER_SET_DATASTREAM, args, nullptr);
     }
+}
+
+bool Module::getTop() const {
+    return (static_cast<bool>(sendToDetector<int>(F_GET_TOP)));
+}
+
+void Module::setTop(bool value) {
+    sendToDetector(F_SET_TOP, static_cast<int>(value), nullptr);
 }
 
 // Jungfrau Specific
@@ -2406,8 +2481,6 @@ void Module::setGateDelay(int gateIndex, int64_t value) {
 std::array<time::ns, 3> Module::getGateDelayForAllGates() const {
     return sendToDetector<std::array<time::ns, 3>>(F_GET_GATE_DELAY_ALL_GATES);
 }
-
-bool Module::isMaster() const { return sendToDetectorStop<int>(F_GET_MASTER); }
 
 int Module::getChipStatusRegister() const {
     return sendToDetector<int>(F_GET_CSR);
@@ -3650,11 +3723,11 @@ sls_detector_module Module::interpolateTrim(sls_detector_module *a,
     if (shm()->detType == EIGER) {
         dacs_to_copy.insert(
             dacs_to_copy.end(),
-            {E_SVP, E_VTR, E_SVN, E_VTGSTV, E_RXB_RB, E_RXB_LB, E_VCN, E_VIS});
+            {E_SVP, E_SVN, E_VTGSTV, E_RXB_RB, E_RXB_LB, E_VCN, E_VIS});
         // interpolate vrf, vcmp, vcp
-        dacs_to_interpolate.insert(
-            dacs_to_interpolate.end(),
-            {E_VRF, E_VCMP_LL, E_VCMP_LR, E_VCMP_RL, E_VCMP_RR, E_VCP, E_VRS});
+        dacs_to_interpolate.insert(dacs_to_interpolate.end(),
+                                   {E_VTR, E_VRF, E_VCMP_LL, E_VCMP_LR,
+                                    E_VCMP_RL, E_VCMP_RR, E_VCP, E_VRS});
     } else {
         dacs_to_copy.insert(dacs_to_copy.end(),
                             {M_VCASSH, M_VRSHAPER, M_VRSHAPER_N, M_VIPRE_OUT,

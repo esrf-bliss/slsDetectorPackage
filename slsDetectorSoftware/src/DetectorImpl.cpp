@@ -245,6 +245,15 @@ void DetectorImpl::setHostname(const std::vector<std::string> &name) {
         addModule(hostname);
     }
     updateDetectorSize();
+
+    // update zmq port (especially for eiger)
+    int numInterfaces = modules[0]->getNumberofUDPInterfaces();
+    if (numInterfaces == 2) {
+        for (size_t i = 0; i < modules.size(); ++i) {
+            modules[i]->setClientStreamingPort(DEFAULT_ZMQ_CL_PORTNO +
+                                               i * numInterfaces);
+        }
+    }
 }
 
 void DetectorImpl::addModule(const std::string &hostname) {
@@ -402,25 +411,25 @@ int DetectorImpl::createReceivingDataSockets() {
     }
     LOG(logINFO) << "Going to create data sockets";
 
-    size_t numSockets = modules.size();
-    size_t numSocketsPerModule = 1;
-    // gotthard2 second interface is only for veto debugging
-    if (shm()->detType != GOTTHARD2)
-        numSocketsPerModule =
-            Parallel(&Module::getNumberofUDPInterfacesFromShm, {}).squash();
-    numSockets *= numSocketsPerModule;
+    size_t numUDPInterfaces =
+        Parallel(&Module::getNumberofUDPInterfacesFromShm, {}).squash(1);
+    // gotthard2 second interface is only for veto debugging (not in gui)
+    if (shm()->detType == GOTTHARD2) {
+        numUDPInterfaces = 1;
+    }
+    size_t numSockets = modules.size() * numUDPInterfaces;
 
     for (size_t iSocket = 0; iSocket < numSockets; ++iSocket) {
         uint32_t portnum =
-            (modules[iSocket / numSocketsPerModule]->getClientStreamingPort());
-        portnum += (iSocket % numSocketsPerModule);
+            (modules[iSocket / numUDPInterfaces]->getClientStreamingPort());
+        portnum += (iSocket % numUDPInterfaces);
         try {
-            zmqSocket.push_back(sls::make_unique<ZmqSocket>(
-                modules[iSocket / numSocketsPerModule]
-                    ->getClientStreamingIP()
-                    .str()
-                    .c_str(),
-                portnum));
+            zmqSocket.push_back(
+                sls::make_unique<ZmqSocket>(modules[iSocket / numUDPInterfaces]
+                                                ->getClientStreamingIP()
+                                                .str()
+                                                .c_str(),
+                                            portnum));
             // set high water mark
             int hwm = shm()->zmqHwm;
             if (hwm >= 0) {
@@ -454,15 +463,9 @@ void DetectorImpl::readFrameFromReceiver() {
     int nDetPixelsX = 0;
     int nDetPixelsY = 0;
     bool quadEnable = false;
+    // to flip image
     bool eiger = false;
-    int module_ports[2] = {1, 1};
-    int numInterfaces;
-    numInterfaces = Parallel(&Module::getNumberofUDPInterfacesFromShm, {})
-                        .squash(); // cannot pick up from zmq
-    if (shm()->detType == EIGER)
-        module_ports[1] = numInterfaces; // horz
-    else if (shm()->detType == JUNGFRAU)
-        module_ports[0] = numInterfaces; // vert
+
     std::vector<bool> runningList(zmqSocket.size());
     std::vector<bool> connectList(zmqSocket.size());
     numZmqRunning = 0;
@@ -538,9 +541,9 @@ void DetectorImpl::readFrameFromReceiver() {
                         // shape
                         nPixelsX = zHeader.npixelsx;
                         nPixelsY = zHeader.npixelsy;
-                        // module shape
-                        nX = zHeader.ndetx * module_ports[1];
-                        nY = zHeader.ndety * module_ports[0];
+                        // module shape (port)
+                        nX = zHeader.ndetx;
+                        nY = zHeader.ndety;
                         nDetPixelsX = nX * nPixelsX;
                         nDetPixelsY = nY * nPixelsY;
                         // det type

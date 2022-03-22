@@ -36,7 +36,7 @@ void Fifo::CreateFifos(GeneralDataPtr gd, const NUMAMask &numa_mask) {
 
     try {
         packetContainer = CreatePacketContainer(
-            gd->myDetectorType, gd->tgEnable, gd->numUDPInterfaces,
+            gd->myDetectorType, gd->tengigaEnable, gd->numUDPInterfaces,
             gd->dynamicRange, fifoDepth, numa_mask);
         LOG(logINFO) << "Fifo " << index
                      << " packet Depth (rx_fifodepth): " << fifoDepth;
