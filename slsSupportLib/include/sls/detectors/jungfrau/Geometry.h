@@ -34,7 +34,7 @@ struct ModRecvFlip : DefaultModRecvFlip {
 };
 
 constexpr XY ModRecvs{1, 1};
-constexpr XY ModGap{9, 36};
+constexpr XY ModGap{8, 36};
 
 template <typename NbUDPIfaces> struct TiledDetGeom {
     template <int MX, int MY, class Fmt> struct Generator {
