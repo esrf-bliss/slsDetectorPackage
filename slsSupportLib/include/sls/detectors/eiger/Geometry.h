@@ -26,7 +26,7 @@ struct ModRecvFlip : DefaultModRecvFlip {
     }
 };
 constexpr XY ModRecvs{1, 2};
-constexpr XY ModGap{9, 36};
+constexpr XY ModGap{8, 36};
 
 template <int MX, int MY, class Fmt> struct TiledDetGeom {
     constexpr auto operator()() {
