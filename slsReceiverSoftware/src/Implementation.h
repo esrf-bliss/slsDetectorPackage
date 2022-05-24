@@ -160,22 +160,23 @@ class Implementation : private virtual slsDetectorDefs {
      * ************************************************/
     void updateTotalNumberOfFrames();
     uint64_t getNumberOfFrames() const;
-    void setNumberOfFrames(const uint64_t i);
+    void setNumberOfFrames(const uint64_t i, bool update_total_frames = true);
     uint64_t getNumberOfTriggers() const;
-    void setNumberOfTriggers(const uint64_t i);
+    void setNumberOfTriggers(const uint64_t i, bool update_total_frames = true);
     uint64_t getNumberOfBursts() const;
     /** [Gottthard2] */
-    void setNumberOfBursts(const uint64_t i);
+    void setNumberOfBursts(const uint64_t i, bool update_total_frames = true);
     int getNumberOfAdditionalStorageCells() const;
     /** [Jungfrau] */
-    void setNumberOfAdditionalStorageCells(const int i);
+    void setNumberOfAdditionalStorageCells(const int i,
+                                           bool update_total_frames = true);
     /** [Mythen3] */
     void setNumberOfGates(const int i);
     timingMode getTimingMode() const;
-    void setTimingMode(const timingMode i);
+    void setTimingMode(const timingMode i, bool update_total_frames = true);
     burstMode getBurstMode() const;
     /** [Gottthard2] */
-    void setBurstMode(const burstMode i);
+    void setBurstMode(const burstMode i, bool update_total_frames = true);
     ns getAcquisitionTime() const;
     void setAcquisitionTime(const ns i);
     /** [Mythen3] */

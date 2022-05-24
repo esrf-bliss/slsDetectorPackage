@@ -1296,39 +1296,47 @@ void Implementation::updateTotalNumberOfFrames() {
 
 uint64_t Implementation::getNumberOfFrames() const { return numberOfFrames; }
 
-void Implementation::setNumberOfFrames(const uint64_t i) {
+void Implementation::setNumberOfFrames(const uint64_t i,
+                                       bool update_total_frames) {
     numberOfFrames = i;
     LOG(logINFO) << "Number of Frames: " << numberOfFrames;
-    updateTotalNumberOfFrames();
+    if (update_total_frames)
+        updateTotalNumberOfFrames();
 }
 
 uint64_t Implementation::getNumberOfTriggers() const {
     return numberOfTriggers;
 }
 
-void Implementation::setNumberOfTriggers(const uint64_t i) {
+void Implementation::setNumberOfTriggers(const uint64_t i,
+                                         bool update_total_frames) {
     numberOfTriggers = i;
     LOG(logINFO) << "Number of Triggers: " << numberOfTriggers;
-    updateTotalNumberOfFrames();
+    if (update_total_frames)
+        updateTotalNumberOfFrames();
 }
 
 uint64_t Implementation::getNumberOfBursts() const { return numberOfBursts; }
 
-void Implementation::setNumberOfBursts(const uint64_t i) {
+void Implementation::setNumberOfBursts(const uint64_t i,
+                                       bool update_total_frames) {
     numberOfBursts = i;
     LOG(logINFO) << "Number of Bursts: " << numberOfBursts;
-    updateTotalNumberOfFrames();
+    if (update_total_frames)
+        updateTotalNumberOfFrames();
 }
 
 int Implementation::getNumberOfAdditionalStorageCells() const {
     return numberOfAdditionalStorageCells;
 }
 
-void Implementation::setNumberOfAdditionalStorageCells(const int i) {
+void Implementation::setNumberOfAdditionalStorageCells(
+    const int i, bool update_total_frames) {
     numberOfAdditionalStorageCells = i;
     LOG(logINFO) << "Number of Additional Storage Cells: "
                  << numberOfAdditionalStorageCells;
-    updateTotalNumberOfFrames();
+    if (update_total_frames)
+        updateTotalNumberOfFrames();
 }
 
 void Implementation::setNumberOfGates(const int i) {
@@ -1340,20 +1348,24 @@ slsDetectorDefs::timingMode Implementation::getTimingMode() const {
     return timingMode;
 }
 
-void Implementation::setTimingMode(const slsDetectorDefs::timingMode i) {
+void Implementation::setTimingMode(const slsDetectorDefs::timingMode i,
+                                   bool update_total_frames) {
     timingMode = i;
     LOG(logINFO) << "Timing Mode: " << timingMode;
-    updateTotalNumberOfFrames();
+    if (update_total_frames)
+        updateTotalNumberOfFrames();
 }
 
 slsDetectorDefs::burstMode Implementation::getBurstMode() const {
     return burstMode;
 }
 
-void Implementation::setBurstMode(const slsDetectorDefs::burstMode i) {
+void Implementation::setBurstMode(const slsDetectorDefs::burstMode i,
+                                  bool update_total_frames) {
     burstMode = i;
     LOG(logINFO) << "Burst Mode: " << burstMode;
-    updateTotalNumberOfFrames();
+    if (update_total_frames)
+        updateTotalNumberOfFrames();
 }
 
 ns Implementation::getAcquisitionPeriod() const { return acquisitionPeriod; }

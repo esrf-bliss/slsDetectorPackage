@@ -357,13 +357,14 @@ int ClientInterface::setup_receiver(Interface &socket) {
     impl()->setUDPSocketBufferSize(0);
 
     // acquisition parameters
-    impl()->setNumberOfFrames(arg.frames);
-    impl()->setNumberOfTriggers(arg.triggers);
+    impl()->setNumberOfFrames(arg.frames, false);
+    impl()->setNumberOfTriggers(arg.triggers, false);
     if (detType == GOTTHARD2) {
-        impl()->setNumberOfBursts(arg.bursts);
+        impl()->setNumberOfBursts(arg.bursts, false);
     }
     if (detType == JUNGFRAU) {
-        impl()->setNumberOfAdditionalStorageCells(arg.additionalStorageCells);
+        impl()->setNumberOfAdditionalStorageCells(arg.additionalStorageCells,
+                                                  false);
     }
     if (detType == MOENCH || detType == CHIPTESTBOARD) {
         try {
@@ -422,7 +423,7 @@ int ClientInterface::setup_receiver(Interface &socket) {
                 "memory for fifo or could not start listening/writing threads");
         }
     }
-    impl()->setTimingMode(arg.timMode);
+    impl()->setTimingMode(arg.timMode, false);
     if (detType == EIGER || detType == MOENCH || detType == CHIPTESTBOARD ||
         detType == MYTHEN3) {
         try {
@@ -471,8 +472,9 @@ int ClientInterface::setup_receiver(Interface &socket) {
         impl()->setNumberOfGates(arg.gates);
     }
     if (detType == GOTTHARD2) {
-        impl()->setBurstMode(arg.burstType);
+        impl()->setBurstMode(arg.burstType, false);
     }
+    impl()->updateTotalNumberOfFrames();
     impl()->setScan(arg.scanParams);
 
     return socket.sendResult(retvals);
