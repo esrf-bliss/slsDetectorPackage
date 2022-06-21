@@ -118,42 +118,38 @@ Implementation::CreateFrameAssembler(AssemblerType asm_type) {
     int nb_ports = listener.size();
     int recv_idx = modulePos;
     uint32_t src_dr = gd->dynamicRange;
-    uint32_t dst_dr = src_dr;
     using XY = sls::Geom::XY;
     XY det_ifaces{numMods[0], numMods[1]};
-    auto getModPos = [&](auto recv_ifaces, auto mod_recvs) {
-        auto det_mods = det_ifaces / (mod_recvs * recv_ifaces);
-        int mod_idx = recv_idx / mod_recvs.area();
-        return XY{mod_idx / det_mods.y, mod_idx % det_mods.y};
-    };
-    if (asm_type == AsmRaw) {
-        auto port_geom = GetPortGeometry();
-        auto recv_ifaces = port_geom[X] * port_geom[Y];
-        auto det_recvs = det_ifaces.area() / recv_ifaces;
-        if (dst_dr == 4)
-            dst_dr = 8;
-        fa = std::make_unique<RawFrameAssembler>(
-            d, recv_idx, det_recvs, tg_enable, nb_ports, src_dr, dst_dr);
-    } else if (d == slsDetectorDefs::EIGER) {
-        using namespace sls::Eiger::Geom;
-        auto mod_pos = getModPos(RecvIfaces, ModRecvs);
-        recv_idx %= ModRecvs.y;
-        fa = sls::Eiger::FrameAssembler::CreateFrameAssembler(
-            src_dr, gd->tgEnable, det_ifaces, mod_pos, recv_idx);
-    } else if (d == slsDetectorDefs::JUNGFRAU) {
-        using namespace sls::Jungfrau::Geom;
-        XY mod_pos;
-        std::visit(
-            [&](auto nb) {
-                using num_udp_ifaces = decltype(nb);
-                mod_pos = getModPos(RecvIfaces<num_udp_ifaces>, ModRecvs);
-            },
-            AnyNbUDPIfacesFromNbUDPIfaces(nb_ports));
-        fa = sls::Jungfrau::FrameAssembler::CreateFrameAssembler(
-            nb_ports, det_ifaces, mod_pos);
-    } else
+    auto port_geom = GetPortGeometry();
+    XY recv_ifaces{port_geom[X], port_geom[Y]};
+    XY mod_recvs;
+    if (d == slsDetectorDefs::EIGER)
+        mod_recvs = sls::Eiger::Geom::ModRecvs;
+    else if (d == slsDetectorDefs::JUNGFRAU)
+        mod_recvs = sls::Jungfrau::Geom::ModRecvs;
+    else
         throw sls::RuntimeError("FrameAssembler not available for " +
                                 sls::ToString(d));
+    int recvs_per_mod = mod_recvs.area();
+    int mod_idx = recv_idx / recvs_per_mod;
+    int mod_recv_idx = recv_idx % recvs_per_mod;
+    XY det_mods = det_ifaces / (mod_recvs * recv_ifaces);
+    XY mod_pos{mod_idx / det_mods.y, mod_idx % det_mods.y};
+
+    if (asm_type == AsmRaw) {
+        int raw_mod_idx = RowWiseElementIndex(det_mods, mod_pos);
+        int raw_recv_idx = raw_mod_idx * recvs_per_mod + mod_recv_idx;
+        int det_recvs = det_ifaces.area() / recv_ifaces.area();
+        uint32_t dst_dr = (src_dr == 4) ? 8 : src_dr;
+        fa = std::make_unique<RawFrameAssembler>(
+            d, raw_recv_idx, det_recvs, tg_enable, nb_ports, src_dr, dst_dr);
+    } else if (d == slsDetectorDefs::EIGER) {
+        fa = sls::Eiger::FrameAssembler::CreateFrameAssembler(
+            src_dr, gd->tgEnable, det_ifaces, mod_pos, mod_recv_idx);
+    } else if (d == slsDetectorDefs::JUNGFRAU) {
+        fa = sls::Jungfrau::FrameAssembler::CreateFrameAssembler(
+            nb_ports, det_ifaces, mod_pos);
+    }
 
     return fa;
 }
