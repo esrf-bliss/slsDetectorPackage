@@ -9,6 +9,7 @@
 #include <cstring>
 #include <fstream>
 #include <memory>
+#include <strstream>
 #include <type_traits>
 #include <vector>
 
@@ -305,19 +306,48 @@ void geometry_assembler(DT det_type, std::string gen_type, const SDG &src_geom,
 
 template <class SDG, class TDG>
 void print_geom(const SDG &src_geom, const TDG &tgt_geom) {
-    std::cout << src_geom.size << " " << tgt_geom.size << std::endl;
+    std::cout << "Source geometry: " << src_geom.size << std::endl
+              << "Target geometry: " << tgt_geom.size << std::endl;
+    std::cout << "Target modules corners:";
     det_for_each_mod(tgt_geom, [&](auto const &mod, auto const &mod_geom) {
         auto &v = mod_geom.view;
         std::cout << " " << v.view_origin << "x" << v.size;
     });
+    std::cout << std::endl;
 }
 
 void usage(std::string prog_name) {
-    LOG(logERROR) << "Usage: " << prog_name << " "
-                  << "<det_type> <width,height> <nb_frames> <gen_type> "
-                  << "<src_format> <src_data_type> <src_file_name> "
-                  << "<target_format> <target_data_type> <target_file_name> "
-                  << "<gap_pixel_val>";
+    std::ostringstream os;
+    os << "Usage: " << prog_name << " "
+       << "<det_type> <width,height> <nb_frames> <gen_type> " << std::endl
+       << "   <src_format> <src_data_type> <src_file_name> " << std::endl
+       << "   <target_format> <target_data_type> <target_file_name> "
+       << "<gap_pixel_val>" << std::endl;
+    os << std::endl;
+    os << "   det_type:" << std::endl
+       << "      eiger, jungfraux1, jungfraux2" << std::endl;
+    os << "   width,height:" << std::endl
+       << "      Image size in AsmNG format ('detsize' cmd)" << std::endl;
+    os << "   nb_frames:" << std::endl
+       << "      Number of frames to convert" << std::endl;
+    os << "   gen_type:" << std::endl
+       << "      Output data pixel value:" << std::endl
+       << "      chip_idx:  Chip index" << std::endl
+       << "      pixel_idx: Input pixel index" << std::endl
+       << "      pixel_val: Input pixel value" << std::endl;
+    os << "   src/target_format:" << std::endl
+       << "      Raw:   All modules are vertically concatenated" << std::endl
+       << "      AsmNG: Modules are assembled with no gaps" << std::endl
+       << "      AsmWG: Modules are assembled with gaps" << std::endl;
+    os << "   src/target_data_type:" << std::endl
+       << "      uint8/16/32, int8/16/32, float32/64" << std::endl;
+    os << "   src/target_file_name:" << std::endl
+       << "      Source/target file name, empty if unused" << std::endl;
+    os << "   gap_pixel_val:" << std::endl
+       << "      Output gap pixel value (target_format=AsmWG)" << std::endl;
+    LOG(logERROR) << "Bad command line arguments" << std::endl
+                  << std::endl
+                  << os.str();
     exit(1);
 }
 
