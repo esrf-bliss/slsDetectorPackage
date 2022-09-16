@@ -59,7 +59,7 @@ void ThreadObject::Continue() { sem_post(&semaphore); }
 void ThreadObject::SetThreadPriority(int priority) {
     struct sched_param param;
     param.sched_priority = priority;
-    if (sched_setscheduler(threadId, SCHED_FIFO, &param) == EPERM) {
+    if (sched_setscheduler(threadId, SCHED_RR, &param) == EPERM) {
         if (index == 0) {
             LOG(logWARNING) << "Could not prioritize " << type
                             << " thread. "
