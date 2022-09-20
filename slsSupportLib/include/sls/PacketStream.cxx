@@ -14,7 +14,7 @@
 
 template <class PC, class SD, class FP>
 PacketStream<PC, SD, FP>::PacketStream(UdpRxSocketPtr s,
-				       int rr_nb, int rr_idx,
+                                       int rr_nb, int rr_idx,
                                        AnyCPUAffinity cpu_affinity,
                                        AnyPacketContainerPtr any_pc)
     : socket(s), rr_nb_recvs(rr_nb), rr_recv_idx(rr_idx),
@@ -88,12 +88,12 @@ void PacketStream<PC, SD, FP>::addPacketBlock(BlockPtr block) {
     bool full_frame = block->hasFullFrame();
     {
         uint64_t det_frame = block->getDetFrameNumber();
-	uint64_t recv_frame = calcRecvFrameNumber(det_frame);
-	block->setRecvFrameNumber(recv_frame);
+        uint64_t recv_frame = calcRecvFrameNumber(det_frame);
+        block->setRecvFrameNumber(recv_frame);
         std::lock_guard<std::mutex> l(mutex);
         if (first_frame == uint64_t(-1))
             first_frame = recv_frame;
-	++frames_caught;
+        ++frames_caught;
         if (full_frame)
             ++complete_frames_caught;
         if (recv_frame > last_frame)
@@ -191,7 +191,7 @@ class PacketStream<PC, SD, FP>::WriterThread {
 
     void addPacketDelayStat(Packet &packet, uint32_t index) {
         Clock::time_point t = Clock::now();
-	uint64_t packet_frame = ps.calcRecvFrameNumber(packet.frame());
+        uint64_t packet_frame = ps.calcRecvFrameNumber(packet.frame());
         long packet_idx = ((packet_frame - 1) * ps.FramePackets + index);
         if (packet_idx == 0)
             t0 = t;
