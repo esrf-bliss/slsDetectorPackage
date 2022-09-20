@@ -33,7 +33,8 @@ template <class PC, class SD, class FP>
 void PacketStream<PC, SD, FP>::printStats() {
     std::ostringstream msg;
     msg << "[" << socket->getPortNumber() << "] "
-        << "packet_delay_stat=" << packet_delay_stat.calcLinRegress();
+        << "packet_delay_stat=" << packet_delay_stat.calcLinRegress() << ", "
+        << "packet_push_stat=" << packet_push_stat.calcStats();
     LOG(logINFO) << msg.str();
 }
 
@@ -170,7 +171,11 @@ class PacketStream<PC, SD, FP>::WriterThread {
     Packet getNextPacket() { return (*block)[incPacketCounters().second]; }
 
     void finishPacketBlock() {
+        Clock::time_point t0 = Clock::now();
         ps.addPacketBlock(std::move(block));
+        Clock::time_point t = Clock::now();
+        double sec = ToSeconds(t - t0).count();
+        ps.packet_push_stat.add(sec);
         assert(!block);
         curr_idx = curr_packet = -1;
     }
