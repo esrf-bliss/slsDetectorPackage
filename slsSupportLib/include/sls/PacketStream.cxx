@@ -190,7 +190,6 @@ class PacketStream<PC, SD, FP>::WriterThread {
         long packet_idx = ((packet.frame() - 1) * ps.FramePackets + index);
         if (packet_idx == 0)
             t0 = t;
-        std::lock_guard<std::mutex> l(ps.mutex);
         double sec = ToSeconds(t - t0).count();
         ps.packet_delay_stat.add(packet_idx, sec);
     }
