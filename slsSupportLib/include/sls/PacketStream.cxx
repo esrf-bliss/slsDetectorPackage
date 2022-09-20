@@ -205,12 +205,16 @@ class PacketStream<PC, SD, FP>::WriterThread {
         uint64_t packet_frame = packet.frame();
         uint32_t packet_number = packet.number();
 
+        bool skip_trace_unexpected = true;
         auto trace_unexpected = [&](auto msg) {
+            if (skip_trace_unexpected)
+                return;
+            long curr_frame = long(block->getFrameNumber());
             LOG(logERROR) << "[" << ps.socket->getPortNumber() << "] "
                           << "unexpected " << msg << ": "
                           << "packet_frame=" << packet_frame << ", "
                           << "packet_number=" << packet_number << ", "
-                          << "curr_frame=" << block->getFrameNumber() << ", "
+                          << "curr_frame=" << curr_frame << ", "
                           << "curr_packet=" << curr_packet << ", "
                           << "curr_idx=" << curr_idx;
         };
