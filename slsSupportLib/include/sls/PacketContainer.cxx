@@ -22,12 +22,12 @@ template <class Duration> Seconds ToSeconds(const Duration &d) {
 
 template <class P>
 PacketContainer<P>::PacketContainer(int frames, const NUMAMask &numa_mask)
-    : num_frames(frames) {
+    : num_frames(frames), free_map(num_frames, nullptr) {
     auto &&[node_mask, max_node] = numa_mask.get_os_mask();
     packet_buffer_array.alloc(num_frames, node_mask, max_node);
     BlockLayout *p = packet_buffer_array.getPtr();
     for (unsigned int i = 0; i < num_frames; ++i, ++p)
-        free_queue.push(p);
+        free_map[i] = p;
 }
 
 template <class P> PacketContainer<P>::~PacketContainer() {
@@ -36,21 +36,24 @@ template <class P> PacketContainer<P>::~PacketContainer() {
 }
 
 template <class P>
-sls::PacketBlockPtr<P> PacketContainer<P>::getFreePacketBlock() {
-    auto releaser = [&](BlockLayout *layout) {
+sls::PacketBlockPtr<P> PacketContainer<P>::getFreePacketBlock(uint64_t frame) {
+    auto idx = getBufferIdx(frame);
+    auto releaser = [&, idx = idx](BlockLayout *layout) {
         std::lock_guard<std::mutex> l(free_mutex);
-        free_queue.push(layout);
+        std::swap(layout, free_map[idx]);
+        --pending_packets;
         free_cond.notify_one();
     };
     using LayoutPtr = typename Block::LayoutPtr;
     auto allocator = [&]() -> LayoutPtr {
         std::unique_lock<std::mutex> l(free_mutex);
-        while (!stopped && free_queue.empty())
+        while (!stopped && !free_map[idx])
             free_cond.wait(l);
         if (stopped)
             return nullptr;
-        BlockLayout *layout = free_queue.front();
-        free_queue.pop();
+        BlockLayout *layout = nullptr;
+        std::swap(layout, free_map[idx]);
+        ++pending_packets;
         return {layout, releaser};
     };
     auto layout = allocator();
@@ -73,18 +76,18 @@ sls::PacketBlockPtr<P> PacketContainer<P>::getReadyPacketBlock(uint64_t frame) {
 
     std::unique_lock<std::mutex> l(block_mutex);
     WaitingCountHelper h(*this);
-    MapIterator it;
+    typename ReadyBlockMap::iterator it;
     bool any = (frame == uint64_t(-1));
     while (!stopped) {
-        if (!packet_block_map.empty()) {
-            it = packet_block_map.begin();
+        if (!ready_block_map.empty()) {
+            it = ready_block_map.begin();
             if (any)
                 break;
             bool too_old = (it->first > frame);
             if (too_old)
                 return nullptr;
-            it = packet_block_map.find(frame);
-            if (it != packet_block_map.end())
+            it = ready_block_map.find(frame);
+            if (it != ready_block_map.end())
                 break;
         }
         block_cond.wait(l);
@@ -93,27 +96,29 @@ sls::PacketBlockPtr<P> PacketContainer<P>::getReadyPacketBlock(uint64_t frame) {
         return nullptr;
 
     BlockPtr block = std::move(it->second);
-    packet_block_map.erase(it);
+    ready_block_map.erase(it);
     return block;
 }
 
 template <class P>
 void PacketContainer<P>::putReadyPacketBlock(BlockPtr block) {
+    using FramePacketBlock = typename ReadyBlockMap::value_type;
     std::lock_guard<std::mutex> l(block_mutex);
-    packet_block_map.emplace(
+    ready_block_map.emplace(
         FramePacketBlock(block->getFrameNumber(), std::move(block)));
     block_cond.notify_all();
 }
 
 template <class P> void PacketContainer<P>::setMissingFrame(uint64_t frame) {
+    using FramePacketBlock = typename ReadyBlockMap::value_type;
     std::lock_guard<std::mutex> l(block_mutex);
-    packet_block_map.emplace(FramePacketBlock(frame, nullptr));
+    ready_block_map.emplace(FramePacketBlock(frame, nullptr));
     block_cond.notify_all();
 }
 
 template <class P> unsigned int PacketContainer<P>::getPendingPackets() {
     std::lock_guard<std::mutex> l(free_mutex);
-    return num_frames - free_queue.size();
+    return pending_packets;
 }
 
 template <class P> void PacketContainer<P>::releaseReadyPacketBlocks() {
@@ -121,8 +126,8 @@ template <class P> void PacketContainer<P>::releaseReadyPacketBlocks() {
     std::unique_lock<std::mutex> l(block_mutex);
     while (waiting_reader_count > 0)
         block_cond.wait_for(l, 5ms);
-    PacketBlockMap old_map = std::move(packet_block_map);
-    assert(packet_block_map.empty());
+    ReadyBlockMap old_map = std::move(ready_block_map);
+    assert(ready_block_map.empty());
     l.unlock();
 }
 

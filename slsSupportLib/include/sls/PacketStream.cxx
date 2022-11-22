@@ -153,9 +153,10 @@ class PacketStream<PC, SD, FP>::WriterThread {
             }
         }
     }
+
     bool checkBlock() {
         if (!block)
-            block = std::move(ps.getEmptyBlock());
+            block = std::move(ps.getEmptyBlock(curr_frame));
         return bool(block);
     }
 
@@ -231,7 +232,7 @@ class PacketStream<PC, SD, FP>::WriterThread {
         // moveToGood manages both src & dst valid flags
         if (packet_frame != curr_frame) {
             trace_unexpected("new frame");
-            BlockPtr new_block = ps.getEmptyBlock();
+            BlockPtr new_block = ps.getEmptyBlock(packet_frame);
             if (new_block)
                 new_block->moveToGood(packet);
             // Finish current block if it's got some data

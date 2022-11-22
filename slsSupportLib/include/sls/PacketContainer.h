@@ -35,8 +35,6 @@ template <class P> class PacketContainer {
     using BlockPtr = sls::PacketBlockPtr<Packet>;
     using BlockLayout = typename Block::Layout;
 
-    using Ptr = std::shared_ptr<PacketContainer>;
-
     BlockPtr getReadyPacketBlock(uint64_t frame = uint64_t(-1));
 
     unsigned int getPendingPackets();
@@ -46,7 +44,7 @@ template <class P> class PacketContainer {
 
     void prepare();
 
-    BlockPtr getFreePacketBlock();
+    BlockPtr getFreePacketBlock(uint64_t frame);
     void putReadyPacketBlock(BlockPtr block);
     void setMissingFrame(uint64_t frame);
 
@@ -54,13 +52,14 @@ template <class P> class PacketContainer {
     void cleanUp();
 
   private:
-    friend class StreamIface;
-
     using MmappedBlockRegion = MmappedRegion<BlockLayout>;
 
-    using PacketBlockMap = std::map<uint64_t, BlockPtr>;
-    using MapIterator = typename PacketBlockMap::iterator;
-    using FramePacketBlock = typename PacketBlockMap::value_type;
+    using FreeBlockMap = std::vector<BlockLayout *>;
+    using ReadyBlockMap = std::map<uint64_t, BlockPtr>;
+
+    unsigned int getBufferIdx(uint64_t frame) {
+        return (frame - 1) % num_frames;
+    }
 
     void releaseReadyPacketBlocks();
     void waitUsedPacketBlocks();
@@ -69,10 +68,11 @@ template <class P> class PacketContainer {
     MmappedBlockRegion packet_buffer_array;
     std::mutex free_mutex;
     std::condition_variable free_cond;
-    std::queue<BlockLayout *> free_queue;
+    FreeBlockMap free_map;
+    int pending_packets{0};
     std::mutex block_mutex;
     std::condition_variable block_cond;
-    PacketBlockMap packet_block_map;
+    ReadyBlockMap ready_block_map;
     int waiting_reader_count{0};
     bool stopped;
 };
@@ -92,7 +92,7 @@ using AnyPacketContainer =
 using AnyPacketContainerPtr = std::shared_ptr<AnyPacketContainer>;
 
 template <class P>
-typename PacketContainer<P>::Ptr
+std::shared_ptr<PacketContainer<P>>
 PacketContainerPtrFromAny(AnyPacketContainerPtr any_pc) {
     return {any_pc, &std::get<PacketContainer<P>>(*any_pc)};
 }
