@@ -73,11 +73,11 @@ void Implementation::SetupFifoStructure() {
     frameAssembler.reset();
     for (int i = 0; i < numThreads; ++i) {
         // create fifo structure
-        sls::CPUAffinity::NUMAMask numa_mask;
+        NUMAMask numa_mask;
         try {
-            if (HasValidThread(listener, i))
-                numa_mask = listener[i]->GetFifoNUMAMask();
-            PacketBlockAllocPtr alloc_ptr =
+            if (HasValidThread(numaMask, i))
+                numa_mask = *numaMask[i];
+            auto alloc_ptr =
                 std::make_shared<MmappedPacketAllocator>(numa_mask);
             fifo.push_back(
                 sls::make_unique<Fifo>(i, generalData, fifoDepth, alloc_ptr));
@@ -1742,10 +1742,24 @@ void Implementation::setListenersCPUAffinity(
                                 std::to_string(cpu_affinities.size()));
     else if (!activated)
         throw sls::RuntimeError("Receiver not activated");
-    for (int i = 0; i < numThreads; ++i)
+    numaMask.clear();
+    for (int i = 0; i < numThreads; ++i) {
         if (HasValidThread(listener, i))
             listener[i]->SetThreadCPUAffinity(cpu_affinities[i]);
+        auto numa_mask = GetFifoNUMAMask(cpu_affinities[i]);
+        numaMask.push_back(std::make_unique<NUMAMask>(numa_mask));
+    }
     SetupFifoStructure();
+}
+
+Implementation::NUMAMask
+Implementation::GetFifoNUMAMask(AnyCPUAffinity cpu_affinity) {
+    using FixedCPUSetAffinity = sls::CPUAffinity::FixedCPUSetAffinityMask;
+    if (std::holds_alternative<FixedCPUSetAffinity>(cpu_affinity)) {
+        auto cpu_mask = std::get<FixedCPUSetAffinity>(cpu_affinity);
+        return cpu_mask.get_numa_mask();
+    }
+    return {};
 }
 
 sls::AnyPacketBlockList Implementation::GetFramePacketBlocks(uint64_t frame) {

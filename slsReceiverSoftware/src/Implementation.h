@@ -30,7 +30,9 @@ using namespace sls::FrameAssembler;
 
 class Implementation : private virtual slsDetectorDefs {
   public:
+    using AnyCPUAffinity = sls::CPUAffinity::AnyCPUAffinity;
     using FixedCPUSetAffinityList = sls::CPUAffinity::FixedCPUSetAffinityList;
+    using NUMAMask = sls::CPUAffinity::NUMAMask;
 
     explicit Implementation(const detectorType d, bool passive);
     virtual ~Implementation();
@@ -320,6 +322,14 @@ class Implementation : private virtual slsDetectorDefs {
 
     /**************************************************
      *                                                *
+     *    NUMA Helpers                                *
+     *                                                *
+     * ************************************************/
+
+    NUMAMask GetFifoNUMAMask(AnyCPUAffinity cpu_affinity);
+
+    /**************************************************
+     *                                                *
      *    Class Members                               *
      *                                                *
      * ************************************************/
@@ -427,6 +437,7 @@ class Implementation : private virtual slsDetectorDefs {
     std::vector<std::shared_ptr<Listener>> listener;
     std::vector<std::unique_ptr<DataProcessor>> dataProcessor;
     std::vector<std::unique_ptr<DataStreamer>> dataStreamer;
+    std::vector<std::unique_ptr<NUMAMask>> numaMask;
     std::vector<std::unique_ptr<Fifo>> fifo;
 
     std::mutex hdf5Lib;

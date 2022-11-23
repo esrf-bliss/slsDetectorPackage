@@ -87,15 +87,6 @@ void Listener::SetThreadCPUAffinity(AnyCPUAffinity cpu_affinity) {
     cpuAffinity = cpu_affinity;
 }
 
-Listener::NUMAMask Listener::GetFifoNUMAMask() {
-    using FixedCPUSetAffinity = sls::CPUAffinity::FixedCPUSetAffinityMask;
-    if (std::holds_alternative<FixedCPUSetAffinity>(cpuAffinity)) {
-        auto cpu_mask = std::get<FixedCPUSetAffinity>(cpuAffinity);
-        return cpu_mask.get_numa_mask();
-    }
-    return {};
-}
-
 void Listener::SetGeneralData(GeneralData *g) { generalData = g; }
 
 void Listener::CreateUDPSockets() {
