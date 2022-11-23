@@ -77,8 +77,10 @@ void Implementation::SetupFifoStructure() {
         try {
             if (HasValidThread(listener, i))
                 numa_mask = listener[i]->GetFifoNUMAMask();
+            PacketBlockAllocPtr alloc_ptr =
+                std::make_shared<MmappedPacketAllocator>(numa_mask);
             fifo.push_back(
-                sls::make_unique<Fifo>(i, generalData, fifoDepth, numa_mask));
+                sls::make_unique<Fifo>(i, generalData, fifoDepth, alloc_ptr));
         } catch (...) {
             fifo.clear();
             fifoDepth = 0;

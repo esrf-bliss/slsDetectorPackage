@@ -21,18 +21,19 @@ template <class Duration> Seconds ToSeconds(const Duration &d) {
  */
 
 template <class P>
-PacketContainer<P>::PacketContainer(int frames, const NUMAMask &numa_mask)
-    : num_frames(frames), free_map(num_frames, nullptr) {
-    auto &&[node_mask, max_node] = numa_mask.get_os_mask();
-    packet_buffer_array.alloc(num_frames, node_mask, max_node);
-    BlockLayout *p = packet_buffer_array.getPtr();
-    for (unsigned int i = 0; i < num_frames; ++i, ++p)
-        free_map[i] = p;
+PacketContainer<P>::PacketContainer(int frames, PacketBlockAllocPtr alloc_ptr)
+    : num_frames(frames), block_alloc_ptr(alloc_ptr),
+      free_map(num_frames, nullptr) {
+    block_alloc_ptr->alloc(sizeof(BlockLayout), num_frames);
+    for (unsigned int i = 0; i < num_frames; ++i)
+        free_map[i] =
+            static_cast<BlockLayout *>(block_alloc_ptr->getItemPtr(i));
 }
 
 template <class P> PacketContainer<P>::~PacketContainer() {
     stop();
     cleanUp();
+    block_alloc_ptr->release();
 }
 
 template <class P>
@@ -171,9 +172,9 @@ template <class P> void PacketContainer<P>::cleanUp() {
 }
 
 template <class P> void PacketContainer<P>::clearBuffers() {
-    packet_buffer_array.clear();
+    block_alloc_ptr->clear();
 }
 
 template <class P> long long PacketContainer<P>::getMemorySize() {
-    return packet_buffer_array.getMemorySize();
+    return block_alloc_ptr->getMemorySize();
 }
