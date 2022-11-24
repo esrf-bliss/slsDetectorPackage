@@ -105,6 +105,12 @@ void PacketContainer<P>::putReadyPacketBlock(BlockPtr block) {
     block_cond.notify_all();
 }
 
+template <class P> void PacketContainer<P>::setMissingFrame(uint64_t frame) {
+    std::lock_guard<std::mutex> l(block_mutex);
+    packet_block_map.emplace(FramePacketBlock(frame, nullptr));
+    block_cond.notify_all();
+}
+
 template <class P> unsigned int PacketContainer<P>::getPendingPackets() {
     std::lock_guard<std::mutex> l(free_mutex);
     return num_frames - free_queue.size();
