@@ -37,8 +37,8 @@ template <typename T> class MmappedRegion {
     long long getMemorySize();
 
   private:
-    T *ptr;
-    size_t len;
+    T *ptr{nullptr};
+    size_t len{0};
 };
 
 #include "MmappedRegion.cxx"
