@@ -34,35 +34,35 @@ Listener::~Listener() = default;
 
 uint64_t Listener::GetPacketsCaught() const {
     if (!packetStream)
-        return 0;
+        return packetsCaught;
     return std::visit([&](auto &ps) { return ps.getNumPacketsCaught(); },
                       *packetStream);
 }
 
-uint64_t Listener::GetFirstFrameCaught() {
+uint64_t Listener::GetFirstFrameCaught() const {
     if (!packetStream)
-        return 0;
+        return firstFrameCaught;
     return std::visit([&](auto &ps) { return ps.getFirstFrameCaught(); },
                       *packetStream);
 }
 
-uint64_t Listener::GetNumFramesCaught() {
+uint64_t Listener::GetNumFramesCaught() const {
     if (!packetStream)
-        return 0;
+        return numFramesCaught;
     return std::visit([&](auto &ps) { return ps.getNumFramesCaught(); },
                       *packetStream);
 }
 
-uint64_t Listener::GetNumCompleteFramesCaught() {
+uint64_t Listener::GetNumCompleteFramesCaught() const {
     if (!packetStream)
-        return 0;
+        return numCompleteFramesCaught;
     return std::visit([&](auto &ps) { return ps.getNumCompleteFramesCaught(); },
                       *packetStream);
 }
 
 uint64_t Listener::GetLastFrameIndexCaught() const {
     if (!packetStream)
-        return 0;
+        return lastFrameIndexCaught;
     return std::visit([&](auto &ps) { return ps.getLastFrameIndex(); },
                       *packetStream);
 }
@@ -156,6 +156,12 @@ void Listener::ShutDownUDPSocket() {
             [&](auto &ps) {
                 ps.stop();
                 ps.printStats();
+
+                packetsCaught = ps.getNumPacketsCaught();
+                firstFrameCaught = ps.getFirstFrameCaught();
+                numFramesCaught = ps.getNumFramesCaught();
+                numCompleteFramesCaught = ps.getNumCompleteFramesCaught();
+                lastFrameIndexCaught = ps.getLastFrameIndex();
             },
             *packetStream);
     udpSocket->Shutdown();
