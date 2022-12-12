@@ -57,9 +57,19 @@ constexpr int RowWiseElementIndex(const XY &size, const XY &element) {
     return element.y * size.x + element.x;
 }
 
+// Element from its index in a 2D array: first index is the fast one: RowWise
+constexpr XY RowWiseElementFromIndex(const XY &size, int idx) {
+    return {idx % size.x, idx / size.x};
+}
+
 // Element index in a 2D array: second index the fast one: ColWise
 constexpr int ColWiseElementIndex(const XY &size, const XY &element) {
     return element.x * size.y + element.y;
+}
+
+// Element from its index in a 2D array: second index is the fast one: ColWise
+constexpr XY ColWiseElementFromIndex(const XY &size, int idx) {
+    return {idx / size.y, idx % size.y};
 }
 
 constexpr XY XY0{0, 0};
