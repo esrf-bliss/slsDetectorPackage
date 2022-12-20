@@ -113,7 +113,7 @@ class Receiver : private virtual slsDetectorDefs {
     /**
      * Get the next available packet blocks from the active UDP ports
      */
-    AnyPacketBlockList GetFramePacketBlocks();
+    AnyPacketBlockList GetFramePacketBlocks(uint64_t frame = uint64_t(-1));
 
     /**
      * Clear the PacketStream buffers

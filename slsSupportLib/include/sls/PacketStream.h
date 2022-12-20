@@ -91,6 +91,9 @@ template <class PC, class SD, class FP> class PacketStream {
 
     BlockPtr getEmptyBlock() { return packet_cont->getFreePacketBlock(); }
     void addPacketBlock(BlockPtr block);
+    void setMissingFrame(uint64_t frame) {
+        packet_cont->setMissingFrame(frame);
+    }
 
     bool wasStopped();
 
