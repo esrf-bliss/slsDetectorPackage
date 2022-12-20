@@ -186,8 +186,15 @@ class PacketStream<PC, SD, FP>::WriterThread {
 
     void setMissingFramesUntil(uint64_t frame) {
         while (curr_frame != frame) {
-            ps.setMissingFrame(curr_frame);
-            incFrameCounter();
+            block = std::move(ps.getEmptyBlock(curr_frame));
+            if (block) {
+                getNextPacket();
+                setInvalidRemainingPackets();
+                finishPacketBlock();
+            } else {
+                ps.setMissingFrame(curr_frame);
+                incFrameCounter();
+            }
         }
     }
 

@@ -46,7 +46,7 @@ struct PacketData {
 
     // An instance of <derived>::SoftHeader prepends each network packet
     struct SoftHeader {
-        int unused;
+        int valid;
     } __attribute__((packed));
     // The Packet structure in the (software) buffer
     struct SoftwarePacket {
@@ -75,14 +75,17 @@ template <class PD> struct Packet {
     using NetworkPacketHeader = typename Data::NetworkPacketHeader;
     using Layout = typename Data::Layout;
 
+    Layout *layout;
     SoftwarePacket *buffer;
 
-    Packet(Layout *l) : buffer(&l->soft_packet) {}
+    Packet(Layout *l) : layout(l), buffer(&l->soft_packet) {}
 
     SoftHeader const *softHeader() const { return &buffer->soft_header; }
     SoftHeader *softHeader() { return &buffer->soft_header; }
 
     void initSoftHeader() {}
+
+    bool isValid() const { return softHeader()->valid; }
 
     void *networkBuffer() { return &buffer->net_packet; }
 
@@ -131,9 +134,10 @@ template <class P> class PacketBlock {
     Packet operator[](unsigned int i) const { return Packet(&(*layout)[i]); }
 
     void setValid(unsigned int i, bool valid) {
+        Packet p = (*this)[i];
+        p.softHeader()->valid = valid;
         if (!valid) // default valid mask is false: nothing to do
             return;
-        Packet p = (*this)[i];
         valid_packet_mask[i] = true;
         if (!header || (p.number() < header->packetNumber))
             header = p.networkHeader();
