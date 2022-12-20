@@ -33,7 +33,8 @@ template <class PC, class SD, class FP>
 void PacketStream<PC, SD, FP>::printStats() {
     std::ostringstream msg;
     msg << "[" << socket->getPortNumber() << "] "
-        << "packet_delay_stat=" << packet_delay_stat.calcLinRegress();
+        << "packet_delay_stat=" << packet_delay_stat.calcLinRegress() << ", "
+        << "packet_push_stat=" << packet_push_stat.calcStats();
     LOG(logINFO) << msg.str();
 }
 
@@ -170,7 +171,11 @@ class PacketStream<PC, SD, FP>::WriterThread {
     Packet getNextPacket() { return (*block)[incPacketCounters().second]; }
 
     void finishPacketBlock() {
+        Clock::time_point t0 = Clock::now();
         ps.addPacketBlock(std::move(block));
+        Clock::time_point t = Clock::now();
+        double sec = ToSeconds(t - t0).count();
+        ps.packet_push_stat.add(sec);
         assert(!block);
         curr_idx = curr_packet = -1;
     }
@@ -190,7 +195,6 @@ class PacketStream<PC, SD, FP>::WriterThread {
         long packet_idx = ((packet.frame() - 1) * ps.FramePackets + index);
         if (packet_idx == 0)
             t0 = t;
-        std::lock_guard<std::mutex> l(ps.mutex);
         double sec = ToSeconds(t - t0).count();
         ps.packet_delay_stat.add(packet_idx, sec);
     }
@@ -201,12 +205,16 @@ class PacketStream<PC, SD, FP>::WriterThread {
         uint64_t packet_frame = packet.frame();
         uint32_t packet_number = packet.number();
 
+        bool skip_trace_unexpected = true;
         auto trace_unexpected = [&](auto msg) {
+            if (skip_trace_unexpected)
+                return;
+            long curr_frame = long(block->getFrameNumber());
             LOG(logERROR) << "[" << ps.socket->getPortNumber() << "] "
                           << "unexpected " << msg << ": "
                           << "packet_frame=" << packet_frame << ", "
                           << "packet_number=" << packet_number << ", "
-                          << "curr_frame=" << block->getFrameNumber() << ", "
+                          << "curr_frame=" << curr_frame << ", "
                           << "curr_packet=" << curr_packet << ", "
                           << "curr_idx=" << curr_idx;
         };
