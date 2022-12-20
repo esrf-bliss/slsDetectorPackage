@@ -4,6 +4,7 @@
 #include "receiver_defs.h"
 #include "sls/CPUAffinity.h"
 #include "sls/FrameAssembler.h"
+#include "sls/PacketBlockAllocator.h"
 #include "sls/PacketTypedefs.h"
 #include "sls/container_utils.h"
 #include "sls/logger.h"
@@ -30,7 +31,9 @@ using namespace sls::FrameAssembler;
 
 class Implementation : private virtual slsDetectorDefs {
   public:
+    using AnyCPUAffinity = sls::CPUAffinity::AnyCPUAffinity;
     using FixedCPUSetAffinityList = sls::CPUAffinity::FixedCPUSetAffinityList;
+    using NUMAMask = sls::CPUAffinity::NUMAMask;
 
     explicit Implementation(const detectorType d, bool passive);
     virtual ~Implementation();
@@ -276,6 +279,7 @@ class Implementation : private virtual slsDetectorDefs {
      *                                                *
      * ************************************************/
     void setListenersCPUAffinity(const FixedCPUSetAffinityList &cpu_affinities);
+    void setPacketBlockAllocators(const PacketBlockAllocList &packet_allocs);
     MPFrameAssemblerPtr CreateFrameAssembler(AssemblerType asm_type);
     sls::AnyPacketBlockList GetFramePacketBlocks(uint64_t frame = uint64_t(-1));
     void clearAllBuffers();
@@ -317,6 +321,14 @@ class Implementation : private virtual slsDetectorDefs {
 
     void CreateThreads();
     void DestroyThreads();
+
+    /**************************************************
+     *                                                *
+     *    NUMA Helpers                                *
+     *                                                *
+     * ************************************************/
+
+    NUMAMask GetFifoNUMAMask(AnyCPUAffinity cpu_affinity);
 
     /**************************************************
      *                                                *
@@ -427,6 +439,8 @@ class Implementation : private virtual slsDetectorDefs {
     std::vector<std::shared_ptr<Listener>> listener;
     std::vector<std::unique_ptr<DataProcessor>> dataProcessor;
     std::vector<std::unique_ptr<DataStreamer>> dataStreamer;
+    std::vector<std::unique_ptr<NUMAMask>> numaMask;
+    std::vector<PacketBlockAllocPtr> packetAllocPtr;
     std::vector<std::unique_ptr<Fifo>> fifo;
 
     std::mutex hdf5Lib;
