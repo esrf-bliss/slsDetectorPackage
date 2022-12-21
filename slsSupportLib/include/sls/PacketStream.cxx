@@ -14,7 +14,7 @@
 
 template <class PC, class SD, class FP>
 PacketStream<PC, SD, FP>::PacketStream(UdpRxSocketPtr s,
-				       int rr_nb, int rr_idx,
+                                       int rr_nb, int rr_idx,
                                        AnyCPUAffinity cpu_affinity,
                                        AnyPacketContainerPtr any_pc)
     : socket(s), rr_nb_recvs(rr_nb), rr_recv_idx(rr_idx),
@@ -35,7 +35,8 @@ template <class PC, class SD, class FP>
 void PacketStream<PC, SD, FP>::printStats() {
     std::ostringstream msg;
     msg << "[" << socket->getPortNumber() << "] "
-        << "packet_delay_stat=" << packet_delay_stat.calcLinRegress();
+        << "packet_delay_stat=" << packet_delay_stat.calcLinRegress() << ", "
+        << "packet_push_stat=" << packet_push_stat.calcStats();
     LOG(logINFO) << msg.str();
 }
 
@@ -88,12 +89,12 @@ void PacketStream<PC, SD, FP>::addPacketBlock(BlockPtr block) {
     bool full_frame = block->hasFullFrame();
     {
         uint64_t det_frame = block->getDetFrameNumber();
-	uint64_t recv_frame = calcRecvFrameNumber(det_frame);
-	block->setRecvFrameNumber(recv_frame);
+        uint64_t recv_frame = calcRecvFrameNumber(det_frame);
+        block->setRecvFrameNumber(recv_frame);
         std::lock_guard<std::mutex> l(mutex);
         if (first_frame == uint64_t(-1))
             first_frame = recv_frame;
-	++frames_caught;
+        ++frames_caught;
         if (full_frame)
             ++complete_frames_caught;
         if (recv_frame > last_frame)
@@ -174,7 +175,11 @@ class PacketStream<PC, SD, FP>::WriterThread {
     Packet getNextPacket() { return (*block)[incPacketCounters().second]; }
 
     void finishPacketBlock() {
+        Clock::time_point t0 = Clock::now();
         ps.addPacketBlock(std::move(block));
+        Clock::time_point t = Clock::now();
+        double sec = ToSeconds(t - t0).count();
+        ps.packet_push_stat.add(sec);
         assert(!block);
         curr_idx = curr_packet = -1;
     }
@@ -191,11 +196,10 @@ class PacketStream<PC, SD, FP>::WriterThread {
 
     void addPacketDelayStat(Packet &packet, uint32_t index) {
         Clock::time_point t = Clock::now();
-	uint64_t packet_frame = ps.calcRecvFrameNumber(packet.frame());
+        uint64_t packet_frame = ps.calcRecvFrameNumber(packet.frame());
         long packet_idx = ((packet_frame - 1) * ps.FramePackets + index);
         if (packet_idx == 0)
             t0 = t;
-        std::lock_guard<std::mutex> l(ps.mutex);
         double sec = ToSeconds(t - t0).count();
         ps.packet_delay_stat.add(packet_idx, sec);
     }
@@ -206,12 +210,16 @@ class PacketStream<PC, SD, FP>::WriterThread {
         uint64_t packet_frame = packet.frame();
         uint32_t packet_number = packet.number();
 
+        bool skip_trace_unexpected = true;
         auto trace_unexpected = [&](auto msg) {
+            if (skip_trace_unexpected)
+                return;
+            long curr_frame = long(block->getDetFrameNumber());
             LOG(logERROR) << "[" << ps.socket->getPortNumber() << "] "
                           << "unexpected " << msg << ": "
                           << "packet_frame=" << packet_frame << ", "
                           << "packet_number=" << packet_number << ", "
-                          << "curr_frame=" << block->getDetFrameNumber() << ", "
+                          << "curr_frame=" << curr_frame << ", "
                           << "curr_packet=" << curr_packet << ", "
                           << "curr_idx=" << curr_idx;
         };

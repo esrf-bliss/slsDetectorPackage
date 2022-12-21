@@ -128,6 +128,7 @@ template <class PC, class SD, class FP> class PacketStream {
     typename PacketContainer::Ptr packet_cont;
     bool stopped{false};
     XYStat packet_delay_stat{1e6};
+    XStat packet_push_stat{1e6};
     std::unique_ptr<WriterThread> thread;
 };
 

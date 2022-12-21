@@ -83,8 +83,6 @@ sls::PacketBlockPtr<P> PacketContainer<P>::getReadyPacketBlock(uint64_t frame) {
             bool too_old = (it->first > frame);
             if (too_old)
                 return nullptr;
-        }
-        if (!any) {
             it = packet_block_map.find(frame);
             if (it != packet_block_map.end())
                 break;
