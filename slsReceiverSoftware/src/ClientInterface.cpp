@@ -1694,6 +1694,11 @@ void ClientInterface::setListenersCPUAffinity(
     impl()->setListenersCPUAffinity(cpu_affinities);
 }
 
+void ClientInterface::setPacketBlockAllocators(
+    const PacketBlockAllocList &packet_allocs) {
+    impl()->setPacketBlockAllocators(packet_allocs);
+}
+
 MPFrameAssemblerPtr
 ClientInterface::CreateFrameAssembler(AssemblerType asm_type) {
     return impl()->CreateFrameAssembler(asm_type);

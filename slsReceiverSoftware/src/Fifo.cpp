@@ -16,11 +16,11 @@
 #include <unistd.h>
 
 Fifo::Fifo(int ind, GeneralDataPtr gd, uint32_t depth,
-           const NUMAMask &numa_mask)
+           PacketBlockAllocPtr alloc_ptr)
     : index(ind), memory(nullptr), fifoFree(nullptr), fifoStream(nullptr),
       fifoDepth(depth), status_fifoFree(depth) {
     LOG(logDEBUG3) << __SHORT_AT__ << " called";
-    CreateFifos(gd, numa_mask);
+    CreateFifos(gd, alloc_ptr);
 }
 
 Fifo::~Fifo() {
@@ -28,7 +28,7 @@ Fifo::~Fifo() {
     DestroyFifos();
 }
 
-void Fifo::CreateFifos(GeneralDataPtr gd, const NUMAMask &numa_mask) {
+void Fifo::CreateFifos(GeneralDataPtr gd, PacketBlockAllocPtr alloc_ptr) {
     LOG(logDEBUG3) << __SHORT_AT__ << " called";
 
     // destroy if not already
@@ -37,21 +37,14 @@ void Fifo::CreateFifos(GeneralDataPtr gd, const NUMAMask &numa_mask) {
     try {
         packetContainer = CreatePacketContainer(
             gd->myDetectorType, gd->tengigaEnable, gd->numUDPInterfaces,
-            gd->dynamicRange, fifoDepth, numa_mask);
+            gd->dynamicRange, fifoDepth, alloc_ptr);
         LOG(logINFO) << "Fifo " << index
                      << " packet Depth (rx_fifodepth): " << fifoDepth;
         long long mem_len;
         std::visit([&](auto &pc) { mem_len = pc.getMemorySize(); },
                    *packetContainer);
-        std::string numa_str;
-        LOG(logDEBUG) << "NUMA mask: " << numa_mask;
-        if (numa_mask.count() > 0) {
-            std::ostringstream os;
-            os << " - NUMA mask: " << numa_mask;
-            numa_str = os.str();
-        }
         LOG(logDEBUG) << "Memory Allocated " << index << ": "
-                      << mem_len / (double)(1024 * 1024) << " MB" << numa_str;
+                      << mem_len / (double)(1024 * 1024) << " MB";
     } catch (...) {
         throw sls::RuntimeError("Could not create PacketContainer");
     }

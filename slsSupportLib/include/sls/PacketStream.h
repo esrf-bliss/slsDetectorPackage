@@ -105,10 +105,12 @@ template <class PC, class SD, class FP> class PacketStream {
   private:
     struct WriterThread;
 
-    BlockPtr getEmptyBlock() { return packet_cont->getFreePacketBlock(); }
+    BlockPtr getEmptyBlock(uint64_t frame) {
+        return packet_cont->getFreePacketBlock(calcRecvFrameNumber(frame));
+    }
     void addPacketBlock(BlockPtr block);
     void setMissingFrame(uint64_t frame) {
-        packet_cont->setMissingFrame(frame);
+        packet_cont->setMissingFrame(calcRecvFrameNumber(frame));
     }
 
     bool isValid(uint64_t frame) { return frame != uint64_t(-1); }
@@ -128,7 +130,7 @@ template <class PC, class SD, class FP> class PacketStream {
     int header_pad;
     int packet_len;
     AnyCPUAffinity any_cpu_affinity;
-    typename PacketContainer::Ptr packet_cont;
+    std::shared_ptr<PacketContainer> packet_cont;
     bool stopped{false};
     XYStat packet_delay_stat{1e6};
     XStat packet_push_stat{1e6};

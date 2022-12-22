@@ -160,6 +160,11 @@ void Receiver::setListenersCPUAffinity(
     tcpipInterface->setListenersCPUAffinity(cpu_affinities);
 }
 
+void Receiver::setPacketBlockAllocators(
+    const PacketBlockAllocList &packet_allocs) {
+    tcpipInterface->setPacketBlockAllocators(packet_allocs);
+}
+
 MPFrameAssemblerPtr Receiver::CreateFrameAssembler(AssemblerType asm_type) {
     return tcpipInterface->CreateFrameAssembler(asm_type);
 }

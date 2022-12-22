@@ -6,6 +6,31 @@
 #include "sls/PacketContainer.h"
 
 /**
+ * MmappedPacketAllocator
+ */
+
+MmappedPacketAllocator::MmappedPacketAllocator(const NUMAMask &numa_mask)
+    : block_numa_mask(numa_mask) {}
+
+void MmappedPacketAllocator::alloc(std::size_t item_size,
+                                   std::size_t nb_items) {
+    release();
+
+    auto size = item_size * nb_items;
+    auto &&[node_mask, max_node] = block_numa_mask.get_os_mask();
+    block_array.alloc(size, node_mask, max_node);
+
+    block_size = item_size;
+    nb_blocks = nb_items;
+}
+
+void MmappedPacketAllocator::release() {
+    block_array.release();
+    block_size = 0;
+    nb_blocks = 0;
+}
+
+/**
  * PacketContainer factory
  */
 
@@ -18,7 +43,7 @@ template <class P, class... Args> auto PCFactory(Args &&...args) {
 AnyPacketContainerPtr
 CreatePacketContainer(slsDetectorDefs::detectorType det_type, bool tg_enable,
                       int num_udp_ifaces, uint32_t dr, int frames,
-                      const sls::CPUAffinity::NUMAMask &numa_mask) {
+                      PacketBlockAllocPtr alloc_ptr) {
 
     auto any_pixel = sls::AnyPixelFromBpp(dr);
 
@@ -26,7 +51,7 @@ CreatePacketContainer(slsDetectorDefs::detectorType det_type, bool tg_enable,
         [&](auto pixel) {
             using P = decltype(pixel);
 
-#define args frames, numa_mask
+#define args frames, alloc_ptr
 
             if (det_type == slsDetectorDefs::EIGER) {
                 auto any_tg = sls::Eiger::AnyTenGigaFromTgEnable(tg_enable);
