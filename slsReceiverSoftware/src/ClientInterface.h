@@ -58,6 +58,7 @@ class ClientInterface : private virtual slsDetectorDefs {
     /** Passive mode functions */
     void setPassiveMode(bool passive);
     void setListenersCPUAffinity(const FixedCPUSetAffinityList &cpu_affinities);
+    void setPacketBlockAllocators(const PacketBlockAllocList &packet_allocs);
     MPFrameAssemblerPtr CreateFrameAssembler(AssemblerType asm_type);
     sls::AnyPacketBlockList GetFramePacketBlocks(uint64_t frame = uint64_t(-1));
     void clearAllBuffers();

@@ -14,9 +14,9 @@
 
 template <typename T>
 MmappedRegion<T>::MmappedRegion(size_t size, const unsigned long *node_mask,
-                                int max_node)
-    : ptr(NULL), len(0) {
-    alloc(size, node_mask, max_node);
+                                int max_node) {
+    if (size > 0)
+        alloc(size, node_mask, max_node);
 }
 
 template <typename T> MmappedRegion<T>::~MmappedRegion() { release(); }
@@ -35,7 +35,7 @@ void MmappedRegion<T>::alloc(size_t size, const unsigned long *node_mask,
 
     ptr = static_cast<T *>(mmap(0, len, PROT_READ | PROT_WRITE,
                                 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
-    if (ptr == NULL)
+    if (ptr == nullptr)
         throw bad_mmap_alloc("Could not allocate packet memory");
 
     if (node_mask && max_node) {
@@ -50,10 +50,12 @@ void MmappedRegion<T>::alloc(size_t size, const unsigned long *node_mask,
 }
 
 template <typename T> void MmappedRegion<T>::release() {
-    if (len) {
-        munmap(ptr, len);
-        len = 0;
-    }
+    if (len == 0)
+        return;
+
+    munmap(ptr, len);
+    len = 0;
+    ptr = nullptr;
 }
 
 template <typename T> void MmappedRegion<T>::clear() { memset(ptr, 0, len); }

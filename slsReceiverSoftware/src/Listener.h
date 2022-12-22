@@ -24,7 +24,6 @@ class Fifo;
 class Listener : private virtual slsDetectorDefs, public ThreadObject {
 
   public:
-    using NUMAMask = sls::CPUAffinity::NUMAMask;
     using AnyCPUAffinity = sls::CPUAffinity::AnyCPUAffinity;
 
     using Ptr = std::shared_ptr<Listener>;
@@ -66,21 +65,21 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
      * Get First Frame Caught
      * @return first frame
      */
-    uint64_t GetFirstFrameCaught();
+    uint64_t GetFirstFrameCaught() const;
 
     /**
      * Get Frames Caught for each real time acquisition
      * (eg. for each scan)
      * @return number of frames caught for each scan
      */
-    uint64_t GetNumFramesCaught();
+    uint64_t GetNumFramesCaught() const;
 
     /**
      * Get Frames Complete Caught for each real time acquisition
      * (eg. for each scan)
      * @return number of complete frames caught for each scan
      */
-    uint64_t GetNumCompleteFramesCaught();
+    uint64_t GetNumCompleteFramesCaught() const;
 
     /**
      * Get Last Frame index caught
@@ -130,11 +129,6 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
      */
     void SetThreadCPUAffinity(AnyCPUAffinity cpu_affinity);
 
-    /**
-     * Get the fifo buffer NUMA affinity mask
-     */
-    NUMAMask GetFifoNUMAMask();
-
   private:
     /**
      * Thread Execution for Listener Class
@@ -182,6 +176,13 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
 
     /** packet stream **/
     std::shared_ptr<AnyPacketStream> packetStream;
+
+    /** packet stream summary **/
+    uint64_t packetsCaught{0};
+    uint64_t firstFrameCaught{0};
+    uint64_t numFramesCaught{0};
+    uint64_t numCompleteFramesCaught{0};
+    uint64_t lastFrameIndexCaught{0};
 
     /** if the udp socket is connected */
     std::atomic<bool> udpSocketAlive{false};

@@ -15,6 +15,44 @@
 #include <variant>
 
 #include "sls/MmappedRegion.h"
+#include "sls/PacketBlockAllocator.h"
+
+/**
+ *@short default packet block allocator
+ */
+
+class MmappedPacketAllocator : public PacketBlockAllocator {
+
+  public:
+    using NUMAMask = sls::CPUAffinity::NUMAMask;
+
+    MmappedPacketAllocator(const NUMAMask &numa_mask = {});
+
+    void alloc(std::size_t item_size, std::size_t nb_items) override;
+    void release() override;
+
+    std::size_t getNbItems() override { return nb_blocks; }
+    void *getItemPtr(std::size_t idx) override;
+
+    void clear() override { block_array.clear(); }
+
+    long long getMemorySize() override { return block_array.getMemorySize(); }
+
+  protected:
+    MmappedRegion<char> block_array;
+    NUMAMask block_numa_mask;
+    std::size_t block_size{0};
+    std::size_t nb_blocks{0};
+};
+
+inline void *MmappedPacketAllocator::getItemPtr(std::size_t idx) {
+    if (idx >= nb_blocks)
+        throw std::out_of_range("MmappedPacketAllocator: index out of range: " +
+                                std::to_string(idx) +
+                                " (max=" + std::to_string(nb_blocks - 1) + ")");
+    return block_array.getPtr() + block_size * idx;
+}
+
 
 /**
  *@short container managing packet blocks to/from stream
@@ -25,17 +63,13 @@
 template <class P> class PacketContainer {
 
   public:
-    using NUMAMask = sls::CPUAffinity::NUMAMask;
-
-    PacketContainer(int frames, const NUMAMask &numa_mask);
+    PacketContainer(int frames, PacketBlockAllocPtr alloc_ptr);
     ~PacketContainer();
 
     using Packet = P;
     using Block = sls::PacketBlock<Packet>;
     using BlockPtr = sls::PacketBlockPtr<Packet>;
     using BlockLayout = typename Block::Layout;
-
-    using Ptr = std::shared_ptr<PacketContainer>;
 
     BlockPtr getReadyPacketBlock(uint64_t frame = uint64_t(-1));
 
@@ -46,7 +80,7 @@ template <class P> class PacketContainer {
 
     void prepare();
 
-    BlockPtr getFreePacketBlock();
+    BlockPtr getFreePacketBlock(uint64_t frame);
     void putReadyPacketBlock(BlockPtr block);
     void setMissingFrame(uint64_t frame);
 
@@ -54,25 +88,25 @@ template <class P> class PacketContainer {
     void cleanUp();
 
   private:
-    friend class StreamIface;
+    using FreeBlockMap = std::vector<BlockLayout *>;
+    using ReadyBlockMap = std::map<uint64_t, BlockPtr>;
 
-    using MmappedBlockRegion = MmappedRegion<BlockLayout>;
-
-    using PacketBlockMap = std::map<uint64_t, BlockPtr>;
-    using MapIterator = typename PacketBlockMap::iterator;
-    using FramePacketBlock = typename PacketBlockMap::value_type;
+    unsigned int getBufferIdx(uint64_t frame) {
+        return (frame - 1) % num_frames;
+    }
 
     void releaseReadyPacketBlocks();
     void waitUsedPacketBlocks();
 
     const unsigned int num_frames;
-    MmappedBlockRegion packet_buffer_array;
+    PacketBlockAllocPtr block_alloc_ptr;
     std::mutex free_mutex;
     std::condition_variable free_cond;
-    std::queue<BlockLayout *> free_queue;
+    FreeBlockMap free_map;
+    int pending_packets{0};
     std::mutex block_mutex;
     std::condition_variable block_cond;
-    PacketBlockMap packet_block_map;
+    ReadyBlockMap ready_block_map;
     int waiting_reader_count{0};
     bool stopped;
 };
@@ -92,7 +126,7 @@ using AnyPacketContainer =
 using AnyPacketContainerPtr = std::shared_ptr<AnyPacketContainer>;
 
 template <class P>
-typename PacketContainer<P>::Ptr
+std::shared_ptr<PacketContainer<P>>
 PacketContainerPtrFromAny(AnyPacketContainerPtr any_pc) {
     return {any_pc, &std::get<PacketContainer<P>>(*any_pc)};
 }
@@ -100,6 +134,6 @@ PacketContainerPtrFromAny(AnyPacketContainerPtr any_pc) {
 AnyPacketContainerPtr
 CreatePacketContainer(slsDetectorDefs::detectorType det_type, bool tg_enable,
                       int num_udp_ifaces, uint32_t dr, int frames,
-                      const sls::CPUAffinity::NUMAMask &numa_mask);
+                      PacketBlockAllocPtr alloc_ptr);
 
 #include "PacketContainer.cxx"

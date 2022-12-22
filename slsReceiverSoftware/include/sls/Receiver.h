@@ -3,6 +3,7 @@
 #pragma once
 #include "sls/CPUAffinity.h"
 #include "sls/FrameAssembler.h"
+#include "sls/PacketBlockAllocator.h"
 #include "sls/sls_detector_defs.h"
 #include <memory>
 
@@ -104,6 +105,11 @@ class Receiver : private virtual slsDetectorDefs {
      * threads and their allocated (PacketContainer) memory
      */
     void setListenersCPUAffinity(const FixedCPUSetAffinityList &cpu_affinities);
+
+    /**
+     * Set the Fifo PacketBlockAllocators
+     */
+    void setPacketBlockAllocators(const PacketBlockAllocList &packet_allocs);
 
     /**
      * Create the FrameAssembler for the current detector configuration

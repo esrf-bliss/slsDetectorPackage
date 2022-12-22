@@ -73,12 +73,18 @@ void Implementation::SetupFifoStructure() {
     frameAssembler.reset();
     for (int i = 0; i < numThreads; ++i) {
         // create fifo structure
-        sls::CPUAffinity::NUMAMask numa_mask;
+        NUMAMask numa_mask;
         try {
-            if (HasValidThread(listener, i))
-                numa_mask = listener[i]->GetFifoNUMAMask();
+            PacketBlockAllocPtr alloc_ptr;
+            if (HasValidThread(packetAllocPtr, i)) {
+                alloc_ptr = packetAllocPtr[i];
+            } else {
+                if (HasValidThread(numaMask, i))
+                    numa_mask = *numaMask[i];
+                alloc_ptr = std::make_shared<MmappedPacketAllocator>(numa_mask);
+            }
             fifo.push_back(
-                sls::make_unique<Fifo>(i, generalData, fifoDepth, numa_mask));
+                sls::make_unique<Fifo>(i, generalData, fifoDepth, alloc_ptr));
         } catch (...) {
             fifo.clear();
             fifoDepth = 0;
@@ -1743,9 +1749,36 @@ void Implementation::setListenersCPUAffinity(
                                 std::to_string(cpu_affinities.size()));
     else if (!activated)
         throw sls::RuntimeError("Receiver not activated");
-    for (int i = 0; i < numThreads; ++i)
+    numaMask.clear();
+    for (int i = 0; i < numThreads; ++i) {
         if (HasValidThread(listener, i))
             listener[i]->SetThreadCPUAffinity(cpu_affinities[i]);
+        auto numa_mask = GetFifoNUMAMask(cpu_affinities[i]);
+        numaMask.push_back(std::make_unique<NUMAMask>(numa_mask));
+    }
+    SetupFifoStructure();
+}
+
+Implementation::NUMAMask
+Implementation::GetFifoNUMAMask(AnyCPUAffinity cpu_affinity) {
+    using FixedCPUSetAffinity = sls::CPUAffinity::FixedCPUSetAffinityMask;
+    if (std::holds_alternative<FixedCPUSetAffinity>(cpu_affinity)) {
+        auto cpu_mask = std::get<FixedCPUSetAffinity>(cpu_affinity);
+        return cpu_mask.get_numa_mask();
+    }
+    return {};
+}
+
+void Implementation::setPacketBlockAllocators(
+    const PacketBlockAllocList &packet_allocs) {
+    if (int(packet_allocs.size()) != numUDPInterfaces)
+        throw sls::RuntimeError("Invalid packet_allocs size: " +
+                                std::to_string(packet_allocs.size()));
+    else if (!activated)
+        throw sls::RuntimeError("Receiver not activated");
+    packetAllocPtr.clear();
+    std::copy(packet_allocs.begin(), packet_allocs.end(),
+              std::back_inserter(packetAllocPtr));
     SetupFifoStructure();
 }
 
