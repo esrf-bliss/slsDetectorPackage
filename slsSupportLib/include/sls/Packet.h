@@ -126,7 +126,7 @@ template <class P> class PacketBlock {
     using NetworkHeader = typename Packet::NetworkPacketHeader;
     using sls_bitset = slsDetectorDefs::sls_bitset;
 
-    PacketBlock(LayoutPtr &&l) : layout(std::move(l)){};
+    PacketBlock(LayoutPtr &&l) : layout(std::move(l)) {};
 
     Packet operator[](unsigned int i) const { return Packet(&(*layout)[i]); }
 

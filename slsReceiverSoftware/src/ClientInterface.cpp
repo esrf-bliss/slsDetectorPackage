@@ -1699,8 +1699,8 @@ ClientInterface::CreateFrameAssembler(AssemblerType asm_type) {
     return impl()->CreateFrameAssembler(asm_type);
 }
 
-sls::AnyPacketBlockList ClientInterface::GetFramePacketBlocks() {
-    return impl()->GetFramePacketBlocks();
+sls::AnyPacketBlockList ClientInterface::GetFramePacketBlocks(uint64_t frame) {
+    return impl()->GetFramePacketBlocks(frame);
 }
 
 void ClientInterface::clearAllBuffers() { impl()->clearAllBuffers(); }

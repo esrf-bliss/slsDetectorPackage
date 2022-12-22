@@ -282,7 +282,7 @@ class Implementation : private virtual slsDetectorDefs {
      * ************************************************/
     void setListenersCPUAffinity(const FixedCPUSetAffinityList &cpu_affinities);
     MPFrameAssemblerPtr CreateFrameAssembler(AssemblerType asm_type);
-    sls::AnyPacketBlockList GetFramePacketBlocks();
+    sls::AnyPacketBlockList GetFramePacketBlocks(uint64_t frame = uint64_t(-1));
     void clearAllBuffers();
 
     /**************************************************

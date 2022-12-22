@@ -164,8 +164,8 @@ MPFrameAssemblerPtr Receiver::CreateFrameAssembler(AssemblerType asm_type) {
     return tcpipInterface->CreateFrameAssembler(asm_type);
 }
 
-AnyPacketBlockList Receiver::GetFramePacketBlocks() {
-    return tcpipInterface->GetFramePacketBlocks();
+AnyPacketBlockList Receiver::GetFramePacketBlocks(uint64_t frame) {
+    return tcpipInterface->GetFramePacketBlocks(frame);
 }
 
 void Receiver::clearAllBuffers() { tcpipInterface->clearAllBuffers(); }

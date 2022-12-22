@@ -112,7 +112,7 @@ void PacketStream<PC, SD, FP>::threadFunction() {
 template <class PC, class SD, class FP>
 class PacketStream<PC, SD, FP>::WriterThread {
   public:
-    WriterThread(PacketStream &s) : ps(s) {}
+    WriterThread(PacketStream &s) : ps(s) { curr_frame += ps.rr_recv_idx; }
 
     ~WriterThread() {
         std::unique_lock<std::mutex> l(ps.mutex);
@@ -167,6 +167,8 @@ class PacketStream<PC, SD, FP>::WriterThread {
         return ps.stream_data.getPacketNumber(idx);
     }
 
+    void incFrameCounter() { curr_frame += ps.rr_nb_recvs; }
+
     std::pair<uint32_t, uint32_t> incPacketCounters() {
         curr_packet = getPacketNumber(++curr_idx);
         return {curr_idx, curr_packet};
@@ -182,6 +184,14 @@ class PacketStream<PC, SD, FP>::WriterThread {
         ps.packet_push_stat.add(sec);
         assert(!block);
         curr_idx = curr_packet = -1;
+        incFrameCounter();
+    }
+
+    void setMissingFramesUntil(uint64_t frame) {
+        while (curr_frame != frame) {
+            ps.setMissingFrame(curr_frame);
+            incFrameCounter();
+        }
     }
 
     void setInvalidPacketsUntil(uint32_t good_packet) {
@@ -214,27 +224,32 @@ class PacketStream<PC, SD, FP>::WriterThread {
         auto trace_unexpected = [&](auto msg) {
             if (skip_trace_unexpected)
                 return;
-            long curr_frame = long(block->getDetFrameNumber());
             LOG(logERROR) << "[" << ps.socket->getPortNumber() << "] "
                           << "unexpected " << msg << ": "
                           << "packet_frame=" << packet_frame << ", "
                           << "packet_number=" << packet_number << ", "
-                          << "curr_frame=" << curr_frame << ", "
+                          << "curr_frame=" << long(curr_frame) << ", "
                           << "curr_packet=" << curr_packet << ", "
                           << "curr_idx=" << curr_idx;
         };
 
         // moveToGood manages both src & dst valid flags
-        bool first_packet = !block->getNetworkHeader();
-        if (!first_packet && (packet_frame != block->getDetFrameNumber())) {
+        if (packet_frame != curr_frame) {
             trace_unexpected("new frame");
             BlockPtr new_block = ps.getEmptyBlock();
             if (new_block)
                 new_block->moveToGood(packet);
-            setInvalidRemainingPackets();
-            finishPacketBlock();
+            // Finish current block if it's got some data
+            if (curr_idx > 0) {
+                setInvalidRemainingPackets();
+                finishPacketBlock();
+            } else {
+                block.reset();
+                curr_idx = curr_packet = -1;
+            }
             if (!new_block)
                 return false;
+            setMissingFramesUntil(packet_frame);
             // initialize new block
             block = std::move(new_block);
             incPacketCounters();
@@ -270,6 +285,7 @@ class PacketStream<PC, SD, FP>::WriterThread {
     PacketStream &ps;
     Clock::time_point t0;
     BlockPtr block;
+    uint64_t curr_frame{DefaultFirstFrameIdx};
     uint32_t curr_idx{uint32_t(-1)};
     uint32_t curr_packet{uint32_t(-1)};
     bool running{false};
