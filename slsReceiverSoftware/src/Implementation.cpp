@@ -1749,7 +1749,7 @@ void Implementation::setListenersCPUAffinity(
     SetupFifoStructure();
 }
 
-sls::AnyPacketBlockList Implementation::GetFramePacketBlocks() {
+sls::AnyPacketBlockList Implementation::GetFramePacketBlocks(uint64_t frame) {
     if (!passiveMode)
         throw sls::RuntimeError("GetFramePacketBlocks: not in passiveMode");
 
@@ -1758,7 +1758,6 @@ sls::AnyPacketBlockList Implementation::GetFramePacketBlocks() {
 
     sls::AnyPacketBlockList blocks;
     size_t valid_ports = 0;
-    uint64_t frame = uint64_t(-1);
     for (auto &f : fifo) {
         blocks.emplace_back(f->GetFramePackets(frame));
         std::visit(
