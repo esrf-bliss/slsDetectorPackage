@@ -52,10 +52,19 @@ class FixedCPUSet {
 
     void apply_to_this_thread() const { apply_to_task(0); }
 
-    int get_max_nb_cpus() const { return CPU_SETSIZE; }
+    static int get_max_nb_cpus() { return CPU_SETSIZE; }
 
     cpu_set_t &cpu_set() { return cs; }
     const cpu_set_t &cpu_set() const { return cs; }
+
+    static FixedCPUSet all_ones()
+    {
+        FixedCPUSet c;
+        const auto max_cpus = get_max_nb_cpus();
+        for (int i = 0; i < max_cpus; ++i)
+            c.set(i);
+        return c;
+    }
 
   private:
     FixedCPUSet &copy(const cpu_set_t &o) {
@@ -74,6 +83,12 @@ class FixedCPUSet {
 inline bool operator==(const FixedCPUSet &a, const FixedCPUSet &b) {
     return CPU_EQUAL(&a.cpu_set(), &b.cpu_set());
 }
+
+inline FixedCPUSet operator~(FixedCPUSet c)
+{
+    return c ^= FixedCPUSet::all_ones();
+}
+
 
 class ULongArrayBitSet {
   public:
