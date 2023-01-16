@@ -33,6 +33,7 @@ PacketContainer<P>::PacketContainer(int frames, PacketBlockAllocPtr alloc_ptr)
 template <class P> PacketContainer<P>::~PacketContainer() {
     stop();
     cleanUp();
+    waitUsedPacketBlocks();
     block_alloc_ptr->release();
 }
 
@@ -140,7 +141,7 @@ template <class P> void PacketContainer<P>::waitUsedPacketBlocks() {
         Clock::time_point t = Clock::now();
         if (t - t0 > wait_reader_timeout)
             break;
-        std::this_thread::sleep_for(5ms);
+        std::this_thread::sleep_for(100ms);
     }
     auto missing = getPendingPackets();
     if (missing > 0) {
@@ -152,7 +153,10 @@ template <class P> void PacketContainer<P>::waitUsedPacketBlocks() {
     }
 }
 
-template <class P> void PacketContainer<P>::prepare() { stopped = false; }
+template <class P> void PacketContainer<P>::prepare() {
+    waitUsedPacketBlocks();
+    stopped = false;
+}
 
 template <class P> void PacketContainer<P>::stop() {
     stopped = true;
@@ -168,7 +172,6 @@ template <class P> void PacketContainer<P>::stop() {
 
 template <class P> void PacketContainer<P>::cleanUp() {
     releaseReadyPacketBlocks();
-    waitUsedPacketBlocks();
 }
 
 template <class P> void PacketContainer<P>::clearBuffers() {
