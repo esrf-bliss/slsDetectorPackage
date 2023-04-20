@@ -151,7 +151,19 @@ BinaryFunction view_for_each_pixel(const MapView &view1, const MapView &view2,
  * Raw format: all the network Ifaces (ports) are vertically concatenated
  */
 
-struct RawFmt {
+struct RowWiseOrdering {
+    static constexpr int getElementIndex(const XY &array_size, const XY &idx) {
+        return RowWiseElementIndex(array_size, idx);
+    }
+};
+
+struct ColWiseOrdering {
+    static constexpr int getElementIndex(const XY &array_size, const XY &idx) {
+        return ColWiseElementIndex(array_size, idx);
+    }
+};
+
+template <typename Ordering> struct RawFmtBase {
     static constexpr auto calcArraySize(const XY &elem_size,
                                         const XY &array_size,
                                         const XY & /*gap*/) {
@@ -163,10 +175,14 @@ struct RawFmt {
                                          const XY & /*gap*/, const XY &idx,
                                          const MapView &view,
                                          const XY &flip = NoFlip) {
-        XY raw_idx{0, RowWiseElementIndex(array_size, idx)};
+        XY raw_idx{0, Ordering::getElementIndex(array_size, idx)};
         return view.getSubView(elem_size * raw_idx, elem_size, flip);
     }
 };
+
+struct RowWiseRawFmt : RawFmtBase<RowWiseOrdering> {};
+
+struct ColWiseRawFmt : RawFmtBase<ColWiseOrdering> {};
 
 /*
  * Asm format: the geometry is reconstructed
@@ -226,7 +242,8 @@ struct AsmWithGapFmt {
 };
 
 template <class Fmt> constexpr bool IsRaw() {
-    return std::is_same<Fmt, RawFmt>::value;
+    return (std::is_same<Fmt, RowWiseRawFmt>::value ||
+            std::is_same<Fmt, ColWiseRawFmt>::value);
 }
 
 template <class Fmt> constexpr auto EffectiveFmtGap(const XY &gap) {
@@ -568,8 +585,10 @@ BinaryFunction det_for_each_pixel(const DG1 &det_geom1, const DG2 &det_geom2,
 
 // Detector geometry data: stores all geometry for a particular detector
 // MX, MY: detector modules, G: detector geometry generator
-template <int MX, int MY, template <int x, int y, class Fmt> class G>
+template <int MX, int MY, template <int x, int y, class Fmt> class G,
+          typename RawFmt = ColWiseRawFmt>
 struct DetGeomData {
+    using RawFmtType = RawFmt;
     static constexpr auto raw_geom = G<MX, MY, RawFmt>()();
     static constexpr auto asm_ng_geom = G<MX, MY, AsmWithNoGapFmt>()();
     static constexpr auto asm_wg_geom = G<MX, MY, AsmWithGapFmt>()();
