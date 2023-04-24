@@ -33,8 +33,9 @@ void fill_gap_pixel_value(const TDG &tgt_det, T *tgt, T gap_pixel_val) {
  * Generator types
  */
 
-template <class SDG, class T> struct GenChipIdx {
+template <class T> struct GenChipIdx {
     static const std::string name;
+    template <class SDG>
     GenChipIdx(const SDG &src_geom)
         : det_chips(src_geom.det_mods * src_geom.mod_recvs *
                     src_geom.recv_ifaces * src_geom.iface_chips) {}
@@ -44,43 +45,39 @@ template <class SDG, class T> struct GenChipIdx {
     }
     XY det_chips;
 };
-template <class SDG, class T>
-const std::string GenChipIdx<SDG, T>::name = "chip_idx";
+template <class T> const std::string GenChipIdx<T>::name = "chip_idx";
 
-template <class SDG, class T> struct GenPixelIdx {
+template <class T> struct GenPixelIdx {
     static const std::string name;
-    GenPixelIdx(const SDG & /*src_geom*/) {}
+    template <class SDG> GenPixelIdx(const SDG & /*src_geom*/) {}
     T get_val(T * /*src*/, const XY & /*chip*/, const MapView &src_chip,
               const XY &pixel) {
         return src_chip.calcMapPixelIndex(pixel);
     }
 };
-template <class SDG, class T>
-const std::string GenPixelIdx<SDG, T>::name = "pixel_idx";
+template <class T> const std::string GenPixelIdx<T>::name = "pixel_idx";
 
-template <class SDG, class T> struct GenPixelVal {
+template <class T> struct GenPixelVal {
     static const std::string name;
-    GenPixelVal(const SDG & /*src_geom*/) {}
+    template <class SDG> GenPixelVal(const SDG & /*src_geom*/) {}
     T get_val(T *src, const XY & /*chip*/, const MapView &src_chip,
               const XY &pixel) {
         int si = src_chip.calcMapPixelIndex(pixel);
         return src[si];
     }
 };
-template <class SDG, class T>
-const std::string GenPixelVal<SDG, T>::name = "pixel_val";
+template <class T> const std::string GenPixelVal<T>::name = "pixel_val";
 
-template <class SDG, class T>
-using AnyGenType =
-    std::variant<GenChipIdx<SDG, T>, GenPixelIdx<SDG, T>, GenPixelVal<SDG, T>>;
+template <class T>
+using AnyGenType = std::variant<GenChipIdx<T>, GenPixelIdx<T>, GenPixelVal<T>>;
 
-template <class SDG, class T>
-AnyGenType<SDG, T> AnyGenTypeFromStr(const std::string &gen_type,
-                                     const SDG &src_geom) {
+template <class T, class SDG>
+AnyGenType<T> AnyGenTypeFromStr(const std::string &gen_type,
+                                const SDG &src_geom) {
 
 #define test(g)                                                                \
-    if (gen_type == g<SDG, T>::name)                                           \
-    return g<SDG, T>(src_geom)
+    if (gen_type == g<T>::name)                                                \
+    return g<T>(src_geom)
 
     test(GenChipIdx);
     test(GenPixelIdx);
@@ -123,7 +120,7 @@ void generate_map(Gen &gen, const SDG &src_det, T *src, const TDG &tgt_det,
  * AsmWithGap - Assembled with gaps
  */
 
-struct RawFmt : sls::Geom::RawFmt {
+struct RawFmt {
     static const std::string name;
     template <class GD> static constexpr auto getGeom(const GD &geom_data) {
         return geom_data.raw_geom;
@@ -131,7 +128,7 @@ struct RawFmt : sls::Geom::RawFmt {
 };
 const std::string RawFmt::name = "Raw";
 
-struct AsmWithNoGapFmt : sls::Geom::AsmWithNoGapFmt {
+struct AsmWithNoGapFmt {
     static const std::string name;
     template <class GD> static constexpr auto getGeom(const GD &geom_data) {
         return geom_data.asm_ng_geom;
@@ -139,7 +136,7 @@ struct AsmWithNoGapFmt : sls::Geom::AsmWithNoGapFmt {
 };
 const std::string AsmWithNoGapFmt::name = "AsmNG";
 
-struct AsmWithGapFmt : sls::Geom::AsmWithGapFmt {
+struct AsmWithGapFmt {
     static const std::string name;
     template <class GD> static constexpr auto getGeom(const GD &geom_data) {
         return geom_data.asm_wg_geom;
@@ -281,7 +278,7 @@ void geometry_assembler(DT det_type, std::string gen_type, const SDG &src_geom,
     std::unique_ptr<T> src(ifile ? new T[src_pixels] : nullptr);
     std::unique_ptr<T> tgt(ofile ? new T[tgt_pixels] : nullptr);
 
-    auto any_gen_type = AnyGenTypeFromStr<SDG, T>(gen_type, src_geom);
+    auto any_gen_type = AnyGenTypeFromStr<T>(gen_type, src_geom);
     std::visit(
         [&](auto &gen) {
             for (std::size_t f = 0; f < nb_frames; ++f) {

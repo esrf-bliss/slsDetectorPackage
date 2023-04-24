@@ -140,15 +140,13 @@ Implementation::CreateFrameAssembler(AssemblerType asm_type) {
     int mod_idx = recv_idx / recvs_per_mod;
     int mod_recv_idx = recv_idx % recvs_per_mod;
     XY det_mods = det_ifaces / (mod_recvs * recv_ifaces);
-    XY mod_pos{mod_idx / det_mods.y, mod_idx % det_mods.y};
+    XY mod_pos = ColWiseElementFromIndex(det_mods, mod_idx);
 
     if (asm_type == AsmRaw) {
-        int raw_mod_idx = RowWiseElementIndex(det_mods, mod_pos);
-        int raw_recv_idx = raw_mod_idx * recvs_per_mod + mod_recv_idx;
         int det_recvs = det_ifaces.area() / recv_ifaces.area();
         uint32_t dst_dr = (src_dr == 4) ? 8 : src_dr;
         fa = std::make_unique<RawFrameAssembler>(
-            d, raw_recv_idx, det_recvs, tg_enable, nb_ports, src_dr, dst_dr);
+            d, recv_idx, det_recvs, tg_enable, nb_ports, src_dr, dst_dr);
     } else if (d == slsDetectorDefs::EIGER) {
         fa = sls::Eiger::FrameAssembler::CreateFrameAssembler(
             src_dr, gd->tgEnable, det_ifaces, mod_pos, mod_recv_idx);
