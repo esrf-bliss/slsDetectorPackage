@@ -46,12 +46,12 @@ template <typename NbUDPIfaces> struct TiledDetGeom {
     };
 };
 
-template <typename NbUDPIfaces, int MX, int MY>
+template <typename NbUDPIfaces, int MX, int MY, typename RawFmt = ColWiseRawFmt>
 using GeomDataBase =
-    DetGeomData<MX, MY, TiledDetGeom<NbUDPIfaces>::template Generator>;
+    DetGeomData<MX, MY, TiledDetGeom<NbUDPIfaces>::template Generator, RawFmt>;
 
-template <typename NbUDPIfaces, int MX, int MY>
-struct GeomData : GeomDataBase<NbUDPIfaces, MX, MY> {
+template <typename NbUDPIfaces, int MX, int MY, typename RawFmt = ColWiseRawFmt>
+struct GeomData : GeomDataBase<NbUDPIfaces, MX, MY, RawFmt> {
     using B = GeomDataBase<NbUDPIfaces, MX, MY>;
 
     using num_udp_ifaces = NbUDPIfaces;
@@ -81,7 +81,7 @@ using Jungfrau1MWGeom = GeomData<NbUDPIfaces, 2, 1>;
 template <typename NbUDPIfaces>
 using Jungfrau4MGeom = GeomData<NbUDPIfaces, 2, 4>;
 template <typename NbUDPIfaces>
-using Jungfrau16MGeom = GeomData<NbUDPIfaces, 4, 8>;
+using Jungfrau16MGeom = GeomData<NbUDPIfaces, 4, 8, RowWiseRawFmt>;
 
 template <typename NbUDPIfaces>
 using AnyDetGeom =
