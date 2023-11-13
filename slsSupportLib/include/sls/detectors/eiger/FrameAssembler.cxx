@@ -155,16 +155,22 @@ struct Expand4BitsHelper : GeomHelper<P, TG, GD, MGX, MGY, Idx> {
 template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
 int Expand4BitsHelper<P, TG, GD, MGX, MGY, Idx>::Worker::load_packet(
     ConstBlockPtr block[NbIfaces], int packet) {
-    Packet<P, TG> p0 = (*block[0])[packet];
-    Packet<P, TG> p1 = (*block[1])[packet];
-    s[0] = (const __m128i *)(p0.data() + h.src_offset);
-    s[1] = (const __m128i *)(p1.data() + h.src_offset);
-    if ((((unsigned long)s[0] | (unsigned long)s[1]) & 15) != 0) {
-        LOG(logERROR) << "Missaligned src";
+    auto do_packet = [&](int i) {
+        if (!block[i]) {
+            v[i] = false;
+            return 0;
+        }
+        auto &&b = *block[i];
+        s[i] = (const __m128i *)(b[packet].data() + h.src_offset);
+        if (((unsigned long)s[i] & 15) != 0) {
+            LOG(logERROR) << "Missaligned src";
+            return -1;
+        }
+        v[i] = b.getValidPacketMask()[packet];
+        return 0;
+    };
+    if ((do_packet(0) < 0) || (do_packet(1) < 0))
         return -1;
-    }
-    v[0] = block[0]->getValidPacketMask()[packet];
-    v[1] = block[1]->getValidPacketMask()[packet];
     return 0;
 }
 
@@ -310,20 +316,22 @@ void CopyHelper<P, TG, GD, MGX, MGY, Idx>::assemblePackets(
     H h;
     int packet = h.src_first_packet;
     char *d = buf;
-    using sls_bitset = slsDetectorDefs::sls_bitset;
-    sls_bitset valid_packet_mask[NbIfaces] = {block[0]->getValidPacketMask(),
-                                              block[1]->getValidPacketMask()};
     for (int p = 0; p < h.frame_packets; ++p, packet += h.src_dir) {
-        Packet<P, TG> line_packet[NbIfaces] = {(*block[0])[packet],
-                                               (*block[1])[packet]};
-        char *s[NbIfaces] = {line_packet[0].data() + h.src_offset,
-                             line_packet[1].data() + h.src_offset};
+        auto valid_iface_packet = [&](int i) {
+            return block[i] ? block[i]->getValidPacketMask()[packet] : false;
+        };
+        auto iface_packet_data = [&](int i) -> char * {
+            if (!valid_iface_packet(i))
+                return nullptr;
+            return (*block[i])[packet].data() + h.src_offset;
+        };
+        char *s[NbIfaces] = {iface_packet_data(0), iface_packet_data(1)};
         for (int l = 0; l < h.packet_lines; ++l) {
             char *ld = d;
             for (int i = 0; i < NbIfaces; ++i) {
                 char *ls = s[i];
                 for (int c = 0; c < IfaceHorzChips; ++c) {
-                    if (valid_packet_mask[i][packet])
+                    if (valid_iface_packet(i))
                         memcpy(ld, ls, h.src_chip_size);
                     else
                         memset(ld, 0xff, h.src_chip_size);
