@@ -38,6 +38,11 @@ class Fifo : private virtual slsDetectorDefs {
     ~Fifo();
 
     /**
+     * Get next frame number
+     */
+    uint64_t GetNextFrameNumber();
+
+    /**
      * Get frame packets
      */
     sls::AnyPacketBlockPtr GetFramePackets(uint64_t frame = uint64_t(-1));
