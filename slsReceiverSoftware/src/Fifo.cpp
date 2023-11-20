@@ -105,6 +105,11 @@ void Fifo::DestroyFifos() {
 
 AnyPacketContainerPtr Fifo::GetPacketContainer() { return packetContainer; }
 
+uint64_t Fifo::GetNextFrameNumber() {
+    return std::visit([](auto &pc) { return pc.getNextReadyFrameNumber(); },
+                      *packetContainer);
+}
+
 sls::AnyPacketBlockPtr Fifo::GetFramePackets(uint64_t frame) {
     return std::visit(
         [&](auto &pc) -> sls::AnyPacketBlockPtr {

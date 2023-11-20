@@ -1795,6 +1795,17 @@ sls::AnyPacketBlockList Implementation::GetFramePacketBlocks(uint64_t frame) {
     if (status != RUNNING)
         return {};
 
+    // find the minimum frame number if first available was requested
+    if (frame == uint64_t(-1)) {
+        for (auto &f : fifo) {
+            uint64_t iface_frame = f->GetNextFrameNumber();
+            if (iface_frame == uint64_t(-1))
+                continue;
+            else if ((frame == uint64_t(-1)) || (iface_frame < frame))
+                frame = iface_frame;
+        }
+    }
+
     sls::AnyPacketBlockList blocks;
     size_t valid_ports = 0;
     for (auto &f : fifo) {

@@ -62,22 +62,20 @@ sls::PacketBlockPtr<P> PacketContainer<P>::getFreePacketBlock(uint64_t frame) {
     return layout ? std::make_unique<Block>(std::move(layout)) : nullptr;
 }
 
+template <class P> uint64_t PacketContainer<P>::getNextReadyFrameNumber() {
+
+    std::unique_lock<std::mutex> l(block_mutex);
+    WaitingCountHelper h(*this, l);
+    while (!stopped && ready_block_map.empty())
+        block_cond.wait(l);
+    return !stopped ? ready_block_map.begin()->first : uint64_t(-1);
+}
+
 template <class P>
 sls::PacketBlockPtr<P> PacketContainer<P>::getReadyPacketBlock(uint64_t frame) {
 
-    class WaitingCountHelper {
-      public:
-        WaitingCountHelper(PacketContainer &c) : pc(c) {
-            ++pc.waiting_reader_count;
-        }
-        ~WaitingCountHelper() { --pc.waiting_reader_count; }
-
-      private:
-        PacketContainer &pc;
-    };
-
     std::unique_lock<std::mutex> l(block_mutex);
-    WaitingCountHelper h(*this);
+    WaitingCountHelper h(*this, l);
     typename ReadyBlockMap::iterator it;
     bool any = (frame == uint64_t(-1));
     while (!stopped) {
