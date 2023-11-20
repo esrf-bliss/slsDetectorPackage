@@ -53,7 +53,6 @@ inline void *MmappedPacketAllocator::getItemPtr(std::size_t idx) {
     return block_array.getPtr() + block_size * idx;
 }
 
-
 /**
  *@short container managing packet blocks to/from stream
  */
@@ -71,6 +70,7 @@ template <class P> class PacketContainer {
     using BlockPtr = sls::PacketBlockPtr<Packet>;
     using BlockLayout = typename Block::Layout;
 
+    uint64_t getNextReadyFrameNumber();
     BlockPtr getReadyPacketBlock(uint64_t frame = uint64_t(-1));
 
     unsigned int getPendingPackets();
@@ -94,6 +94,21 @@ template <class P> class PacketContainer {
     unsigned int getBufferIdx(uint64_t frame) {
         return (frame - 1) % num_frames;
     }
+
+    class WaitingCountHelper {
+      public:
+        using Lock = std::unique_lock<std::mutex>;
+
+        WaitingCountHelper(PacketContainer &c, Lock &l) : pc(c) {
+            if (!l)
+                throw std::runtime_error("WaitingCounterHelper without lock");
+            ++pc.waiting_reader_count;
+        }
+        ~WaitingCountHelper() { --pc.waiting_reader_count; }
+
+      private:
+        PacketContainer &pc;
+    };
 
     void releaseReadyPacketBlocks();
     void waitUsedPacketBlocks();
