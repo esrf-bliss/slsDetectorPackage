@@ -65,9 +65,11 @@ bool DefaultFrameAssembler<Packet, DP>::assembleFrame(
         throw std::runtime_error("Invalid packet block");
 
     auto &b = std::get<BlockPtr>(block);
-    if (!b || (b->getValidPackets() == 0))
+    if (!b || (b->getValidPackets() == 0)) {
+        if (buf)
+            fillMissingFrame(buf);
         return false;
-    else if (!buf)
+    } else if (!buf)
         return true;
 
     constexpr int packets_per_frame = Packet::Data::PacketsPerFrame;

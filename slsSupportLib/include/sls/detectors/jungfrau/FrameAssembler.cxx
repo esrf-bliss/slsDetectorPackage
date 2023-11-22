@@ -107,10 +107,10 @@ void CopyHelper<GD, MGX, MGY, Idx>::assemblePackets(ConstBlockPtr block,
     int line = 0;
     int packet = h.src_first_packet;
     constexpr int pos = h.dst_iface_pos;
-    auto valid_packet_mask = block->getValidPacketMask();
+    using sls_bitset = slsDetectorDefs::sls_bitset;
+    auto valid_packet_mask = block ? block->getValidPacketMask() : sls_bitset();
     for (int p = 0; p < h.frame_packets; ++p, packet += h.src_dir) {
-        auto line_packet = (*block)[packet];
-        char *s = line_packet.data() + h.src_offset;
+        char *s = block ? ((*block)[packet].data() + h.src_offset) : nullptr;
         for (int l = 0; l < h.packet_lines; ++l, ++line) {
             char *ld = d;
             char *ls = s;
@@ -163,12 +163,13 @@ bool FrameAssembler<GD, MGX, MGY>::assembleIface(const AnyPacketBlockPtr &block,
         throw std::runtime_error("Invalid packet block");
 
     ConstBlockPtr b = std::get<BlockPtr>(block).get();
-    if (!b || (b->getValidPackets() == 0))
-        return false;
 
-    auto offset = buf ? (data_offset + Helper::dst_iface_offset) : 0;
-    Helper::assemblePackets(b, buf + offset);
-    return true;
+    if (buf) {
+        auto offset = data_offset + Helper::dst_iface_offset;
+        Helper::assemblePackets(b, buf + offset);
+    }
+
+    return b && (b->getValidPackets() > 0);
 }
 
 template <class GD, bool MGX, bool MGY>
@@ -189,6 +190,14 @@ FrameAssembler<GD, MGX, MGY>::assembleFrame(const AnyPacketBlockList &blocks,
     }
 
     return Result{NbIfaces, mask};
+}
+
+template <class GD, bool MGX, bool MGY>
+void FrameAssembler<GD, MGX, MGY>::fillMissingFrame(char *buf) {
+    using BlockPtr = typename CopyHelper<GD, MGX, MGY, 0>::BlockPtr;
+    assembleIface<0>(BlockPtr(nullptr), buf);
+    if constexpr (NbIfaces == 2)
+        assembleIface<1>(BlockPtr(nullptr), buf);
 }
 
 template <class GD, bool MGX, bool MGY>
