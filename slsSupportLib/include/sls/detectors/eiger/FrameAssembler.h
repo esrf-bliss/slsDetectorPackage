@@ -40,6 +40,7 @@ class FrameAssembler : public MPFrameAssembler {
     FrameAssembler(int offset) : data_offset(offset) {}
 
     Result assembleFrame(const AnyPacketBlockList &blocks, char *buf) override;
+    void fillMissingFrame(char *buf) override;
     FrameDims getAssembledFrameDims() override;
 
   private:

@@ -82,7 +82,6 @@ template <class P> class PacketContainer {
 
     BlockPtr getFreePacketBlock(uint64_t frame);
     void putReadyPacketBlock(BlockPtr block);
-    void setMissingFrame(uint64_t frame);
 
     void stop();
     void cleanUp();
