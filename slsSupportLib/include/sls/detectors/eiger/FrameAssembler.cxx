@@ -373,10 +373,17 @@ Result FrameAssembler<P, TG, GD, MGX, MGY, Idx>::assembleFrame(
     for (int i = 0; i < NbIfaces; ++i)
         mask[i] = (b[i] && (b[i]->getValidPackets() > 0));
 
-    if (mask.any() && buf)
+    if (buf)
         helper.assemblePackets(b, buf + data_offset);
 
     return Result{NbIfaces, mask};
+}
+
+template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>
+void FrameAssembler<P, TG, GD, MGX, MGY, Idx>::fillMissingFrame(char *buf) {
+
+    ConstBlockPtr b[NbIfaces] = {nullptr, nullptr};
+    helper.assemblePackets(b, buf + data_offset);
 }
 
 template <class P, class TG, class GD, bool MGX, bool MGY, int Idx>

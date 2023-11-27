@@ -108,10 +108,7 @@ template <class PC, class SD, class FP> class PacketStream {
     BlockPtr getEmptyBlock(uint64_t frame) {
         return packet_cont->getFreePacketBlock(calcRecvFrameNumber(frame));
     }
-    void addPacketBlock(BlockPtr block);
-    void setMissingFrame(uint64_t frame) {
-        packet_cont->setMissingFrame(calcRecvFrameNumber(frame));
-    }
+    void addPacketBlock(BlockPtr block, uint64_t det_frame);
 
     bool isValid(uint64_t frame) { return frame != uint64_t(-1); }
 

@@ -31,7 +31,12 @@ class DefaultFrameAssemblerBase {
 
     virtual bool assembleFrame(const AnyPacketBlockPtr &block, char *buf) = 0;
     virtual FrameDims getAssembledFrameDims() = 0;
+
+    void fillMissingFrame(char *buf) {
+        memset(buf, 0xff, getAssembledFrameDims().size);
+    }
 };
+
 using DefaultFrameAssemblerPtr = std::shared_ptr<DefaultFrameAssemblerBase>;
 
 /*
@@ -56,7 +61,6 @@ class DefaultFrameAssembler : public DefaultFrameAssemblerBase {
         : iface_size(iface_dims) {}
 
     bool assembleFrame(const AnyPacketBlockPtr &block, char *buf) override;
-
     FrameDims getAssembledFrameDims() override;
 
   protected:
@@ -90,6 +94,8 @@ class MPFrameAssembler {
 
     virtual Result assembleFrame(const AnyPacketBlockList &blocks,
                                  char *buf) = 0;
+    virtual void fillMissingFrame(char *buf) = 0;
+
     virtual FrameDims getAssembledFrameDims() = 0;
 };
 
@@ -110,10 +116,17 @@ class RawFrameAssembler : public MPFrameAssembler {
             assembler.emplace_back(CreateDefaultFrameAssembler(
                 det_type, tg_enable, num_udp_ifaces, src_dr, dst_dr));
         int iface_size = assembler[0]->getAssembledFrameDims().size;
-        data_offset = assembler.size() * iface_size * recv_idx;
+        data_offset = num_udp_ifaces * iface_size * recv_idx;
     }
 
     Result assembleFrame(const AnyPacketBlockList &blocks, char *buf) override;
+
+    void fillMissingFrame(char *buf) override {
+        const int NbIfaces = assembler.size();
+        int iface_size = assembler[0]->getAssembledFrameDims().size;
+        memset(buf + data_offset, 0xff, NbIfaces * iface_size);
+    }
+
     FrameDims getAssembledFrameDims() override;
 
   private:

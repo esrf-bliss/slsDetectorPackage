@@ -1788,13 +1788,19 @@ sls::AnyPacketBlockList Implementation::GetFramePacketBlocks(uint64_t frame) {
         return {};
 
     // find the minimum frame number if first available was requested
-    if (frame == uint64_t(-1)) {
+    auto is_not_valid = [](auto &&f) { return f == uint64_t(-1); };
+
+    if (is_not_valid(frame)) {
         for (auto &f : fifo) {
             uint64_t iface_frame = f->GetNextFrameNumber();
-            if (iface_frame == uint64_t(-1))
-                continue;
-            else if ((frame == uint64_t(-1)) || (iface_frame < frame))
+            if (is_not_valid(iface_frame))
+                return {};
+            else if (is_not_valid(frame))
                 frame = iface_frame;
+            else if (iface_frame != frame)
+                throw sls::RuntimeError("Expected frame " +
+                                        std::to_string(frame) + ", got " +
+                                        std::to_string(iface_frame));
         }
     }
 
@@ -1804,18 +1810,22 @@ sls::AnyPacketBlockList Implementation::GetFramePacketBlocks(uint64_t frame) {
         blocks.emplace_back(f->GetFramePackets(frame));
         std::visit(
             [&](auto &b) {
-                if (b) {
+                if (b && b->getValidPacketMask().any())
                     ++valid_ports;
-                    if (frame == uint64_t(-1))
-                        frame = b->getRecvFrameNumber();
-                }
             },
             blocks.back());
     }
 
-    bool fp_partial = frameDiscardMode == DISCARD_PARTIAL_FRAMES;
-    if (fp_partial && (valid_ports != listener.size()))
-        return {};
+    auto &&fd = frameDiscardMode;
+    if (((fd == DISCARD_PARTIAL_FRAMES) && (valid_ports != listener.size())) ||
+        ((fd == DISCARD_EMPTY_FRAMES) && !valid_ports))
+        for (auto &b : blocks)
+            std::visit(
+                [](auto &b) {
+                    if (b)
+                        b->discard();
+                },
+                b);
 
     return blocks;
 }
