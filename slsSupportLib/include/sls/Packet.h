@@ -129,7 +129,7 @@ template <class P> class PacketBlock {
     using NetworkHeader = typename Packet::NetworkPacketHeader;
     using sls_bitset = slsDetectorDefs::sls_bitset;
 
-    PacketBlock(LayoutPtr &&l) : layout(std::move(l)) {};
+    PacketBlock(LayoutPtr &&l) : layout(std::move(l)) {}
 
     Packet operator[](unsigned int i) const { return Packet(&(*layout)[i]); }
 
@@ -161,10 +161,16 @@ template <class P> class PacketBlock {
         return header ? header->frameNumber : -1;
     }
 
+    uint64_t getRecvFrameNumber() const { return recv_frame_number; }
+    void setRecvFrameNumber(uint64_t frame) { recv_frame_number = frame; }
+
+    void discard() { valid_packet_mask.reset(); }
+
   private:
     LayoutPtr layout;
     sls_bitset valid_packet_mask;
     NetworkHeader *header{nullptr};
+    uint64_t recv_frame_number{uint64_t(-1)};
 };
 
 template <class P> using PacketBlockPtr = std::unique_ptr<PacketBlock<P>>;

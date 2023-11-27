@@ -119,7 +119,6 @@ inline std::ostream &operator<<(std::ostream &os, const XStat::Stats &s) {
     return os << ">";
 }
 
-
 /**
  *@short X-Y linear regression statistics
  */

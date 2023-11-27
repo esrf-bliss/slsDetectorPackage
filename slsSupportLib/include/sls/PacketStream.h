@@ -90,12 +90,9 @@ template <class PC, class SD, class FP> class PacketStream {
     struct WriterThread;
 
     BlockPtr getEmptyBlock(uint64_t frame) {
-        return packet_cont->getFreePacketBlock(calcRecvFrameNumber(frame));
+        return packet_cont->getFreePacketBlock(frame);
     }
-    void addPacketBlock(BlockPtr block);
-    void setMissingFrame(uint64_t frame) {
-        packet_cont->setMissingFrame(calcRecvFrameNumber(frame));
-    }
+    void addPacketBlock(BlockPtr block, uint64_t frame);
 
     bool wasStopped();
 

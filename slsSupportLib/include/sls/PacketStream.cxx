@@ -83,21 +83,25 @@ uint64_t PacketStream<PC, SD, FP>::getLastFrameIndex() {
 }
 
 template <class PC, class SD, class FP>
-void PacketStream<PC, SD, FP>::addPacketBlock(BlockPtr block) {
+void PacketStream<PC, SD, FP>::addPacketBlock(BlockPtr block, uint64_t frame) {
     bool full_frame = block->hasFullFrame();
+    int valid_packets = block->getValidPackets();
     {
-        uint64_t frame = block->getFrameNumber();
+        block->setRecvFrameNumber(frame);
         std::lock_guard<std::mutex> l(mutex);
         if (first_frame == uint64_t(-1))
             first_frame = frame;
-	++frames_caught;
+        if (valid_packets > 0)
+            ++frames_caught;
         if (full_frame)
             ++complete_frames_caught;
         if (frame > last_frame)
             last_frame = frame;
     }
-    if (full_frame || !FP::canDiscardFrame(block->getValidPackets()))
-        packet_cont->putReadyPacketBlock(std::move(block));
+    // insert nullptr if frame packet block can be discarded
+    if (!full_frame && FP::canDiscardFrame(valid_packets))
+        block->discard();
+    packet_cont->putReadyPacketBlock(std::move(block));
 }
 
 template <class PC, class SD, class FP>
@@ -175,7 +179,7 @@ class PacketStream<PC, SD, FP>::WriterThread {
 
     void finishPacketBlock() {
         Clock::time_point t0 = Clock::now();
-        ps.addPacketBlock(std::move(block));
+        ps.addPacketBlock(std::move(block), curr_frame);
         Clock::time_point t = Clock::now();
         double sec = ToSeconds(t - t0).count();
         ps.packet_push_stat.add(sec);
@@ -184,18 +188,16 @@ class PacketStream<PC, SD, FP>::WriterThread {
         incFrameCounter();
     }
 
-    void setMissingFramesUntil(uint64_t frame) {
+    bool setMissingFramesUntil(uint64_t frame) {
         while (curr_frame != frame) {
             block = std::move(ps.getEmptyBlock(curr_frame));
-            if (block) {
-                getNextPacket();
-                setInvalidRemainingPackets();
-                finishPacketBlock();
-            } else {
-                ps.setMissingFrame(curr_frame);
-                incFrameCounter();
-            }
+            if (!block)
+                return false;
+            getNextPacket();
+            setInvalidRemainingPackets();
+            finishPacketBlock();
         }
+        return true;
     }
 
     void setInvalidPacketsUntil(uint32_t good_packet) {
@@ -236,7 +238,7 @@ class PacketStream<PC, SD, FP>::WriterThread {
                           << "curr_idx=" << curr_idx;
         };
 
-        // moveToGood manages both src & dst valid flags
+        // moveToGood manages dst valid flag, src must be invalidated
         if (packet_frame != curr_frame) {
             trace_unexpected("new frame");
             BlockPtr new_block = ps.getEmptyBlock(packet_frame);
@@ -250,9 +252,8 @@ class PacketStream<PC, SD, FP>::WriterThread {
                 block.reset();
                 curr_idx = curr_packet = -1;
             }
-            if (!new_block)
+            if (!setMissingFramesUntil(packet_frame) || !new_block)
                 return false;
-            setMissingFramesUntil(packet_frame);
             // initialize new block
             block = std::move(new_block);
             incPacketCounters();

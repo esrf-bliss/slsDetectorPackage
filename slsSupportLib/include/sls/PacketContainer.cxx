@@ -109,13 +109,6 @@ void PacketContainer<P>::putReadyPacketBlock(BlockPtr block) {
     block_cond.notify_all();
 }
 
-template <class P> void PacketContainer<P>::setMissingFrame(uint64_t frame) {
-    using FramePacketBlock = typename ReadyBlockMap::value_type;
-    std::lock_guard<std::mutex> l(block_mutex);
-    ready_block_map.emplace(FramePacketBlock(frame, nullptr));
-    block_cond.notify_all();
-}
-
 template <class P> unsigned int PacketContainer<P>::getPendingPackets() {
     std::lock_guard<std::mutex> l(free_mutex);
     return pending_packets;
