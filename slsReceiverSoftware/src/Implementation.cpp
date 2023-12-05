@@ -550,39 +550,22 @@ uint64_t Implementation::getFramesCaught() const {
     return min;
 }
 
-uint64_t Implementation::getAcquisitionIndex() const {
-    uint64_t min = -1;
-    uint32_t flagsum = 0;
-    uint32_t active_processors = 0;
-
-    for (const auto &it : dataProcessor)
-        if (IsValidThread(it)) {
-            flagsum += it->GetStartedFlag();
-            min = std::min(min, it->GetCurrentFrameIndex());
-            ++active_processors;
-        }
-    // no data processed
-    if (!active_processors || (flagsum != active_processors))
-        return 0;
-    return min;
+uint64_t Implementation::getCurrentFrameIndex() const {
+    uint64_t max = 0;
+    for (const auto &it : listener)
+        if (IsValidThread(it))
+            max = std::max(max, it->GetCurrentFrameIndex());
+    return max;
 }
 
 double Implementation::getProgress() const {
-    // get minimum of processed frame indices
-    uint64_t currentFrameIndex = -1;
-    uint32_t flagsum = 0;
-    uint32_t active_processors = 0;
+    // get maximum of processed frame indices
+    uint64_t currentFrameIndex = 0;
 
-    for (const auto &it : dataProcessor)
-        if (IsValidThread(it)) {
-            flagsum += it->GetStartedFlag();
+    for (const auto &it : listener)
+        if (IsValidThread(it))
             currentFrameIndex =
-                std::min(currentFrameIndex, it->GetProcessedIndex());
-            ++active_processors;
-        }
-    // no data processed
-    if (flagsum != active_processors)
-        currentFrameIndex = -1;
+                std::max(currentFrameIndex, it->GetListenedIndex());
 
     return (100.00 *
             ((double)(currentFrameIndex + 1) / (double)numberOfTotalFrames));
