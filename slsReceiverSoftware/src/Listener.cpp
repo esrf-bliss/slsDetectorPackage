@@ -79,6 +79,10 @@ uint64_t Listener::GetNumMissingPacket(bool stoppedFlag, uint64_t numPackets) {
     return frames * generalData->packetsPerFrame - numPacketsCaught;
 }
 
+uint64_t Listener::GetCurrentFrameIndex() { return GetLastFrameIndexCaught(); }
+
+uint64_t Listener::GetListenedIndex() { return GetLastFrameIndexCaught() - 1; }
+
 void Listener::SetFifo(Fifo *f) { fifo = f; }
 
 void Listener::ResetParametersforNewAcquisition() { StopRunning(); }
