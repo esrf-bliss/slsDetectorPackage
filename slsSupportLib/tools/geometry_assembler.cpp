@@ -6,6 +6,7 @@
 #include "sls/logger.h"
 #include "sls/sls_detector_exceptions.h"
 
+#include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <memory>
