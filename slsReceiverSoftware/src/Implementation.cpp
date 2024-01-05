@@ -227,7 +227,8 @@ void Implementation::CreateThreads() {
 
     listenerStatistics.resize(numUDPInterfaces);
 
-    SetThreadPriorities();
+    if (false)
+        SetThreadPriorities();
 }
 
 void Implementation::DestroyThreads() {
