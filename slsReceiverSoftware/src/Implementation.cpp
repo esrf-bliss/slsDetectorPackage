@@ -228,7 +228,8 @@ void Implementation::CreateThreads() {
 
     listenerStatistics.resize(numThreads);
 
-    SetThreadPriorities();
+    if (false)
+        SetThreadPriorities();
 }
 
 void Implementation::DestroyThreads() {
