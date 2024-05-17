@@ -92,6 +92,12 @@ int64_t Module::getFirmwareVersion() const {
     return sendToDetector<int64_t>(F_GET_FIRMWARE_VERSION);
 }
 
+int64_t
+Module::getFrontEndFirmwareVersion(const fpgaPosition fpgaPosition) const {
+    return sendToDetector<int64_t>(F_GET_FRONTEND_FIRMWARE_VERSION,
+                                   fpgaPosition);
+}
+
 std::string Module::getControlServerLongVersion() const {
     try {
         char retval[MAX_STR_LENGTH]{};
@@ -159,11 +165,15 @@ std::string Module::getReceiverSoftwareVersion() const {
 
 // static function
 slsDetectorDefs::detectorType
-Module::getTypeFromDetector(const std::string &hostname, int cport) {
+Module::getTypeFromDetector(const std::string &hostname, uint16_t cport) {
     LOG(logDEBUG1) << "Getting Module type ";
     ClientSocket socket("Detector", hostname, cport);
     socket.Send(F_GET_DETECTOR_TYPE);
-    socket.Receive<int>(); // TODO! Should we look at this OK/FAIL?
+    if (socket.Receive<int>() == FAIL) {
+        throw RuntimeError("Detector (" + hostname + ", " +
+                           std::to_string(cport) +
+                           ") returned error at getting detector type");
+    }
     auto retval = socket.Receive<detectorType>();
     LOG(logDEBUG1) << "Module type is " << retval;
     return retval;
@@ -174,7 +184,7 @@ slsDetectorDefs::detectorType Module::getDetectorType() const {
 }
 
 void Module::updateNumberOfChannels() {
-    if (shm()->detType == CHIPTESTBOARD || shm()->detType == MOENCH) {
+    if (shm()->detType == CHIPTESTBOARD) {
         std::array<int, 2> retvals{};
         sendToDetector(F_GET_NUM_CHANNELS, nullptr, retvals);
         shm()->nChan.x = retvals[0];
@@ -580,6 +590,24 @@ void Module::setBadChannels(std::vector<int> list) {
     if (client.Receive<int>() == FAIL) {
         throw DetectorError("Detector " + std::to_string(moduleIndex) +
                             " returned error: " + client.readErrorMessage());
+    }
+}
+
+int Module::getRow() const { return sendToDetector<int>(F_GET_ROW); }
+
+void Module::setRow(int value) {
+    sendToDetector(F_SET_ROW, value, nullptr);
+    if (shm()->useReceiverFlag) {
+        sendToReceiver(F_RECEIVER_SET_ROW, value, nullptr);
+    }
+}
+
+int Module::getColumn() const { return sendToDetector<int>(F_GET_COLUMN); }
+
+void Module::setColumn(int value) {
+    sendToDetector(F_SET_COLUMN, value, nullptr);
+    if (shm()->useReceiverFlag) {
+        sendToReceiver(F_RECEIVER_SET_COLUMN, value, nullptr);
     }
 }
 
@@ -1217,22 +1245,22 @@ void Module::setDestinationUDPMAC2(const MacAddr mac) {
     sendToDetector(F_SET_DEST_UDP_MAC2, mac, nullptr);
 }
 
-int Module::getDestinationUDPPort() const {
-    return sendToDetector<int>(F_GET_DEST_UDP_PORT);
+uint16_t Module::getDestinationUDPPort() const {
+    return sendToDetector<uint16_t>(F_GET_DEST_UDP_PORT);
 }
 
-void Module::setDestinationUDPPort(const int port) {
+void Module::setDestinationUDPPort(const uint16_t port) {
     sendToDetector(F_SET_DEST_UDP_PORT, port, nullptr);
     if (shm()->useReceiverFlag) {
         sendToReceiver(F_SET_RECEIVER_UDP_PORT, port, nullptr);
     }
 }
 
-int Module::getDestinationUDPPort2() const {
-    return sendToDetector<int>(F_GET_DEST_UDP_PORT2);
+uint16_t Module::getDestinationUDPPort2() const {
+    return sendToDetector<uint16_t>(F_GET_DEST_UDP_PORT2);
 }
 
-void Module::setDestinationUDPPort2(const int port) {
+void Module::setDestinationUDPPort2(const uint16_t port) {
     sendToDetector(F_SET_DEST_UDP_PORT2, port, nullptr);
     if (shm()->useReceiverFlag) {
         sendToReceiver(F_SET_RECEIVER_UDP_PORT2, port, nullptr);
@@ -1250,7 +1278,7 @@ std::string Module::printReceiverConfiguration() {
     os << "\n\nModule " << moduleIndex << "\nReceiver Hostname:\t"
        << getReceiverHostname();
 
-    if (shm()->detType == JUNGFRAU) {
+    if (shm()->detType == JUNGFRAU || shm()->detType == MOENCH) {
         os << "\nNumber of Interfaces:\t" << getNumberofUDPInterfacesFromShm()
            << "\nSelected Interface:\t" << getSelectedUDPInterface();
     }
@@ -1260,14 +1288,15 @@ std::string Module::printReceiverConfiguration() {
        << getDestinationUDPIP() << "\nDestination UDP MAC:\t"
        << getDestinationUDPMAC();
 
-    if (shm()->detType == JUNGFRAU) {
+    if (shm()->detType == JUNGFRAU || shm()->detType == MOENCH) {
         os << "\nSource UDP IP2:\t" << getSourceUDPIP2()
            << "\nSource UDP MAC2:\t" << getSourceUDPMAC2()
            << "\nDestination UDP IP2:\t" << getDestinationUDPIP2()
            << "\nDestination UDP MAC2:\t" << getDestinationUDPMAC2();
     }
     os << "\nDestination UDP Port:\t" << getDestinationUDPPort();
-    if (shm()->detType == JUNGFRAU || shm()->detType == EIGER) {
+    if (shm()->detType == JUNGFRAU || shm()->detType == MOENCH ||
+        shm()->detType == EIGER) {
         os << "\nDestination UDP Port2:\t" << getDestinationUDPPort2();
     }
     os << "\n";
@@ -1329,31 +1358,34 @@ std::string Module::getReceiverHostname() const {
     return std::string(shm()->rxHostname);
 }
 
-void Module::setReceiverHostname(const std::string &receiverIP,
+void Module::setReceiverHostname(const std::string &hostname,
+                                 const uint16_t port,
                                  const bool initialChecks) {
-    LOG(logDEBUG1) << "Setting up Receiver hostname with " << receiverIP;
+    {
+        std::ostringstream oss;
+        oss << "Setting up Receiver hostname with " << hostname;
+        if (port != 0) {
+            oss << " at port " << port;
+        }
+        LOG(logDEBUG1) << oss.str();
+    }
 
     if (getRunStatus() == RUNNING) {
         LOG(logWARNING) << "Acquisition already running, Stopping it.";
         stopAcquisition();
     }
 
-    // disable connection to the receiver if none
-    if (receiverIP == "none") {
+    if (hostname == "none") {
         memset(shm()->rxHostname, 0, MAX_STR_LENGTH);
         strcpy_safe(shm()->rxHostname, "none");
         shm()->useReceiverFlag = false;
         return;
     }
 
-    // start updating
-    std::string host = receiverIP;
-    auto res = split(host, ':');
-    if (res.size() > 1) {
-        host = res[0];
-        shm()->rxTCPPort = std::stoi(res[1]);
+    strcpy_safe(shm()->rxHostname, hostname.c_str());
+    if (port != 0) {
+        shm()->rxTCPPort = port;
     }
-    strcpy_safe(shm()->rxHostname, host.c_str());
     shm()->useReceiverFlag = true;
 
     try {
@@ -1400,13 +1432,10 @@ void Module::setReceiverHostname(const std::string &receiverIP,
     updateReceiverStreamingIP();
 }
 
-int Module::getReceiverPort() const { return shm()->rxTCPPort; }
+uint16_t Module::getReceiverPort() const { return shm()->rxTCPPort; }
 
-int Module::setReceiverPort(int port_number) {
-    if (port_number >= 0 && port_number != shm()->rxTCPPort) {
-        shm()->rxTCPPort = port_number;
-    }
-    return shm()->rxTCPPort;
+void Module::setReceiverPort(uint16_t port_number) {
+    shm()->rxTCPPort = port_number;
 }
 
 int Module::getReceiverFifoDepth() const {
@@ -1618,11 +1647,11 @@ void Module::setReceiverStreamingStartingFrame(int fnum) {
     sendToReceiver(F_SET_RECEIVER_STREAMING_START_FNUM, fnum, nullptr);
 }
 
-int Module::getReceiverStreamingPort() const {
-    return sendToReceiver<int>(F_GET_RECEIVER_STREAMING_PORT);
+uint16_t Module::getReceiverStreamingPort() const {
+    return sendToReceiver<uint16_t>(F_GET_RECEIVER_STREAMING_PORT);
 }
 
-void Module::setReceiverStreamingPort(int port) {
+void Module::setReceiverStreamingPort(uint16_t port) {
     sendToReceiver(F_SET_RECEIVER_STREAMING_PORT, port, nullptr);
 }
 
@@ -1641,9 +1670,9 @@ void Module::setReceiverStreamingIP(const IpAddr ip) {
     sendToReceiver(F_SET_RECEIVER_STREAMING_SRC_IP, ip, nullptr);
 }
 
-int Module::getClientStreamingPort() const { return shm()->zmqport; }
+uint16_t Module::getClientStreamingPort() const { return shm()->zmqport; }
 
-void Module::setClientStreamingPort(int port) { shm()->zmqport = port; }
+void Module::setClientStreamingPort(uint16_t port) { shm()->zmqport = port; }
 
 IpAddr Module::getClientStreamingIP() const { return shm()->zmqip; }
 
@@ -1817,7 +1846,7 @@ void Module::setTop(bool value) {
     sendToDetector(F_SET_TOP, static_cast<int>(value), nullptr);
 }
 
-// Jungfrau Specific
+// Jungfrau/Moench Specific
 double Module::getChipVersion() const {
     return (sendToDetector<int>(F_GET_CHIP_VERSION)) / 10.00;
 }
@@ -1909,6 +1938,20 @@ int Module::getNumberOfFilterCells() const {
 
 void Module::setNumberOfFilterCells(int value) {
     sendToDetector(F_SET_NUM_FILTER_CELLS, value, nullptr);
+}
+
+defs::pedestalParameters Module::getPedestalMode() const {
+    return sendToDetector<defs::pedestalParameters>(F_GET_PEDESTAL_MODE);
+}
+
+void Module::setPedestalMode(const defs::pedestalParameters par) {
+    sendToDetector(F_SET_PEDESTAL_MODE, par, nullptr);
+    if (shm()->useReceiverFlag) {
+        auto value = getNumberOfFrames();
+        sendToReceiver(F_RECEIVER_SET_NUM_FRAMES, value, nullptr);
+        value = getNumberOfTriggers();
+        sendToReceiver(F_SET_RECEIVER_NUM_TRIGGERS, value, nullptr);
+    }
 }
 
 // Gotthard Specific
@@ -2329,7 +2372,7 @@ void Module::setDigitalPulsing(const bool enable) {
     sendToDetector(F_SET_DIGITAL_PULSING, static_cast<int>(enable), nullptr);
 }
 
-// CTB / Moench Specific
+// CTB Specific
 int Module::getNumberOfAnalogSamples() const {
     return sendToDetector<int>(F_GET_NUM_ANALOG_SAMPLES);
 }
@@ -2341,14 +2384,6 @@ void Module::setNumberOfAnalogSamples(int value) {
     if (shm()->useReceiverFlag) {
         sendToReceiver(F_RECEIVER_SET_NUM_ANALOG_SAMPLES, value, nullptr);
     }
-}
-
-int Module::getADCPipeline() const {
-    return sendToDetector<int>(F_GET_ADC_PIPELINE);
-}
-
-void Module::setADCPipeline(int value) {
-    sendToDetector(F_SET_ADC_PIPELINE, value, nullptr);
 }
 
 uint32_t Module::getADCEnableMask() const {
@@ -2378,6 +2413,19 @@ void Module::setTenGigaADCEnableMask(uint32_t mask) {
     }
 }
 
+uint32_t Module::getTransceiverEnableMask() const {
+    return sendToDetector<uint32_t>(F_GET_TRANSCEIVER_ENABLE_MASK);
+}
+
+void Module::setTransceiverEnableMask(uint32_t mask) {
+    sendToDetector(F_SET_TRANSCEIVER_ENABLE_MASK, mask, nullptr);
+    // update #nchan, as it depends on #samples, adcmask,
+    updateNumberOfChannels();
+
+    if (shm()->useReceiverFlag) {
+        sendToReceiver<int>(F_RECEIVER_SET_TRANSCEIVER_MASK, mask);
+    }
+}
 // CTB Specific
 
 int Module::getNumberOfDigitalSamples() const {
@@ -2392,6 +2440,18 @@ void Module::setNumberOfDigitalSamples(int value) {
     }
 }
 
+int Module::getNumberOfTransceiverSamples() const {
+    return sendToDetector<int>(F_GET_NUM_TRANSCEIVER_SAMPLES);
+}
+
+void Module::setNumberOfTransceiverSamples(int value) {
+    sendToDetector(F_SET_NUM_TRANSCEIVER_SAMPLES, value, nullptr);
+    updateNumberOfChannels(); // depends on samples and adcmask
+    if (shm()->useReceiverFlag) {
+        sendToReceiver(F_RECEIVER_SET_NUM_TRANSCEIVER_SAMPLES, value, nullptr);
+    }
+}
+
 slsDetectorDefs::readoutMode Module::getReadoutMode() const {
     return sendToDetector<readoutMode>(F_GET_READOUT_MODE);
 }
@@ -2399,6 +2459,7 @@ slsDetectorDefs::readoutMode Module::getReadoutMode() const {
 void Module::setReadoutMode(const slsDetectorDefs::readoutMode mode) {
     auto arg = static_cast<uint32_t>(mode); // TODO! unit?
     sendToDetector(F_SET_READOUT_MODE, arg, nullptr);
+    sendToDetectorStop(F_SET_READOUT_MODE, arg, nullptr);
     // update #nchan, as it depends on #samples, adcmask,
     if (shm()->detType == CHIPTESTBOARD) {
         updateNumberOfChannels();
@@ -2469,9 +2530,23 @@ void Module::setLEDEnable(bool enable) {
 }
 
 // Pattern
+std::string Module::getPatterFileName() const {
+    char retval[MAX_STR_LENGTH]{};
+    sendToDetector(F_GET_PATTERN_FILE_NAME, nullptr, retval);
+    return retval;
+}
 
-void Module::setPattern(const Pattern &pat) {
-    sendToDetector(F_SET_PATTERN, pat.data(), pat.size(), nullptr, 0);
+void Module::setPattern(const Pattern &pat, const std::string &fname) {
+    auto client = DetectorSocket(shm()->hostname, shm()->controlPort);
+    client.Send(F_SET_PATTERN);
+    client.Send(pat.data(), pat.size());
+    char args[MAX_STR_LENGTH]{};
+    strcpy_safe(args, fname.c_str());
+    client.Send(args);
+    if (client.Receive<int>() == FAIL) {
+        throw DetectorError("Detector " + std::to_string(moduleIndex) +
+                            " returned error: " + client.readErrorMessage());
+    }
 }
 
 Pattern Module::getPattern() {
@@ -2483,12 +2558,11 @@ Pattern Module::getPattern() {
 void Module::loadDefaultPattern() { sendToDetector(F_LOAD_DEFAULT_PATTERN); }
 
 uint64_t Module::getPatternIOControl() const {
-    return sendToDetector<uint64_t>(F_SET_PATTERN_IO_CONTROL,
-                                    int64_t(GET_FLAG));
+    return sendToDetector<uint64_t>(F_GET_PATTERN_IO_CONTROL);
 }
 
 void Module::setPatternIOControl(uint64_t word) {
-    sendToDetector<uint64_t>(F_SET_PATTERN_IO_CONTROL, word);
+    sendToDetector(F_SET_PATTERN_IO_CONTROL, word, nullptr);
 }
 
 uint64_t Module::getPatternWord(int addr) const {
@@ -2564,7 +2638,7 @@ void Module::setPatternBitMask(uint64_t mask) {
 
 void Module::startPattern() { sendToDetector(F_START_PATTERN); }
 
-// Moench
+// Json Header specific
 
 std::map<std::string, std::string> Module::getAdditionalJsonHeader() const {
     // TODO, refactor this function with a more robust sending.
@@ -2654,12 +2728,21 @@ void Module::setAdditionalJsonParameter(const std::string &key,
 }
 
 // Advanced
+
+int Module::getADCPipeline() const {
+    return sendToDetector<int>(F_GET_ADC_PIPELINE);
+}
+
+void Module::setADCPipeline(int value) {
+    sendToDetector(F_SET_ADC_PIPELINE, value, nullptr);
+}
+
 void Module::programFPGA(std::vector<char> buffer,
                          const bool forceDeleteNormalFile) {
     switch (shm()->detType) {
     case JUNGFRAU:
-    case CHIPTESTBOARD:
     case MOENCH:
+    case CHIPTESTBOARD:
         sendProgram(true, buffer, F_PROGRAM_FPGA, "Update Firmware", "",
                     forceDeleteNormalFile);
         break;
@@ -2679,8 +2762,8 @@ void Module::updateDetectorServer(std::vector<char> buffer,
                                   const std::string &serverName) {
     switch (shm()->detType) {
     case JUNGFRAU:
-    case CHIPTESTBOARD:
     case MOENCH:
+    case CHIPTESTBOARD:
         sendProgram(true, buffer, F_UPDATE_DETECTOR_SERVER,
                     "Update Detector Server (no tftp)", serverName);
         break;
@@ -2700,8 +2783,8 @@ void Module::updateDetectorServer(std::vector<char> buffer,
 void Module::updateKernel(std::vector<char> buffer) {
     switch (shm()->detType) {
     case JUNGFRAU:
-    case CHIPTESTBOARD:
     case MOENCH:
+    case CHIPTESTBOARD:
         sendProgram(true, buffer, F_UPDATE_KERNEL, "Update Kernel");
         break;
     case MYTHEN3:
@@ -2740,29 +2823,18 @@ uint32_t Module::writeRegister(uint32_t addr, uint32_t val) {
 }
 
 void Module::setBit(uint32_t addr, int n) {
-    if (n < 0 || n > 31) {
-        throw RuntimeError("Bit number " + std::to_string(n) + " out of Range");
-    } else {
-        uint32_t val = readRegister(addr);
-        writeRegister(addr, val | 1 << n);
-    }
+    uint32_t args[2] = {addr, static_cast<uint32_t>(n)};
+    sendToDetectorStop(F_SET_BIT, args, nullptr);
 }
 
 void Module::clearBit(uint32_t addr, int n) {
-    if (n < 0 || n > 31) {
-        throw RuntimeError("Bit number " + std::to_string(n) + " out of Range");
-    } else {
-        uint32_t val = readRegister(addr);
-        writeRegister(addr, val & ~(1 << n));
-    }
+    uint32_t args[2] = {addr, static_cast<uint32_t>(n)};
+    sendToDetectorStop(F_CLEAR_BIT, args, nullptr);
 }
 
 int Module::getBit(uint32_t addr, int n) {
-    if (n < 0 || n > 31) {
-        throw RuntimeError("Bit number " + std::to_string(n) + " out of Range");
-    } else {
-        return ((readRegister(addr) >> n) & 0x1);
-    }
+    uint32_t args[2] = {addr, static_cast<uint32_t>(n)};
+    return sendToDetectorStop<int>(F_GET_BIT, args);
 }
 
 void Module::executeFirmwareTest() { sendToDetector(F_SET_FIRMWARE_TEST); }
@@ -2783,15 +2855,17 @@ void Module::setADCInvert(uint32_t value) {
 }
 
 // Insignificant
-int Module::getControlPort() const { return shm()->controlPort; }
+uint16_t Module::getControlPort() const { return shm()->controlPort; }
 
-void Module::setControlPort(int port_number) {
+void Module::setControlPort(uint16_t port_number) {
     shm()->controlPort = port_number;
 }
 
-int Module::getStopPort() const { return shm()->stopPort; }
+uint16_t Module::getStopPort() const { return shm()->stopPort; }
 
-void Module::setStopPort(int port_number) { shm()->stopPort = port_number; }
+void Module::setStopPort(uint16_t port_number) {
+    shm()->stopPort = port_number;
+}
 
 bool Module::getLockDetector() const {
     return sendToDetector<int>(F_LOCK_SERVER, GET_FLAG);
@@ -3215,7 +3289,7 @@ slsDetectorDefs::detectorType Module::getDetectorTypeFromShm(int det_id,
                                                              bool verify) {
     if (!shm.exists()) {
         throw SharedMemoryError("Shared memory " + shm.getName() +
-                                "does not exist.\n Corrupted Multi Shared "
+                                " does not exist.\n Corrupted Multi Shared "
                                 "memory. Please free shared memory.");
     }
 
@@ -3872,8 +3946,8 @@ void Module::sendProgram(bool blackfin, std::vector<char> buffer,
 
 void Module::simulatingActivityinDetector(const std::string &functionType,
                                           const int timeRequired) {
-    LOG(logINFO) << "(Simulating) " << functionType << " for module "
-                 << moduleIndex << " (" << shm()->hostname << ")";
+    LOG(logINFO) << functionType << " for module " << moduleIndex << " ("
+                 << shm()->hostname << ")";
     printf("%d%%\r", 0);
     std::cout << std::flush;
     const int ERASE_TIME = timeRequired;

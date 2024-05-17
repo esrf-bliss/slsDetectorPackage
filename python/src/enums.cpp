@@ -242,6 +242,10 @@ void init_enums(py::module &m) {
         .value("DIGITAL_ONLY", slsDetectorDefs::readoutMode::DIGITAL_ONLY)
         .value("ANALOG_AND_DIGITAL",
                slsDetectorDefs::readoutMode::ANALOG_AND_DIGITAL)
+        .value("TRANSCEIVER_ONLY",
+               slsDetectorDefs::readoutMode::TRANSCEIVER_ONLY)
+        .value("DIGITAL_AND_TRANSCEIVER",
+               slsDetectorDefs::readoutMode::DIGITAL_AND_TRANSCEIVER)
         .export_values();
 
     py::enum_<slsDetectorDefs::speedLevel>(Defs, "speedLevel")
@@ -284,6 +288,11 @@ void init_enums(py::module &m) {
         .value("RIGHT", slsDetectorDefs::portPosition::RIGHT)
         .value("TOP", slsDetectorDefs::portPosition::TOP)
         .value("BOTTOM", slsDetectorDefs::portPosition::BOTTOM)
+        .export_values();
+
+    py::enum_<slsDetectorDefs::fpgaPosition>(Defs, "fpgaPosition")
+        .value("FRONT_LEFT", slsDetectorDefs::fpgaPosition::FRONT_LEFT)
+        .value("FRONT_RIGHT", slsDetectorDefs::fpgaPosition::FRONT_RIGHT)
         .export_values();
 
     py::enum_<slsDetectorDefs::streamingInterface>(Defs, "streamingInterface",

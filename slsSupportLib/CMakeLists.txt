@@ -93,10 +93,11 @@ target_link_libraries(slsSupportObject
   PUBLIC
     slsProjectOptions 
     ${NUMA_LIBRARY}
-    libzmq
+    
   PRIVATE
     slsProjectWarnings
     md5sls     
+    "$<BUILD_INTERFACE:libzmq-static>"
 )
 
 message("ZeroMQ_INCLUDE_DIR: ${ZeroMQ_INCLUDE_DIR}")

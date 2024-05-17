@@ -87,6 +87,8 @@ std::string ToString(const slsDetectorDefs::rxParameters &r) {
         << std::endl
         << "gates:" << r.gates << std::endl
         << "scanParams:" << ToString(r.scanParams) << std::endl
+        << "transceiverSamples:" << r.transceiverSamples << std::endl
+        << "transceiverMask:" << r.transceiverMask << std::endl
         << ']';
     return oss.str();
 }
@@ -150,6 +152,23 @@ std::string ToString(const slsDetectorDefs::currentSrcParameters &r) {
 
 std::ostream &operator<<(std::ostream &os,
                          const slsDetectorDefs::currentSrcParameters &r) {
+    return os << ToString(r);
+}
+
+std::string ToString(const slsDetectorDefs::pedestalParameters &r) {
+    std::ostringstream oss;
+    oss << '[';
+    if (r.enable)
+        oss << "enabled, " << std::to_string(r.frames) << ", " << r.loops;
+    else
+        oss << "disabled";
+
+    oss << ']';
+    return oss.str();
+}
+
+std::ostream &operator<<(std::ostream &os,
+                         const slsDetectorDefs::pedestalParameters &r) {
     return os << ToString(r);
 }
 
@@ -325,6 +344,10 @@ std::string ToString(const defs::readoutMode s) {
         return std::string("digital");
     case defs::ANALOG_AND_DIGITAL:
         return std::string("analog_digital");
+    case defs::TRANSCEIVER_ONLY:
+        return std::string("transceiver");
+    case defs::DIGITAL_AND_TRANSCEIVER:
+        return std::string("digital_transceiver");
     default:
         return std::string("Unknown");
     }
@@ -789,6 +812,10 @@ template <> defs::readoutMode StringTo(const std::string &s) {
         return defs::DIGITAL_ONLY;
     if (s == "analog_digital")
         return defs::ANALOG_AND_DIGITAL;
+    if (s == "transceiver")
+        return defs::TRANSCEIVER_ONLY;
+    if (s == "digital_transceiver")
+        return defs::DIGITAL_AND_TRANSCEIVER;
     throw RuntimeError("Unknown readout mode " + s);
 }
 
@@ -1071,6 +1098,28 @@ template <> defs::polarity StringTo(const std::string &s) {
     if (s == "neg")
         return defs::NEGATIVE;
     throw RuntimeError("Unknown polarity mode " + s);
+}
+
+template <> uint8_t StringTo(const std::string &s) {
+    int base = s.find("0x") != std::string::npos ? 16 : 10;
+    int value = std::stoi(s, nullptr, base);
+    if (value < std::numeric_limits<uint8_t>::min() ||
+        value > std::numeric_limits<uint8_t>::max()) {
+        throw RuntimeError("Cannot scan uint8_t from string '" + s +
+                           "'. Value must be in range 0 - 255.");
+    }
+    return static_cast<uint8_t>(value);
+}
+
+template <> uint16_t StringTo(const std::string &s) {
+    int base = s.find("0x") != std::string::npos ? 16 : 10;
+    int value = std::stoi(s, nullptr, base);
+    if (value < std::numeric_limits<uint16_t>::min() ||
+        value > std::numeric_limits<uint16_t>::max()) {
+        throw RuntimeError("Cannot scan uint16_t from string '" + s +
+                           "'. Value must be in range 0 - 65535.");
+    }
+    return static_cast<uint16_t>(value);
 }
 
 template <> uint32_t StringTo(const std::string &s) {

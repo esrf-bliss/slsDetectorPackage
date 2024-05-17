@@ -4,7 +4,7 @@
 
 #include <inttypes.h>
 
-#ifdef JUNGFRAUD
+#if defined(JUNGFRAUD)
 /**
  * Set Defines
  * @param creg control register
@@ -50,8 +50,8 @@ void ALTERA_PLL_ResetPLLAndReconfiguration();
  * Set PLL Reconfig register
  * @param reg register
  * @param val value
- * @param useDefaultWRMask only jungfrau for dbit clk (clkindex1, use second WR
- * mask)
+ * @param useDefaultWRMask only jungfrau for dbit clk (clkindex1, use
+ * second WR mask)
  */
 void ALTERA_PLL_SetPllReconfigReg(uint32_t reg, uint32_t val,
                                   int useSecondWRMask);
