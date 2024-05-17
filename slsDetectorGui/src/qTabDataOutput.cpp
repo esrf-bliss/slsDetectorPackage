@@ -11,7 +11,9 @@
 
 #include <unistd.h>
 
-qTabDataOutput::qTabDataOutput(QWidget *parent, sls::Detector *detector)
+namespace sls {
+
+qTabDataOutput::qTabDataOutput(QWidget *parent, Detector *detector)
     : QWidget(parent), det(detector), btnGroupRate(nullptr) {
     setupUi(this);
     SetupWidgetWindow();
@@ -180,8 +182,10 @@ void qTabDataOutput::BrowseOutputDir() {
     LOG(logDEBUG) << "Browsing output directory";
     QString directory = QFileDialog::getExistingDirectory(
         this, tr("Choose Output Directory "), dispOutputDir->text());
-    if (!directory.isEmpty())
+    if (!directory.isEmpty()) {
         dispOutputDir->setText(directory);
+        ForceSetOutputDir();
+    }
 }
 
 void qTabDataOutput::SetOutputDir(bool force) {
@@ -190,7 +194,7 @@ void qTabDataOutput::SetOutputDir(bool force) {
         dispOutputDir->setModified(false);
         QString path = dispOutputDir->text();
         LOG(logDEBUG) << "Setting output directory to "
-                      << path.toAscii().constData();
+                      << path.toLatin1().constData();
 
         // empty
         if (path.isEmpty()) {
@@ -206,7 +210,7 @@ void qTabDataOutput::SetOutputDir(bool force) {
                     path.chop(1);
                 }
             }
-            std::string spath = std::string(path.toAscii().constData());
+            std::string spath = std::string(path.toLatin1().constData());
             try {
                 det->setFilePath(spath, {comboDetector->currentIndex() - 1});
             }
@@ -232,8 +236,8 @@ void qTabDataOutput::GetFileFormat() {
             comboFileFormat->setCurrentIndex(static_cast<int>(retval));
             break;
         default:
-            throw sls::RuntimeError(std::string("Unknown file format: ") +
-                                    std::to_string(static_cast<int>(retval)));
+            throw RuntimeError(std::string("Unknown file format: ") +
+                               std::to_string(static_cast<int>(retval)));
         }
     }
     CATCH_DISPLAY("Could not get file format.", "qTabDataOutput::GetFileFormat")
@@ -243,7 +247,7 @@ void qTabDataOutput::GetFileFormat() {
 
 void qTabDataOutput::SetFileFormat(int format) {
     LOG(logINFO) << "Setting File Format to "
-                 << comboFileFormat->currentText().toAscii().data();
+                 << comboFileFormat->currentText().toLatin1().data();
     try {
         det->setFileFormat(static_cast<slsDetectorDefs::fileFormat>(
             comboFileFormat->currentIndex()));
@@ -339,7 +343,7 @@ void qTabDataOutput::EnableRateCorrection() {
     LOG(logINFO) << "Disabling Rate correction";
     // disable
     try {
-        det->setRateCorrection(sls::ns(0));
+        det->setRateCorrection(ns(0));
     }
     CATCH_HANDLE("Could not switch off rate correction.",
                  "qTabDataOutput::EnableRateCorrection", this,
@@ -357,7 +361,7 @@ void qTabDataOutput::SetRateCorrection() {
             int64_t deadtime = spinCustomDeadTime->value();
             LOG(logINFO) << "Setting Rate Correction with custom dead time: "
                          << deadtime;
-            det->setRateCorrection(sls::ns(deadtime));
+            det->setRateCorrection(ns(deadtime));
         }
         // default dead time
         else {
@@ -386,7 +390,7 @@ void qTabDataOutput::GetSpeed() {
 
 void qTabDataOutput::SetSpeed(int speed) {
     LOG(logINFO) << "Setting Readout Speed to "
-                 << comboClkDivider->currentText().toAscii().data();
+                 << comboClkDivider->currentText().toLatin1().data();
     try {
         det->setReadoutSpeed(static_cast<slsDetectorDefs::speedLevel>(speed));
     }
@@ -442,3 +446,5 @@ void qTabDataOutput::Refresh() {
 
     LOG(logDEBUG) << "**Updated DataOutput Tab";
 }
+
+} // namespace sls

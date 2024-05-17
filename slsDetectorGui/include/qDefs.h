@@ -14,6 +14,8 @@
 #include <ostream>
 #include <string>
 
+namespace sls {
+
 using std::chrono::duration;
 using std::chrono::duration_cast;
 using std::chrono::hours;
@@ -39,7 +41,10 @@ class qDefs : public QWidget {
      */
     qDefs(){};
 
-    static const int Q_FONT_SIZE = 9;
+    static QFont GetDefaultFont() {
+        return QFont("Cantarell", 10, QFont::Normal);
+    }
+
     static const int DATA_GAIN_PLOT_RATIO = 5;
     static const int MIN_HEIGHT_GAIN_PLOT_1D = 75;
     static const int GUI_ZMQ_RCV_HWM = 2;
@@ -47,9 +52,9 @@ class qDefs : public QWidget {
     static void DisplayExceptions(std::string emsg, std::string src) {
         try {
             throw;
-        } catch (const sls::SocketError &e) {
+        } catch (const SocketError &e) {
             throw;
-        } catch (const sls::SharedMemoryError &e) {
+        } catch (const SharedMemoryError &e) {
             throw;
         } catch (const std::exception &e) {
             ExceptionMessage(emsg, e.what(), src);
@@ -63,9 +68,9 @@ class qDefs : public QWidget {
                                  typename NonDeduced<CT>::type... Args) {
         try {
             throw;
-        } catch (const sls::SocketError &e) {
+        } catch (const SocketError &e) {
             throw;
-        } catch (const sls::SharedMemoryError &e) {
+        } catch (const SharedMemoryError &e) {
             throw;
         } catch (const std::exception &e) {
             ExceptionMessage(emsg, e.what(), src);
@@ -329,3 +334,5 @@ class qDefs : public QWidget {
                        source);
     }
 };
+
+} // namespace sls

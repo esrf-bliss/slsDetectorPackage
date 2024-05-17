@@ -5,14 +5,19 @@
 
 #include "SlsQt1DZoomer.h"
 #include "sls/ansi.h"
+#include <array>
 #include <qwt_plot.h>
 #include <qwt_plot_curve.h>
 #include <qwt_plot_marker.h>
+#include <qwt_plot_shapeitem.h>
 #include <qwt_scale_div.h>
 
 class QPen;
-class SlsQt1DPlot;
 class QwtSymbol;
+
+namespace sls {
+
+class SlsQt1DPlot;
 
 class SlsQtH1D : public QwtPlotCurve {
 
@@ -87,7 +92,7 @@ class SlsQt1DPlot : public QwtPlot {
     Q_OBJECT
 
   public:
-    SlsQt1DPlot(QWidget * = NULL);
+    SlsQt1DPlot(QWidget * = NULL, bool gain = false);
     ~SlsQt1DPlot();
 
     void SetTitle(QString title);
@@ -136,7 +141,12 @@ class SlsQt1DPlot : public QwtPlot {
     void SetLogX(bool yes = 1);
     void SetLogY(bool yes = 1);
 
+    void EnableRoiBox(std::array<int, 4> roi);
+    void DisableRoiBox();
+
   private:
+    bool gainPlot{false};
+
     SlsQtH1DList *hist_list{nullptr};
     SlsQt1DZoomer *zoomer{nullptr};
     QwtPlotPanner *panner{nullptr};
@@ -159,9 +169,20 @@ class SlsQt1DPlot : public QwtPlot {
     friend void SlsQtH1D::Attach(SlsQt1DPlot *p);
     friend void SlsQtH1D::Detach(SlsQt1DPlot *p);
 
+    QwtPlotShapeItem *roiBox{nullptr};
+
+  signals:
+    void PlotZoomedSignal(const QRectF &);
+
   public slots:
+    void SetZoomX(const QRectF &rect);
     void UnZoom();
     void Update();
+
+  private slots:
+    void GetPannedCoord(int, int);
 };
+
+} // namespace sls
 
 #endif

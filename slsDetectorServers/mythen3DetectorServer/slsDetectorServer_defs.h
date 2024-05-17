@@ -3,26 +3,37 @@
 #pragma once
 #include "sls/sls_detector_defs.h"
 
-#define REQRD_FRMWRE_VRSN (0x210910)
-#define KERNEL_DATE_VRSN  "Wed May 20 13:58:38 CEST 2020"
+#define REQRD_FRMWRE_VRSN (0x230124)
+#define KERNEL_DATE_VRSN  "Mon May 10 18:00:21 CEST 2021"
 #define ID_FILE           "detid_mythen3.txt"
+
+#define NUM_HARDWARE_VERSIONS    (2)
+#define HARDWARE_VERSION_NUMBERS {0x0, 0x2};
+#define HARDWARE_VERSION_NAMES                                                 \
+    { "1.0", "1.2" }
 
 #define LINKED_SERVER_NAME "mythen3DetectorServer"
 
 #define CTRL_SRVR_INIT_TIME_US (300 * 1000)
 
 /* Hardware Definitions */
-#define NCOUNTERS                   (3)
-#define MAX_COUNTER_MSK             (0x7)
-#define NCHAN_1_COUNTER             (128)
-#define NCHAN                       (128 * NCOUNTERS)
-#define NCHIP                       (10)
-#define NDAC                        (16)
-#define HV_SOFT_MAX_VOLTAGE         (500)
-#define HV_HARD_MAX_VOLTAGE         (530)
-#define HV_DRIVER_FILE_NAME         ("/etc/devlinks/hvdac")
-#define DAC_DRIVER_FILE_NAME        ("/etc/devlinks/dac")
-#define TYPE_FILE_NAME              ("/etc/devlinks/type")
+#define NCOUNTERS            (3)
+#define MAX_COUNTER_MSK      (0x7)
+#define NCHAN_1_COUNTER      (128)
+#define NCHAN                (128 * NCOUNTERS)
+#define NCHIP                (10)
+#define NCHAN_PER_MODULE     (NCHAN * NCHIP)
+#define NDAC                 (16)
+#define HV_SOFT_MAX_VOLTAGE  (500)
+#define HV_HARD_MAX_VOLTAGE  (530)
+#define HV_DRIVER_FILE_NAME  ("/etc/devlinks/hvdac")
+#define DAC_DRIVER_FILE_NAME ("/etc/devlinks/dac")
+#define TYPE_FILE_NAME       ("/etc/devlinks/type")
+#ifdef VIRTUAL
+#define TEMPERATURE_FILE_NAME ("/tmp/temp.txt")
+#else
+#define TEMPERATURE_FILE_NAME ("/sys/class/hwmon/hwmon0/temp1_input")
+#endif
 #define DAC_MAX_MV                  (2048)
 #define TYPE_MYTHEN3_MODULE_VAL     (93)
 #define TYPE_TOLERANCE              (5)
@@ -46,13 +57,11 @@
 #define DEFAULT_TRIMBIT_VALUE            (0)
 #define DEFAULT_COUNTER_DISABLED_VTH_VAL (2800)
 
-#define DEFAULT_READOUT_C0 (10) //(100000000) // rdo_clk, 100 MHz
-#define DEFAULT_READOUT_C1 (10) //(100000000) // smp sample clk (x2), 100 MHz
-#define DEFAULT_SYSTEM_C0  (10) //(100000000) // run_clk, 100 MHz
-#define DEFAULT_SYSTEM_C1  (10) //(100000000) // sync_clk, 100 MHz
-#define DEFAULT_SYSTEM_C2  (10) //(100000000) // str_clk, 100 MHz
-#define DEFAULT_SYSTEM_C3  (5)  //(200000000) // smp_clk, 200 MHz
-// (DEFAULT_SYSTEM_C3 only for timing receiver) should not be changed
+#define DEFAULT_READOUT_C0          (10) //(100000000) // rdo_clk, 100 MHz
+#define DEFAULT_READOUT_C1          (10) //(100000000) // rdo_smp_clk, 100 MHz
+#define DEFAULT_SYSTEM_C0           (10) //(100000000) // run_clk, 100 MHz
+#define DEFAULT_SYSTEM_C1           (6)  //(166666666) // str_clk, 166 MHz const
+#define DEFAULT_SYSTEM_C2           (5)  //(200000000) // smp_clk, 200 MHz const
 #define DEFAULT_TRIMMING_RUN_CLKDIV (40) // (25000000) // 25 MHz
 
 #define DEFAULT_ASIC_LATCHING_NUM_PULSES (10)
@@ -95,7 +104,7 @@ enum DACINDEX {
 #define DAC_NAMES                                                              \
     "vcassh", "vth2", "vrshaper", "vrshaper_n", "vipre_out", "vth3", "vth1",   \
         "vicin", "vcas", "vrpreamp", "vcal_n", "vipre", "vishaper", "vcal_p",  \
-        "vtrim", "vdcsh"
+        "vtrim", "vdcsh", "vthreshold"
 #define DEFAULT_DAC_VALS                                                       \
     {                                                                          \
         1200, /* casSh */                                                      \
@@ -105,7 +114,7 @@ enum DACINDEX {
         1220, /* vIpreOut */                                                   \
         2800, /* Vth3 */                                                       \
         2800, /* Vth1 */                                                       \
-        1708, /* vIcin */                                                      \
+        800,  /* vIcin */                                                      \
         1800, /* cas */                                                        \
         1100, /* Vrpreamp */                                                   \
         1100, /* Vcal_n */                                                     \
@@ -115,6 +124,8 @@ enum DACINDEX {
         2800, /* vTrim */                                                      \
         800   /* VdcSh */                                                      \
     };
+
+enum ADCINDEX { TEMP_FPGA };
 
 #define NUMSETTINGS     (3)
 #define NSPECIALDACS    (2)
@@ -132,12 +143,12 @@ enum CLKINDEX {
     SYSTEM_C0,
     SYSTEM_C1,
     SYSTEM_C2,
-    SYSTEM_C3,
     NUM_CLOCKS
 };
+#define NUM_CLOCKS_TO_SET (3)
+
 #define CLK_NAMES                                                              \
-    "READOUT_C0", "READOUT_C1", "SYSTEM_C0", "SYSTEM_C1", "SYSTEM_C2",         \
-        "SYSTEM_C3"
+    "READOUT_C0", "READOUT_C1", "SYSTEM_C0", "SYSTEM_C1", "SYSTEM_C2"
 enum PLLINDEX { READOUT_PLL, SYSTEM_PLL };
 
 /* Struct Definitions */

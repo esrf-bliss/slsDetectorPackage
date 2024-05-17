@@ -9,18 +9,34 @@
  *@short functions to open/close zmq sockets
  */
 
+#include "sls/container_utils.h"
 #include "sls/sls_detector_exceptions.h"
+
+#include <array>
+#include <map>
+#include <memory>
+
+// Selective suppression of  warning in gcc,
+// showed up in gcc 12 and at the moment
+// no upgrade is available to rapidjson
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #include <rapidjson/document.h> //json header in zmq stream
+#pragma GCC diagnostic pop
+
+#include <zmq.h>
+
+namespace sls {
 
 #define MAX_STR_LENGTH 1000
-
 // #define ZMQ_DETAIL
 #define ROIVERBOSITY
 
-class zmq_msg_t;
-#include "sls/container_utils.h"
-#include <map>
-#include <memory>
+// high water mark for gui
+#define DEFFAULT_LOW_ZMQ_HWM           (25)
+#define DEFAULT_LOW_ZMQ_HWM_BUFFERSIZE (1024 * 1024) // 1MB
+#define DEFAULT_ZMQ_BUFFERSIZE         (-1)          // os default
+
 /** zmq header structure */
 struct zmqHeader {
     /** true if incoming data, false if end of acquisition */
@@ -28,9 +44,9 @@ struct zmqHeader {
     uint32_t jsonversion{0};
     uint32_t dynamicRange{0};
     uint64_t fileIndex{0};
-    /** number of detectors in x axis */
+    /** number of detectors/port in x axis */
     uint32_t ndetx{0};
-    /** number of detectors in y axis */
+    /** number of detectors/port in y axis */
     uint32_t ndety{0};
     /** number of pixels/channels in x axis for this zmq socket */
     uint32_t npixelsx{0};
@@ -50,14 +66,14 @@ struct zmqHeader {
     uint64_t frameNumber{0};
     uint32_t expLength{0};
     uint32_t packetNumber{0};
-    uint64_t bunchId{0};
+    uint64_t detSpec1{0};
     uint64_t timestamp{0};
     uint16_t modId{0};
     uint16_t row{0};
     uint16_t column{0};
-    uint16_t reserved{0};
-    uint32_t debug{0};
-    uint16_t roundRNumber{0};
+    uint16_t detSpec2{0};
+    uint32_t detSpec3{0};
+    uint16_t detSpec4{0};
     uint8_t detType{0};
     uint8_t version{0};
     /** if rows of image should be flipped */
@@ -68,6 +84,8 @@ struct zmqHeader {
     bool completeImage{false};
     /** additional json header */
     std::map<std::string, std::string> addJsonHeader;
+    /** (xmin, xmax, ymin, ymax) roi only in files written */
+    std::array<int, 4> rx_roi{};
 };
 
 class ZmqSocket {
@@ -98,14 +116,28 @@ class ZmqSocket {
     /** Returns high water mark for outbound messages */
     int GetSendHighWaterMark();
 
-    /** Sets high water mark for outbound messages. Default 1000 (zmqlib) */
+    /** Sets high water mark for outbound messages. Default 1000 (zmqlib). Also
+     * changes send buffer size depending on hwm. Must rebind.  */
     void SetSendHighWaterMark(int limit);
 
     /** Returns high water mark for inbound messages */
     int GetReceiveHighWaterMark();
 
-    /** Sets high water mark for inbound messages. Default 1000 (zmqlib) */
+    /** Sets high water mark for inbound messages. Default 1000 (zmqlib). Also
+     * changes receiver buffer size depending on hwm. Must reconnect */
     void SetReceiveHighWaterMark(int limit);
+
+    /** Gets kernel buffer for  outbound messages. Default 0 (os) */
+    int GetSendBuffer();
+
+    /** Sets kernel buffer for  outbound messages. Default 0 (os) */
+    void SetSendBuffer(int limit);
+
+    /** Gets kernel buffer for  inbound messages. Default 0 (os) */
+    int GetReceiveBuffer();
+
+    /** Sets kernel buffer for  inbound messages. Default 0 (os) */
+    void SetReceiveBuffer(int limit);
 
     /**
      * Returns Port Number
@@ -118,6 +150,9 @@ class ZmqSocket {
      * @returns Server Address
      */
     std::string GetZmqServerAddress() { return sockfd.serverAddress; }
+
+    /** unbinds and rebind, to apply changes of HWM  */
+    void Rebind();
 
     /**
      * Connect client socket to server socket
@@ -221,6 +256,7 @@ class ZmqSocket {
     /** Socket descriptor */
     mySocketDescriptors sockfd;
 
-    std::unique_ptr<char[]> header_buffer =
-        sls::make_unique<char[]>(MAX_STR_LENGTH);
+    std::unique_ptr<char[]> header_buffer = make_unique<char[]>(MAX_STR_LENGTH);
 };
+
+} // namespace sls

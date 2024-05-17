@@ -14,10 +14,11 @@ streamingInterface = slsDetectorDefs.streamingInterface
 defs = slsDetectorDefs
 
 from .utils import element_if_equal, all_equal, get_set_bits, list_to_bitmask
-from .utils import Geometry, to_geo, element, reduce_time, is_iterable
+from .utils import Geometry, to_geo, element, reduce_time, is_iterable, hostname_list
 from _slsdet import xy
+from .gaincaps import Mythen3GainCapsWrapper
 from . import utils as ut
-from .proxy import JsonProxy, SlowAdcProxy, ClkDivProxy, MaxPhaseProxy, ClkFreqProxy
+from .proxy import JsonProxy, SlowAdcProxy, ClkDivProxy, MaxPhaseProxy, ClkFreqProxy, PatLoopProxy, PatNLoopProxy, PatWaitProxy, PatWaitTimeProxy 
 from .registers import Register, Adc_register
 import datetime as dt
 
@@ -115,6 +116,11 @@ class Detector(CppDetectorApi):
         fname = ut.make_string_path(fname)
         self.loadConfig(fname)
 
+        #create a new object to replace the old, allow us to
+        #do a new initialization of dacs etc.
+        new_object = self.__class__(self.getShmId())
+        self.__dict__.update(new_object.__dict__)
+
     @property
     def parameters(self):
         """Sets detector measurement parameters to those contained in fname. 
@@ -157,12 +163,8 @@ class Detector(CppDetectorApi):
 
     @hostname.setter
     def hostname(self, hostnames):
-        if isinstance(hostnames, str):
-            hostnames = [hostnames]
-        if isinstance(hostnames, list):
-            self.setHostname(hostnames)
-        else:
-            raise ValueError("hostname needs to be string or list of strings")
+        args = hostname_list(hostnames)
+        self.setHostname(args)
 
 
     @property
@@ -220,9 +222,30 @@ class Detector(CppDetectorApi):
         Example
         -------
         >>> d.detectorserverversion
-        '0x200910'
+        '7.0.0'
         """
-        return ut.lhex(self.getDetectorServerVersion())
+        return self.getDetectorServerVersion()
+
+    @property
+    @element
+    def hardwareversion(self):
+        """
+        [Jungfrau][Gotthard2][Myhten3][Gotthard][Ctb][Moench] Hardware version of detector.
+        """
+        return self.getHardwareVersion()
+
+    @property
+    @element
+    def kernelversion(self):
+        """
+        Kernel version on the detector including time and date
+        
+        Example
+        -------
+        >>> d.kernelversion
+        '#37 PREEMPT Thu Oct 13 14:51:04 CEST 2016'
+        """
+        return self.getKernelVersion()
 
     @property
     def clientversion(self):
@@ -231,21 +254,27 @@ class Detector(CppDetectorApi):
         Example
         -------
         >>> d.clientversion
-        '0x200810'
+        '7.0.1'
         """
-        return hex(self.getClientVersion())
+        return self.getClientVersion()
 
     @property
     @element
     def rx_version(self):
-        """Receiver version in format [0xYYMMDD]."""
-        return ut.lhex(self.getReceiverVersion())
+        """Receiver version """
+        return self.getReceiverVersion()
+
+    @property
+    @element
+    def serialnumber(self):
+        """Jungfrau][Gotthard][Mythen3][Gotthard2][CTB][Moench] Serial number of detector """
+        return ut.lhex(self.getSerialNumber())
 
     @property
     @element
     def rx_threads(self):
         """
-        Get thread ids from the receiver in order of [parent, tcp, listener 0, processor 0, streamer 0, listener 1, processor 1, streamer 1]. 
+        Get kernel thread ids from the receiver in order of [parent, tcp, listener 0, processor 0, streamer 0, listener 1, processor 1, streamer 1, arping]. 
         
         Note
         -----
@@ -257,13 +286,24 @@ class Detector(CppDetectorApi):
 
     @property
     @element
+    def rx_arping(self):
+        """Starts a thread in slsReceiver to arping the interface it is listening every minute. Useful in 10G mode. """
+        return self.getRxArping()
+
+    @rx_arping.setter
+    def rx_arping(self, value):
+        ut.set_using_dict(self.setRxArping, value)
+
+
+    @property
+    @element
     def dr(self):
         """
         Dynamic range or number of bits per pixel/channel.
 
         Note
         -----
-        [Eiger] Options: 4, 8, 16, 32. If set to 32, also sets clkdivider to 2 (quarter speed), else to 0 (full speed)\n
+        [Eiger] Options: 4, 8, 12, 16, 32. If set to 32, also sets clkdivider to 2 (quarter speed), else to 0 (full speed)\n
         [Mythen3] Options: 8, 16, 32 \n
         [Jungfrau][Gotthard][Ctb][Moench][Mythen3][Gotthard2] 16
         """
@@ -420,6 +460,56 @@ class Detector(CppDetectorApi):
     def triggers(self, n_triggers):
         self.setNumberOfTriggers(n_triggers)
 
+    def resetdacs(self, use_hardware_values):
+        self.resetToDefaultDacs(use_hardware_values)
+
+    def trigger(self):
+        self.sendSoftwareTrigger()
+
+    def blockingtrigger(self):
+        self.sendSoftwareTrigger(True)
+
+    @property
+    @element
+    def gaincaps(self):
+        """
+        [Mythen3] Gain caps. Enum: M3_GainCaps \n
+        
+        Note
+        ----
+        Options: M3_GainCaps, M3_C15sh, M3_C30sh, M3_C50sh, M3_C225ACsh, M3_C15pre
+
+        Example
+        -------
+        >>> d.gaincaps
+        C15pre, C30sh
+        >>> d.gaincaps = M3_GainCaps.M3_C30sh
+        >>> d.gaincaps
+        C30sh
+        >>> d.gaincaps = M3_GainCaps.M3_C30sh | M3_GainCaps.M3_C15sh
+        >>> d.gaincaps
+        C15sh, C30sh
+        """
+        res = [Mythen3GainCapsWrapper(it) for it in self.getGainCaps()]
+        return res
+
+    @gaincaps.setter
+    def gaincaps(self, caps):
+        #convert to int if called with Wrapper
+        if isinstance(caps, Mythen3GainCapsWrapper):
+            self.setGainCaps(caps.value)
+        elif isinstance(caps, dict):
+            corr = {}
+            for key, value in caps.items():
+                if isinstance(value, Mythen3GainCapsWrapper):
+                    corr[key] = value.value
+                else:
+                    corr[key] = value
+            ut.set_using_dict(self.setGainCaps, corr)
+        else:
+            self.setGainCaps(caps)
+
+
     @property
     def exptime(self):
         """
@@ -429,16 +519,35 @@ class Detector(CppDetectorApi):
         -----
         [Mythen3] sets exposure time to all gate signals in auto and trigger mode (internal gating). To specify gateIndex, use getExptime or setExptime.
         
-        :getter: always returns in seconds. To get in datetime.delta, use getExptime
+        :getter: always returns in seconds. To get in DurationWrapper, use getExptime
 
         Example
         -----------
+        >>> # setting directly in seconds
         >>> d.exptime = 1.05
-        >>> d.exptime = datetime.timedelta(minutes = 3, seconds = 1.23)
+        >>>
+        >>> # setting directly in seconds
+        >>> d.exptime = 5e-07
+        >>> 
+        >>> # using timedelta (up to microseconds precision)
+        >>> from datatime import timedelta
+        >>> d.exptime = timedelta(seconds = 1, microseconds = 3)
+        >>> 
+        >>> # using DurationWrapper to set in seconds
+        >>> from slsdet import DurationWrapper
+        >>> d.exptime = DurationWrapper(1.2)
+        >>> 
+        >>> # using DurationWrapper to set in ns
+        >>> t = DurationWrapper()
+        >>> t.set_count(500)
+        >>> d.exptime = t
+        >>>
+        >>> # to get in seconds
         >>> d.exptime
         181.23
+        >>> 
         >>> d.getExptime()
-        [datetime.timedelta(seconds=181, microseconds=230000)]
+        [sls::DurationWrapper(total_seconds: 1e-08 count: 10)]
         """
         if self.type == detectorType.MYTHEN3:
             res = self.getExptimeForAllGates()
@@ -448,15 +557,13 @@ class Detector(CppDetectorApi):
 
     @exptime.setter
     def exptime(self, t):
-        if self.type == detectorType.MYTHEN3 and is_iterable(t):
+        if self.type == detectorType.MYTHEN3 and is_iterable(t) and not isinstance(t,dict):
             for i, v in enumerate(t):
                 if isinstance(v, int):
                     v = float(v)
                 self.setExptime(i, v)
         else:
             ut.set_time_using_dict(self.setExptime, t)
-
-
 
 
     @property
@@ -466,16 +573,35 @@ class Detector(CppDetectorApi):
 
         Note
         -----
-        :getter: always returns in seconds. To get in datetime.delta, use getPeriod
+        :getter: always returns in seconds. To get in DurationWrapper, use getPeriod
 
         Example
         -----------
+        >>> # setting directly in seconds
         >>> d.period = 1.05
-        >>> d.period = datetime.timedelta(minutes = 3, seconds = 1.23)
+        >>>
+        >>> # setting directly in seconds
+        >>> d.period = 5e-07
+        >>> 
+        >>> # using timedelta (up to microseconds precision)
+        >>> from datatime import timedelta
+        >>> d.period = timedelta(seconds = 1, microseconds = 3)
+        >>> 
+        >>> # using DurationWrapper to set in seconds
+        >>> from slsdet import DurationWrapper
+        >>> d.period = DurationWrapper(1.2)
+        >>> 
+        >>> # using DurationWrapper to set in ns
+        >>> t = DurationWrapper()
+        >>> t.set_count(500)
+        >>> d.period = t
+        >>>
+        >>> # to get in seconds
         >>> d.period
         181.23
-        >>> d.getPeriod()
-        [datetime.timedelta(seconds=181, microseconds=230000)]
+        >>> 
+        >>> d.getExptime()
+        sls::DurationWrapper(total_seconds: 181.23 count: 181230000000)
         """
         res = self.getPeriod()
         return reduce_time(res)
@@ -495,7 +621,7 @@ class Detector(CppDetectorApi):
         -----
         [Gotthard2] only in continuous mode.
 
-        :getter: always returns in seconds. To get in datetime.delta, use getPeriodLeft
+        :getter: always returns in seconds. To get in DurationWrapper, use getPeriodLeft
         :setter: Not Implemented
 
         Example
@@ -503,7 +629,7 @@ class Detector(CppDetectorApi):
         >>> d.periodl
         181.23
         >>> d.getPeriodLeft()
-        [datetime.timedelta(seconds=181, microseconds=230000)]
+        [sls::DurationWrapper(total_seconds: 181.23 count: 181230000000)]
         """
         return self.getPeriodLeft()
 
@@ -511,21 +637,40 @@ class Detector(CppDetectorApi):
     @element
     def delay(self):
         """
-        [Gotthard][Jungfrau][CTB][Moench][Mythen3][Gotthard2] Delay after trigger, accepts either a value in seconds or datetime.timedelta
+        [Gotthard][Jungfrau][CTB][Moench][Mythen3][Gotthard2] Delay after trigger, accepts either a value in seconds, DurationWrapper or datetime.timedelta
 
         Note
         -----
 
-        :getter: always returns in seconds. To get in datetime.delta, use getDelayAfterTrigger
+        :getter: always returns in seconds. To get in DurationWrapper, use getDelayAfterTrigger
 
         Example
         -----------
+        >>> # setting directly in seconds
         >>> d.delay = 1.05
-        >>> d.delay = datetime.timedelta(minutes = 3, seconds = 1.23)
+        >>>
+        >>> # setting directly in seconds
+        >>> d.delay = 5e-07
+        >>> 
+        >>> # using timedelta (up to microseconds precision)
+        >>> from datatime import timedelta
+        >>> d.delay = timedelta(seconds = 1, microseconds = 3)
+        >>> 
+        >>> # using DurationWrapper to set in seconds
+        >>> from slsdet import DurationWrapper
+        >>> d.delay = DurationWrapper(1.2)
+        >>> 
+        >>> # using DurationWrapper to set in ns
+        >>> t = DurationWrapper()
+        >>> t.set_count(500)
+        >>> d.delay = t
+        >>>
+        >>> # to get in seconds
         >>> d.delay
         181.23
+        >>> 
         >>> d.getDelayAfterTrigger()
-        [datetime.timedelta(seconds=181, microseconds=230000)]
+        sls::DurationWrapper(total_seconds: 181.23 count: 181230000000)
         """
         return ut.reduce_time(self.getDelayAfterTrigger())
 
@@ -537,13 +682,13 @@ class Detector(CppDetectorApi):
     @element
     def delayl(self):
         """
-        [Gotthard][Jungfrau][CTB][Moench][Mythen3][Gotthard2] Delay left after trigger during acquisition, accepts either a value in seconds or datetime.timedelta
+        [Gotthard][Jungfrau][CTB][Moench][Mythen3][Gotthard2] Delay left after trigger during acquisition, accepts either a value in seconds, datetime.timedelta or DurationWrapper
 
         Note
         -----
         [Gotthard2] only in continuous mdoe.
 
-        :getter: always returns in seconds. To get in datetime.delta, use getDelayAfterTriggerLeft
+        :getter: always returns in seconds. To get in DurationWrapper, use getDelayAfterTriggerLeft
         :setter: Not Implemented
 
         Example
@@ -551,13 +696,17 @@ class Detector(CppDetectorApi):
         >>> d.delayl
         181.23
         >>> d.getDelayAfterTriggerLeft()
-        [datetime.timedelta(seconds=181, microseconds=230000)]
+        [sls::DurationWrapper(total_seconds: 181.23 count: 181230000000)]
         """
         return ut.reduce_time(self.getDelayAfterTriggerLeft())
 
     def start(self):
         """Start detector acquisition. Status changes to RUNNING or WAITING and automatically returns to idle at the end of acquisition."""
         self.startDetector()
+
+    def clearbusy(self):
+        """If acquisition aborted during acquire command, use this to clear acquiring flag in shared memory before starting next acquisition"""
+        self.clearAcquiringFlag()
 
     def rx_start(self):
         """Starts receiver listener for detector data packets and create a data file (if file write enabled)."""
@@ -575,13 +724,13 @@ class Detector(CppDetectorApi):
     @property
     @element
     def rx_framescaught(self):
-        """Number of frames caught by receiver."""
+        """Number of frames caught by each port in receiver."""
         return self.getFramesCaught()
 
     @property
     @element
     def nextframenumber(self):
-        """[Eiger][Jungfrau] Next frame number. Stopping acquisition might result in different frame numbers for different modules. """
+        """[Eiger][Jungfrau][Moench][CTB] Next frame number. Stopping acquisition might result in different frame numbers for different modules. """
         return self.getNextFrameNumber()
 
     @nextframenumber.setter
@@ -590,25 +739,46 @@ class Detector(CppDetectorApi):
 
     @property
     @element
-    def txndelay_frame(self):
+    def txdelay(self):
+        """
+        [Eiger][Jungfrau][Mythen3] Set transmission delay for all modules in the detector using the step size provided.
+        
+        Note
+        ----
+        Sets up the following for every module:\n
+        \t\t[Eiger] txdelay_left to (2 * mod_index * n_delay), \n
+        \t\t[Eiger] txdelay_right to ((2 * mod_index + 1) * n_delay) and \n
+        \t\t[Eiger] txdelay_frame to (2 *num_modules * n_delay)  \n
+        \t\t[Jungfrau][Mythen3] txdelay_frame to (num_modules * n_delay)\n\n
+        Please refer txdelay_left, txdelay_right and txdelay_frame for details.
+        """
+        return self.getTransmissionDelay()
+
+    @txdelay.setter
+    def txdelay(self, args):
+        ut.set_using_dict(self.setTransmissionDelay, args)
+
+    @property
+    @element
+    def txdelay_frame(self):
         """
         [Eiger][Jungfrau][Mythen3] Transmission delay of first udp packet being streamed out of the module.\n
 
         Note
         ----
         [Jungfrau] [0-31] Each value represents 1 ms. \n 
-        [Eiger] Additional delay to txndelay_left and txndelay_right. Each value represents 10ns. Typical value is 50000. \n
+        [Eiger] Additional delay to txdelay_left and txdelay_right. Each value represents 10ns. Typical value is 50000. \n
         [Mythen3] [0-16777215] Each value represents 8 ns (125 MHz clock), max is 134 ms.
         """
         return self.getTransmissionDelayFrame()
 
-    @txndelay_frame.setter
-    def txndelay_frame(self, args):
+    @txdelay_frame.setter
+    def txdelay_frame(self, args):
         ut.set_using_dict(self.setTransmissionDelayFrame, args)
 
     @property
     @element
-    def txndelay_left(self):
+    def txdelay_left(self):
         """[Eiger] Transmission delay of first packet in an image being streamed out of the module's left UDP port. 
 
         Note
@@ -617,13 +787,13 @@ class Detector(CppDetectorApi):
         """
         return self.getTransmissionDelayLeft()
 
-    @txndelay_left.setter
-    def txndelay_left(self, args):
+    @txdelay_left.setter
+    def txdelay_left(self, args):
         ut.set_using_dict(self.setTransmissionDelayLeft, args)
 
     @property
     @element
-    def txndelay_right(self):
+    def txdelay_right(self):
         """
         [Eiger] Transmission delay of first packet in an image being streamed out of the module's right UDP port. 
 
@@ -633,8 +803,8 @@ class Detector(CppDetectorApi):
         """
         return self.getTransmissionDelayRight()
 
-    @txndelay_right.setter
-    def txndelay_right(self, args):
+    @txdelay_right.setter
+    def txdelay_right(self, args):
         ut.set_using_dict(self.setTransmissionDelayRight, args)
 
     @property
@@ -669,7 +839,8 @@ class Detector(CppDetectorApi):
 
     @rx_hostname.setter
     def rx_hostname(self, hostname):
-        self.setRxHostname(hostname)
+        args = hostname_list(hostname)
+        self.setRxHostname(args)
 
     @property
     @element
@@ -1158,6 +1329,7 @@ class Detector(CppDetectorApi):
         ----
         Not mandatory to set as udp_dstip retrieves it from slsReceiver process but must be set if you use a custom receiver (not slsReceiver). \n
         To set MACs for individual modules, use setDestinationUDPMAC. 
+        Use router mac if router between detector and receiver.
         
         Example
         -------
@@ -1184,6 +1356,7 @@ class Detector(CppDetectorApi):
         To set MACs for individual modules, use setDestinationUDPMAC2. \n
         [Jungfrau] bottom half \n
         [Gotthard2] veto debugging \n
+        Use router mac if router between detector and receiver.
         
         Example
         ------
@@ -1418,20 +1591,21 @@ class Detector(CppDetectorApi):
     @property
     def trimbits(self):
         """
-        [Eiger][Mythen3] Loads custom trimbit file to detector. 
+        [Eiger][Mythen3] Loads/Saves custom trimbit file to detector. 
         
         Note
         -----
         If no extension specified, serial number of each module is attached.
 
-        :getter: Not implemented
+        :setter: Loads the trimbit file to detector
+        :getter: Saves the trimbits from the detector to file. Not implemented with 'trimbits'. Use saveTrimbits().
 
         Example
         -------
         >>> d.trimbits = '/path_to_file/noise'
         - 14:53:27.931 INFO: Settings file loaded: /path_to_file/noise.sn000
         """
-        return NotImplementedError("trimbits are set only")
+        raise NotImplementedError('trimbits is set only. Use saveTrimbits()')
 
     @trimbits.setter
     def trimbits(self, fname):
@@ -1449,6 +1623,58 @@ class Detector(CppDetectorApi):
     @trimval.setter
     def trimval(self, value):
         ut.set_using_dict(self.setAllTrimbits, value)
+
+    @property
+    @element
+    def fliprows(self):
+        """
+        [Eiger] flips rows paramater sent to slsreceiver to stream as json parameter to flip rows in gui. \n
+        [Jungfrau] flips rows in the detector itself. For bottom module and number of interfaces must be set to 2. slsReceiver and slsDetectorGui does not handle.
+        """
+        return self.getFlipRows()
+
+    @fliprows.setter
+    def fliprows(self, value):
+        ut.set_using_dict(self.setFlipRows, value)
+
+
+    @property
+    @element
+    def master(self):
+        """
+        [Eiger][Gotthard2][Jungfrau] Sets (half) module to master and other(s) to slaves.\n
+        [Gotthard][Gotthard2][Mythen3][Eiger][Jungfrau] Gets if the current (half) module is master.
+        """
+        return self.getMaster()
+
+    @master.setter
+    def master(self, value):
+        ut.set_using_dict(self.setMaster, value)
+
+    @property
+    @element
+    def sync(self):
+        """
+        [Jungfrau] Enables or disables synchronization between modules.
+        """
+        return self.getSynchronization()
+
+    @sync.setter
+    def sync(self, value):
+        ut.set_using_dict(self.setSynchronization, value)
+
+    @property
+    @element
+    def badchannels(self):
+        """
+        [fname|none|0]\n\t[Gotthard2][Mythen3] Sets the bad channels (from file of bad channel numbers) to be masked out. None or 0 unsets all the badchannels.\n
+        [Mythen3] Also does trimming
+        """
+        return self.getBadChannels()
+
+    @badchannels.setter
+    def badchannels(self, value):
+        ut.set_using_dict(self.setBadChannels, value)
 
     @property
     @element
@@ -1534,8 +1760,16 @@ class Detector(CppDetectorApi):
 
     @property
     def daclist(self):
-        """Gets the list of enums for every dac for this detector."""
-        return self.getDacList()
+        """
+        List of enums for every dac for this detector.
+        :setter: Only implemented for Chiptestboard
+        
+        """
+        return self.getDacNames()
+
+    @daclist.setter
+    def daclist(self, value):
+        self.setDacNames(value)
 
     @property
     def dacvalues(self):
@@ -1549,6 +1783,11 @@ class Detector(CppDetectorApi):
     def timinglist(self):
         """Gets the list of timing modes (timingMode) for this detector."""
         return self.getTimingModeList()
+
+    @property
+    def readoutspeedlist(self):
+        """List of readout speed levels implemented for this detector."""
+        return self.getReadoutSpeedList()
 
     @property
     def templist(self):
@@ -1651,12 +1890,17 @@ class Detector(CppDetectorApi):
 
     @property
     def versions(self):
-        return {'type': self.type,
+        version_list = {'type': self.type,
                 'package': self.packageversion, 
                 'client': self.clientversion,
                 'firmware': self.firmwareversion,
                 'detectorserver': self.detectorserverversion,
-                'receiver': self.rx_version}
+                'kernel': self.kernelversion}
+        if self.type != detectorType.EIGER:
+            version_list ['hardware'] = self.hardwareversion
+        if self.use_receiver:
+            version_list ['receiver'] = self.rx_version
+        return version_list
 
     @property
     def virtual(self):
@@ -1787,13 +2031,13 @@ class Detector(CppDetectorApi):
     @property
     @element
     def threshold(self):
-        """[Eiger] Threshold in eV
+        """[Eiger][Mythen3] Threshold in eV
         
         Note
         ----
         To change settings as well or set threshold without trimbits, use setThresholdEnergy.
 
-        :setter: It loads trim files from settingspath.
+        :setter: It loads trim files from settingspath.\n [Mythen3] An energy of -1 will pick up values from detector.
         """
         if self.type == detectorType.MYTHEN3:
             return self.getAllThresholdEnergy()
@@ -1880,13 +2124,13 @@ class Detector(CppDetectorApi):
     @property
     @element
     def rx_frameindex(self):
-        """Current frame index received in receiver during acquisition."""
+        """Current frame index received for each port in receiver during acquisition."""
         return self.getRxCurrentFrameIndex()
 
     @property
     @element
     def rx_missingpackets(self):
-        """Gets the number of missing packets for each port in receiver."""
+        """Gets the number of missing packets for each port in receiver. Negative number denotes extra packets. """
         return self.getNumMissingPackets()
 
     """
@@ -1899,7 +2143,7 @@ class Detector(CppDetectorApi):
     def datastream(self):
         """
         datastream [left|right] [0, 1]
-	    [Eiger] Enables or disables data streaming from left or/and right side of detector. 1 (enabled) by default.
+	    [Eiger] Enables or disables data streaming from left or/and right side of detector for 10GbE mode. 1 (enabled) by default.
         """
         result = {}
         for port in [defs.LEFT, defs.RIGHT]:
@@ -1929,16 +2173,35 @@ class Detector(CppDetectorApi):
         ----
         Subperiod = subexptime + subdeadtime.
 
-        :getter: always returns in seconds. To get in datetime.delta, use getSubExptime
+        :getter: always returns in seconds. To get in DurationWrapper, use getSubExptime
 
         Example
         -----------
+        >>> # setting directly in seconds
         >>> d.subexptime = 1.230203
-        >>> d.subexptime = datetime.timedelta(seconds = 1.23, microseconds = 203)
+        >>>
+        >>> # setting directly in seconds
+        >>> d.subexptime = 5e-07
+        >>> 
+        >>> # using timedelta (up to microseconds precision)
+        >>> from datatime import timedelta
+        >>> d.subexptime = timedelta(seconds = 1.23, microseconds = 203)
+        >>> 
+        >>> # using DurationWrapper to set in seconds
+        >>> from slsdet import DurationWrapper
+        >>> d.subexptime = DurationWrapper(1.2)
+        >>> 
+        >>> # using DurationWrapper to set in ns
+        >>> t = DurationWrapper()
+        >>> t.set_count(500)
+        >>> d.subexptime = t
+        >>>
+        >>> # to get in seconds
         >>> d.subexptime
-        1.230203
+        181.23
+        >>> 
         >>> d.getSubExptime()
-        [datetime.timedelta(seconds = 1, microseconds = 203)]
+        sls::DurationWrapper(total_seconds: 181.23 count: 181230000000)
         """
         res = self.getSubExptime()
         return reduce_time(res)
@@ -1970,22 +2233,41 @@ class Detector(CppDetectorApi):
     @property
     def subdeadtime(self):
         """
-        [Eiger] Dead time of EIGER subframes in 32 bit mode, accepts either a value in seconds or datetime.timedelta
+        [Eiger] Dead time of EIGER subframes in 32 bit mode, accepts either a value in seconds, datetime.timedelta or DurationWrapper
         
         Note
         ----
         Subperiod = subexptime + subdeadtime.
 
-        :getter: always returns in seconds. To get in datetime.delta, use getSubDeadTime
+        :getter: always returns in seconds. To get in DurationWrapper, use getSubDeadTime
 
         Example
         -----------
+        >>> # setting directly in seconds
         >>> d.subdeadtime = 1.230203
-        >>> d.subdeadtime = datetime.timedelta(seconds = 1.23, microseconds = 203)
+        >>>
+        >>> # setting directly in seconds
+        >>> d.subdeadtime = 5e-07
+        >>> 
+        >>> # using timedelta (up to microseconds precision)
+        >>> from datatime import timedelta
+        >>> d.subdeadtime = timedelta(seconds = 1.23, microseconds = 203)
+        >>> 
+        >>> # using DurationWrapper to set in seconds
+        >>> from slsdet import DurationWrapper
+        >>> d.subdeadtime = DurationWrapper(1.2)
+        >>> 
+        >>> # using DurationWrapper to set in ns
+        >>> t = DurationWrapper()
+        >>> t.set_count(500)
+        >>> d.subdeadtime = t
+        >>>
+        >>> # to get in seconds
         >>> d.subdeadtime
-        1.230203
+        181.23
+        >>> 
         >>> d.getSubDeadTime()
-        [datetime.timedelta(seconds = 1, microseconds = 203)]
+        sls::DurationWrapper(total_seconds: 181.23 count: 181230000000)
         """
         res = self.getSubDeadTime()
         return reduce_time(res)
@@ -1998,11 +2280,13 @@ class Detector(CppDetectorApi):
     @element
     def parallel(self):
         """
-        [Eiger][Mythen3] Enable or disable the parallel readout mode of detector. 
+        [Eiger][Mythen3][Gotthard2] Enable or disable the parallel readout mode of detector. 
         
         Note
         ----
         [Mythen3] If exposure time is too short, acquisition will return with an ERROR and take fewer frames than expected. 
+        [Mythen3][Eiger] Default: Non parallel
+        [Gotthard2] Default: parallel. Non parallel mode works only in continuous mode.
         """
         return self.getParallelMode()
 
@@ -2101,6 +2385,21 @@ class Detector(CppDetectorApi):
         """
         return ut.reduce_time(self.getMeasuredSubFramePeriod())
 
+    @property
+    @element
+    def top(self):
+        """[Eiger] Sets half module to top (1), else bottom.
+        
+        Note
+        -----
+        Advanced Function!
+        """
+        return self.getTop()
+
+    @top.setter
+    def top(self, value):
+        ut.set_using_dict(self.setTop, value)
+
     """
     ------------------<<<Jungfrau specific>>>-------------------------
     """
@@ -2144,16 +2443,35 @@ class Detector(CppDetectorApi):
         -----
         It is only possible for chipv1.1.
 
-        :getter: always returns in seconds. To get in datetime.delta, use getComparatorDisableTime
+        :getter: always returns in seconds. To get in DurationWrapper, use getComparatorDisableTime
 
         Example
         -----------
+        >>> # setting directly in seconds
         >>> d.compdisabletime = 1.05
-        >>> d.compdisabletime = datetime.timedelta(minutes = 3, seconds = 1.23)
+        >>>
+        >>> # setting directly in seconds
+        >>> d.compdisabletime = 5e-07
+        >>> 
+        >>> # using timedelta (up to microseconds precision)
+        >>> from datatime import timedelta
+        >>> d.compdisabletime = timedelta(seconds = 1, microseconds = 3)
+        >>> 
+        >>> # using DurationWrapper to set in seconds
+        >>> from slsdet import DurationWrapper
+        >>> d.compdisabletime = DurationWrapper(1.2)
+        >>> 
+        >>> # using DurationWrapper to set in ns
+        >>> t = DurationWrapper()
+        >>> t.set_count(500)
+        >>> d.compdisabletime = t
+        >>>
+        >>> # to get in seconds
         >>> d.compdisabletime
         181.23
+        >>> 
         >>> d.getComparatorDisableTime()
-        [datetime.timedelta(seconds=181, microseconds=230000)]
+        sls::DurationWrapper(total_seconds: 181.23 count: 181230000000)
         """
         return ut.reduce_time(self.getComparatorDisableTime())
 
@@ -2211,23 +2529,42 @@ class Detector(CppDetectorApi):
     @property
     def storagecell_delay(self):
         """
-        [Jungfrau] Additional time delay between 2 consecutive exposures in burst mode, accepts either a value in seconds or datetime.timedelta
+        [Jungfrau] Additional time delay between 2 consecutive exposures in burst mode, accepts either a value in seconds, datetime.timedelta or DurationWrapper
         
         Note
         -----
         Only applicable for chipv1.0. For advanced users only \n
         Value: 0-1638375 ns (resolution of 25ns)
 
-        :getter: always returns in seconds. To get in datetime.delta, use getStorageCellDelay
+        :getter: always returns in seconds. To get in DurationWrapper, use getStorageCellDelay
 
         Example
         -----------
-        >>> d.storagecell_delay = 0.00056
-        >>> d.storagecell_delay = datetime.timedelta(microseconds = 45)
+        >>> # setting directly in seconds
+        >>> d.storagecell_delay = 1.05
+        >>>
+        >>> # setting directly in seconds
+        >>> d.storagecell_delay = 5e-07
+        >>> 
+        >>> # using timedelta (up to microseconds precision)
+        >>> from datatime import timedelta
+        >>> d.storagecell_delay = timedelta(seconds = 1, microseconds = 3)
+        >>> 
+        >>> # using DurationWrapper to set in seconds
+        >>> from slsdet import DurationWrapper
+        >>> d.storagecell_delay = DurationWrapper(1.2)
+        >>> 
+        >>> # using DurationWrapper to set in ns
+        >>> t = DurationWrapper()
+        >>> t.set_count(500)
+        >>> d.storagecell_delay = t
+        >>>
+        >>> # to get in seconds
         >>> d.storagecell_delay
-        4.5e-05
+        181.23
+        >>> 
         >>> d.getStorageCellDelay()
-        [datetime.timedelta(microseconds=45)]
+        sls::DurationWrapper(total_seconds: 181.23 count: 181230000000)
         """
         return ut.reduce_time(self.getStorageCellDelay())
 
@@ -2485,6 +2822,7 @@ class Detector(CppDetectorApi):
         Note
         ----
         BURST_INTERNAL (default), BURST_EXTERNAL, CONTINUOUS_INTERNAL, CONTINUOUS_EXTERNAL
+        Also changes clkdiv 2, 3, 4
         """
         return self.getBurstMode()
 
@@ -2500,17 +2838,36 @@ class Detector(CppDetectorApi):
         Note
         -----
         
-        :getter: always returns in seconds. To get in datetime.delta, use getBurstPeriod
+        :getter: always returns in seconds. To get in DurationWrapper, use getBurstPeriod
+        :setter: Not Implemented
 
         Example
         -----------
+        >>> # setting directly in seconds
         >>> d.burstperiod = 1.05
-        >>> d.burstperiod = datetime.timedelta(minutes = 3, seconds = 1.23)
+        >>>
+        >>> # setting directly in seconds
+        >>> d.burstperiod = 5e-07
+        >>> 
+        >>> # using timedelta (up to microseconds precision)
+        >>> from datatime import timedelta
+        >>> d.burstperiod = timedelta(seconds = 1, microseconds = 3)
+        >>> 
+        >>> # using DurationWrapper to set in seconds
+        >>> from slsdet import DurationWrapper
+        >>> d.burstperiod = DurationWrapper(1.2)
+        >>> 
+        >>> # using DurationWrapper to set in ns
+        >>> t = DurationWrapper()
+        >>> t.set_count(500)
+        >>> d.burstperiod = t
+        >>>
+        >>> # to get in seconds
         >>> d.burstperiod
         181.23
+        >>> 
         >>> d.getBurstPeriod()
-        [datetime.timedelta(seconds=181, microseconds=230000)]
-
+        sls::DurationWrapper(total_seconds: 181.23 count: 181230000000)
         """
         return ut.reduce_time(self.getBurstPeriod())
 
@@ -2555,7 +2912,7 @@ class Detector(CppDetectorApi):
         -------
         >>> d.vetophoton = (2, 24, 2560, '/tmp/bla.txt')
         """
-        raise NotImplementedError('vetofile is set only')
+        raise NotImplementedError('vetophoton is set only')
 
     @vetophoton.setter
     def vetophoton(self, args):
@@ -2635,25 +2992,41 @@ class Detector(CppDetectorApi):
     @property
     def gatedelay(self):
         """
-        [Mythen3] Gate Delay of all gate signals in auto and trigger mode (internal gating), accepts either a value in seconds or datetime.timedelta
+        [Mythen3] Gate Delay of all gate signals in auto and trigger mode (internal gating), accepts either a value in seconds, datetime.timedelta or DurationWrapper
 
         Note
         -----
         To specify gateIndex, use getGateDelay or setGateDelay.
         
-        :getter: always returns in seconds. To get in datetime.delta, use getGateDelayForAllGates or getGateDelay(gateIndex)
+        :getter: always returns in seconds. To get in DurationWrapper, use getGateDelayForAllGates or getGateDelay(gateIndex)
 
         Example
         -----------
+        >>> # setting directly in seconds
         >>> d.gatedelay = 1.05
-        >>> d.gatedelay = datetime.timedelta(minutes = 3, seconds = 1.23)
+        >>>
+        >>> # setting directly in seconds
+        >>> d.gatedelay = 5e-07
+        >>> 
+        >>> # using timedelta (up to microseconds precision)
+        >>> from datatime import timedelta
+        >>> d.gatedelay = timedelta(seconds = 1, microseconds = 3)
+        >>> 
+        >>> # using DurationWrapper to set in seconds
+        >>> from slsdet import DurationWrapper
+        >>> d.gatedelay = DurationWrapper(1.2)
+        >>> 
+        >>> # using DurationWrapper to set in ns
+        >>> t = DurationWrapper()
+        >>> t.set_count(500)
+        >>> d.gatedelay = t
+        >>>
+        >>> # to get in seconds
         >>> d.gatedelay
         181.23
-        >>> d.setGateDelay(1, datetime.timedelta(seconds = 2))
-        >>> d.gatedelay
-        >>> [1.0, 2.0, 1.0]
+        >>> 
         >>> d.getExptimeForAllGates()
-        >>> [[datetime.timedelta(seconds=181, microseconds=230000), datetime.timedelta(seconds=181, microseconds=230000), datetime.timedelta(seconds=181, microseconds=230000)]]
+        sls::DurationWrapper(total_seconds: 181.23 count: 181230000000)
         """
         return reduce_time(self.getGateDelayForAllGates())
 
@@ -2815,6 +3188,17 @@ class Detector(CppDetectorApi):
     @dbitclk.setter
     def dbitclk(self, value):
         ut.set_using_dict(self.setDBITClock, value)
+
+    @property
+    @element
+    def adcvpp(self):
+        """[Ctb][Moench] Vpp of ADC. [0 -> 1V | 1 -> 1.14V | 2 -> 1.33V | 3 -> 1.6V | 4 -> 2V] \n
+            Advanced User function!"""
+        return self.getADCVpp(False)
+
+    @adcvpp.setter
+    def adcvpp(self, value):
+        ut.set_using_dict(self.setADCVpp, value, False)
 
     @property
     @element
@@ -3004,7 +3388,7 @@ class Detector(CppDetectorApi):
     @property
     @element
     def patsetbit(self):
-        """[Ctb][Moench][Mythen3] Selects the bits that will have a pattern mask applied to the selected patmask for every pattern.
+        """[Ctb][Moench][Mythen3] Sets the mask applied to every pattern to the selected bits. 
         
         Example
         --------
@@ -3021,7 +3405,7 @@ class Detector(CppDetectorApi):
     @property
     @element
     def patmask(self):
-        """[Ctb][Moench][Mythen3] Sets the mask applied to every pattern to the selected bits. 
+        """[Ctb][Moench][Mythen3] Selects the bits that will have a pattern mask applied to the selected patmask for every pattern.
         
         Example
         --------
@@ -3034,6 +3418,24 @@ class Detector(CppDetectorApi):
     @patmask.setter
     def patmask(self, mask):
         ut.set_using_dict(self.setPatternMask, mask)
+
+    @property
+    # @element
+    def patwait(self):
+        """
+        [Ctb][Moench][Mythen3] Wait address of loop level provided.
+        
+        Example
+        -------
+        >>> d.patwait[0] = 5
+        >>> d.patwait[0]
+        5
+        >>> d.patwait
+        0: 5
+        1: 20
+        2: 30
+        """
+        return PatWaitProxy(self)
 
     @property
     @element
@@ -3096,6 +3498,23 @@ class Detector(CppDetectorApi):
         ut.set_using_dict(self.setPatternWaitAddr, *addr)
 
     @property
+    def patwaittime(self):
+        """
+        [Ctb][Moench][Mythen3] Wait time in clock cycles of loop level provided.
+        
+        Example
+        -------
+        >>> d.patwaittime[0] = 5
+        >>> d.patwaittime[0]
+        5
+        >>> d.patwaittime
+        0: 5
+        1: 20
+        2: 30
+        """
+        return PatWaitTimeProxy(self)
+
+    @property
     @element
     def patwaittime0(self):
         """[Ctb][Moench][Mythen3] Wait 0 time in clock cycles."""
@@ -3128,6 +3547,23 @@ class Detector(CppDetectorApi):
         nclk = ut.merge_args(2, nclk)
         ut.set_using_dict(self.setPatternWaitTime, *nclk)
 
+
+    @property
+    def patloop(self):
+        """
+        [Ctb][Moench][Mythen3] Limits (start and stop address) of the loop provided.
+        
+        Example
+        -------
+        >>> d.patloop[0] = [5, 20]
+        >>> d.patloop[0]
+        [5, 20]
+        >>> d.patloop
+        0: [5, 20]
+        1: [20, 4]
+        2: [30, 5]
+        """
+        return PatLoopProxy(self)
 
     @property
     @element
@@ -3190,6 +3626,24 @@ class Detector(CppDetectorApi):
     def patloop2(self, addr):
         addr = ut.merge_args(2, addr)
         ut.set_using_dict(self.setPatternLoopAddresses, *addr)
+
+
+    @property
+    def patnloop(self):
+        """
+        [Ctb][Moench][Mythen3] Number of cycles of the loop provided.
+        
+        Example
+        -------
+        >>> d.patnloop[0] = 5
+        >>> d.patnloop[0]
+        5
+        >>> d.patnloop
+        0: 5
+        1: 20
+        2: 30
+        """
+        return PatNLoopProxy(self)
 
     @property
     @element
@@ -3356,6 +3810,23 @@ class Detector(CppDetectorApi):
         """
         return self.getMeasuredCurrent(dacIndex.I_POWER_IO)
 
+    @property
+    def clkphase(self):
+        """
+        [Gotthard2][Mythen3] Phase shift of all clocks.
+        
+        Example
+        -------
+        >>> d.clkphase[0] = 20
+        >>> d.clkphase
+        0: 20
+        1: 10
+        2: 20
+        3: 10
+        4: 10
+        5: 5
+        """
+        return ClkPhaseProxy(self)
 
     @property
     def clkdiv(self):
@@ -3387,7 +3858,7 @@ class Detector(CppDetectorApi):
         Note
         -----
         
-        :getter: always returns in seconds. To get in datetime.delta, use getExptimeLeft
+        :getter: always returns in seconds. To get in DurationWrapper, use getExptimeLeft
         :setter: Not Implemented
         
         Example
@@ -3395,7 +3866,7 @@ class Detector(CppDetectorApi):
         >>> d.exptimel
         181.23
         >>> d.getExptimeLeft()
-        [datetime.timedelta(seconds=181, microseconds=230000)]
+        [sls::DurationWrapper(total_seconds: 181.23 count: 181230000000)]
         """
         t = self.getExptimeLeft()
         return reduce_time(t)
@@ -3422,10 +3893,10 @@ class Detector(CppDetectorApi):
         [Gotthard2][Mythen3] Frequency of clock in Hz. 
         
         Note
-        -----
+        ----
         
         :setter: Not implemented. Use clkdiv to set frequency
-        
+
         Example
         -------
         >>> d.clkfreq[0]
@@ -3436,10 +3907,60 @@ class Detector(CppDetectorApi):
 
     def readout(self):
         """
-        Mythen3] Starts detector readout. Status changes to TRANSMITTING and automatically returns to idle at the end of readout.
+        [Mythen3] Starts detector readout. Status changes to TRANSMITTING and automatically returns to idle at the end of readout.
         """
         self.startDetectorReadout()
     
+    @property
+    @element
+    def polarity(self):
+        """[Mythen3] Set positive or negative polarity. Enum: polarity"""
+        return self.getPolarity()
+
+    @polarity.setter
+    def polarity(self, value):
+        ut.set_using_dict(self.setPolarity, value)
+
+    @property
+    @element
+    def interpolation(self):
+        """[Mythen3] Enable or disable interpolation.  interpolation mode enables all counters and disables vth3. Disabling sets back counter mask and vth3. """
+        return self.getInterpolation()
+
+    @interpolation.setter
+    def interpolation(self, value):
+        ut.set_using_dict(self.setInterpolation, value)
+
+    @property
+    @element
+    def pumpprobe(self):
+        """[Mythen3] Enable or disable pump probe mode. Pump probe mode only enables vth2. Disabling sets back to previous value """
+        return self.getPumpProbe()
+
+    @pumpprobe.setter
+    def pumpprobe(self, value):
+        ut.set_using_dict(self.setPumpProbe, value)
+
+    @property
+    @element
+    def apulse(self):
+        """[Mythen3] Enable or disable analog pulsing. """
+        return self.getAnalogPulsing()
+
+    @apulse.setter
+    def apulse(self, value):
+        ut.set_using_dict(self.setAnalogPulsing, value)
+
+    @property
+    @element
+    def dpulse(self):
+        """[Mythen3] Enable or disable digital pulsing. """
+        return self.getDigitalPulsing()
+
+    @dpulse.setter
+    def dpulse(self, value):
+        ut.set_using_dict(self.setDigitalPulsing, value)
+
 
     """
     ---------------------------<<<Debug>>>---------------------------

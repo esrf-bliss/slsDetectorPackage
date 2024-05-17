@@ -11,13 +11,13 @@ enums.cpp
 import re
 import subprocess
 
-from parse import remove_comments
+from parse import remove_comments, remove_ifdefs
 
-allow_bitwise_op = ["M3_GainCaps"]
-allow_bitwise_op = ["streamingInterface"]
 
-op_key = {"operator|": "__or__", 
-          "operator&" : "__and__"}
+allow_bitwise_op = ["streamingInterface", "M3_GainCaps"]
+
+op_key = {"operator|": "|", 
+          "operator&" : "&"}
 
 def single_line_enum(line):
     sub = line[line.find('{')+1:line.find('}')]
@@ -92,32 +92,31 @@ def generate_enum_string(enums):
 
         #Here add the operators 
         for op in operators:
-            data.append(f"\n\t.def(\"{op_key[op]}\", py::overload_cast< const slsDetectorDefs::streamingInterface&,  const slsDetectorDefs::streamingInterface&>(&{op}))")
-
+            data.append(f"\n\t.def(py::self {op_key[op]} slsDetectorDefs::{key}())")
 
         data.append(';\n\n')
     return ''.join(data)
 
 
-def remove_ifdefs(lines):
-    """Keeps C++ version of the code"""
-    out = []
-    it = iter(lines)
-    skip = False
-    for line in it:
+# def remove_ifdefs(lines):
+#     """Keeps C++ version of the code"""
+#     out = []
+#     it = iter(lines)
+#     skip = False
+#     for line in it:
         
-        if "#ifdef __cplusplus" in line:
-            line = next(it)
+#         if "#ifdef __cplusplus" in line:
+#             line = next(it)
 
-        if "#else" in line:
-            skip = True
+#         if "#else" in line:
+#             skip = True
 
-        if "#endif" in line:
-            skip = False
+#         if "#endif" in line:
+#             skip = False
 
-        if not skip and "#endif" not in line:    
-            out.append(line)
-    return out
+#         if not skip and "#endif" not in line:    
+#             out.append(line)
+#     return out
     
 
 with open('../../slsSupportLib/include/sls/sls_detector_defs.h') as f:

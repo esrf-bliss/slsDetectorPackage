@@ -3,19 +3,23 @@
 #pragma once
 #include "SlsQt2DHist.h"
 #include "SlsQt2DZoomer.h"
+#include <array>
 #include <qlist.h>
 #include <qwt_plot.h>
+#include <qwt_plot_shapeitem.h>
 #include <qwt_plot_spectrogram.h>
 
 class QwtPlotPanner;
 class QwtScaleWidget;
 class QwtLinearColorMap;
 
+namespace sls {
+
 class SlsQt2DPlot : public QwtPlot {
     Q_OBJECT
 
   public:
-    SlsQt2DPlot(QWidget * = NULL);
+    SlsQt2DPlot(QWidget * = NULL, bool gain = false);
     ~SlsQt2DPlot();
     void SetTitle(QString title);
     void SetXTitle(QString title);
@@ -67,13 +71,24 @@ class SlsQt2DPlot : public QwtPlot {
     void SetLogz(bool enable, bool isMin, bool isMax, double min, double max);
     void SetZRange(bool isMin, bool isMax, double min, double max);
     void LogZ(bool on = 1);
+    void EnableRoiBox(std::array<int, 4> roi);
+    void DisableRoiBox();
 
   public slots:
     void showSpectrogram(bool on);
+    void SetZoom(const QRectF &rect);
+
+  private slots:
+    void GetPannedCoord(int, int);
+
+  signals:
+    void PlotZoomedSignal(const QRectF &);
 
   private:
     void SetupZoom();
     void SetupColorMap();
+    bool gainPlot{false};
+
     QwtLinearColorMap *myColourMap(QVector<double> colourStops);
     QwtLinearColorMap *myColourMap(int log = 0);
 
@@ -86,4 +101,7 @@ class SlsQt2DPlot : public QwtPlot {
     QList<double> contourLevelsLog;
     bool disableZoom{false};
     int isLog;
+    QwtPlotShapeItem *roiBox{nullptr};
 };
+
+} // namespace sls

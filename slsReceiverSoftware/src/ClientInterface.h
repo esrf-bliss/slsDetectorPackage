@@ -31,7 +31,7 @@ class ClientInterface : private virtual slsDetectorDefs {
 
     virtual ~ClientInterface();
     ClientInterface(int portNumber = -1);
-    int64_t getReceiverVersion();
+    std::string getReceiverVersion();
 
     //***callback functions***
     /** params: filepath, filename, fileindex, datasize */
@@ -79,7 +79,7 @@ class ClientInterface : private virtual slsDetectorDefs {
     int get_version(sls::ServerInterface &socket);
     int setup_receiver(sls::ServerInterface &socket);
     void setDetectorType(detectorType arg);
-    int set_roi(sls::ServerInterface &socket);
+    int set_detector_roi(sls::ServerInterface &socket);
     int set_num_frames(sls::ServerInterface &socket);
     int set_num_triggers(sls::ServerInterface &socket);
     int set_num_bursts(sls::ServerInterface &socket);
@@ -137,7 +137,6 @@ class ClientInterface : private virtual slsDetectorDefs {
     int get_real_udp_socket_buffer_size(sls::ServerInterface &socket);
     int set_frames_per_file(sls::ServerInterface &socket);
     int get_frames_per_file(sls::ServerInterface &socket);
-    int check_version_compatibility(sls::ServerInterface &socket);
     int set_discard_policy(sls::ServerInterface &socket);
     int get_discard_policy(sls::ServerInterface &socket);
     int set_padding_enable(sls::ServerInterface &socket);

@@ -19,7 +19,4 @@ target_sources(tests PRIVATE
                 ${CMAKE_CURRENT_SOURCE_DIR}/test-Geometry.cpp
                 )
 
-# find_package(Catch2 REQUIRED)
-# add_executable(test_packet test-Packet.cpp)
-# target_link_libraries(test_packet PRIVATE Catch2::Catch2)
-# target_include_directories(test_packet PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/test-file_utils-channels.txt ${CMAKE_BINARY_DIR}/bin/test-file_utils-channels.txt COPYONLY)               

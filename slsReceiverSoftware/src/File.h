@@ -27,34 +27,34 @@ class File : private virtual slsDetectorDefs {
 
 #ifdef HDF5C
     virtual std::array<std::string, 2> GetFileAndDatasetName() const {
-        LOG(logERROR)
+        LOG(sls::logERROR)
             << "This is a generic function GetFilesInAcquisition that "
                "should be overloaded by a derived class";
         return std::array<std::string, 2>{};
     }
 
     virtual uint32_t GetFilesInAcquisition() const {
-        LOG(logERROR)
+        LOG(sls::logERROR)
             << "This is a generic function GetFilesInAcquisition that "
                "should be overloaded by a derived class";
         return 0;
     };
 
     virtual DataType GetPDataType() const {
-        LOG(logERROR) << "This is a generic function GetPDataType that "
+        LOG(sls::logERROR) << "This is a generic function GetPDataType that "
                          "should be overloaded by a derived class";
         return PredType::STD_U16LE;
     }
 
     virtual std::vector<std::string> GetParameterNames() const {
-        LOG(logERROR)
+        LOG(sls::logERROR)
             << "This is a generic function GetFilesInAcquisition that "
                "should be overloaded by a derived class";
         return std::vector<std::string>{};
     };
 
     virtual std::vector<DataType> GetParameterDataTypes() const {
-        LOG(logERROR)
+        LOG(sls::logERROR)
             << "This is a generic function GetFilesInAcquisition that "
                "should be overloaded by a derived class";
         return std::vector<DataType>{};
@@ -70,7 +70,7 @@ class File : private virtual slsDetectorDefs {
         const uint64_t numImagesCaught, const int numModX, const int numModY,
         const DataType dataType, const std::vector<std::string> parameterNames,
         const std::vector<DataType> parameterDataTypes) {
-        LOG(logERROR) << "This is a generic function CreateVirtualFile that "
+        LOG(sls::logERROR) << "This is a generic function CreateVirtualFile that "
                          "should be overloaded by a derived class";
     }
 
@@ -82,14 +82,14 @@ class File : private virtual slsDetectorDefs {
         const uint32_t maxFramesPerFile, const uint64_t numImages,
         const uint32_t nPixelsX, const uint32_t nPixelsY,
         const uint32_t dynamicRange) {
-        LOG(logERROR) << "This is a generic function CreateFirstDataFile that "
+        LOG(sls::logERROR) << "This is a generic function CreateFirstDataFile that "
                          "should be overloaded by a derived class";
     };
 
     virtual void LinkDataFile(std::string dataFilename, std::string dataSetname,
                               const std::vector<std::string> parameterNames,
                               const bool silentMode) {
-        LOG(logERROR) << "This is a generic function LinkDataFile that "
+        LOG(sls::logERROR) << "This is a generic function LinkDataFile that "
                          "should be overloaded by a derived class";
     };
 #endif
@@ -99,7 +99,7 @@ class File : private virtual slsDetectorDefs {
         const bool silentMode, const int modulePos,
         const int numUnitsPerReadout, const uint32_t udpPortNumber,
         const uint32_t maxFramesPerFile) {
-        LOG(logERROR) << "This is a generic function CreateFirstDataFile that "
+        LOG(sls::logERROR) << "This is a generic function CreateFirstDataFile that "
                          "should be overloaded by a derived class";
     };
 
@@ -109,7 +109,7 @@ class File : private virtual slsDetectorDefs {
                                   const bool overWriteEnable,
                                   const bool silentMode,
                                   MasterAttributes *attr) {
-        LOG(logERROR) << "This is a generic function CreateMasterFile that "
+        LOG(sls::logERROR) << "This is a generic function CreateMasterFile that "
                          "should be overloaded by a derived class";
     };
 
@@ -117,12 +117,12 @@ class File : private virtual slsDetectorDefs {
                              const int buffersize,
                              const uint64_t currentFrameNumber,
                              const uint32_t numPacketsCaught) {
-        LOG(logERROR) << "This is a generic function WriteToFile that "
+        LOG(sls::logERROR) << "This is a generic function WriteToFile that "
                          "should be overloaded by a derived class";
     };
 
     virtual void UpdateMasterFile(MasterAttributes *attr, bool silentMode) {
-        LOG(logERROR) << "This is a generic function UpdateMasterFile that "
+        LOG(sls::logERROR) << "This is a generic function UpdateMasterFile that "
                          "should be overloaded by a derived class";
     };
 

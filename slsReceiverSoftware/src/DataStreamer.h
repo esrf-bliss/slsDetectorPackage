@@ -16,7 +16,10 @@
 class GeneralData;
 class Fifo;
 class DataStreamer;
+
+namespace sls {
 class ZmqSocket;
+};
 
 #include <map>
 #include <mutex>
@@ -154,7 +157,7 @@ class DataStreamer : private virtual slsDetectorDefs, public ThreadObject {
     Fifo *fifo;
 
     /** ZMQ Socket - Receiver to Client */
-    ZmqSocket *zmqSocket{nullptr};
+    sls::ZmqSocket *zmqSocket{nullptr};
 
     /** Pointer to dynamic range */
     uint32_t *dynamicRange;

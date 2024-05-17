@@ -4,7 +4,9 @@
 #include "qDacWidget.h"
 #include "qDefs.h"
 
-qTabDeveloper::qTabDeveloper(QWidget *parent, sls::Detector *detector)
+namespace sls {
+
+qTabDeveloper::qTabDeveloper(QWidget *parent, Detector *detector)
     : QWidget(parent), det(detector) {
     setupUi(this);
     SetupWidgetWindow();
@@ -15,12 +17,6 @@ qTabDeveloper::~qTabDeveloper() {}
 
 void qTabDeveloper::SetupWidgetWindow() {
     int tempid = 0;
-
-    comboHV->hide();
-    lblComboHV->hide();
-    lblSpinHV->hide();
-    spinHV->hide();
-    hvmin = HV_MIN;
 
     try {
         slsDetectorDefs::detectorType detType = det->getDetectorType().squash();
@@ -82,8 +78,6 @@ void qTabDeveloper::SetupWidgetWindow() {
             break;
 
         case slsDetectorDefs::GOTTHARD:
-            comboHV->show();
-            lblComboHV->show();
             dacWidgets.push_back(new qDacWidget(
                 this, det, true,
                 "v Reference: ", getSLSIndex(detType, tempid++)));
@@ -117,8 +111,6 @@ void qTabDeveloper::SetupWidgetWindow() {
             break;
 
         case slsDetectorDefs::JUNGFRAU:
-            lblSpinHV->show();
-            spinHV->show();
             dacWidgets.push_back(
                 new qDacWidget(this, det, true,
                                "v vb comp: ", getSLSIndex(detType, tempid++)));
@@ -148,8 +140,6 @@ void qTabDeveloper::SetupWidgetWindow() {
             break;
 
         case slsDetectorDefs::MOENCH:
-            lblSpinHV->show();
-            spinHV->show();
             dacWidgets.push_back(
                 new qDacWidget(this, det, true,
                                "vbp_colbuf: ", getSLSIndex(detType, tempid++)));
@@ -173,9 +163,6 @@ void qTabDeveloper::SetupWidgetWindow() {
             break;
 
         case slsDetectorDefs::MYTHEN3:
-            lblSpinHV->show();
-            spinHV->show();
-            hvmin = 0;
             dacWidgets.push_back(new qDacWidget(
                 this, det, true, "vcassh: ", getSLSIndex(detType, tempid++)));
             dacWidgets.push_back(new qDacWidget(
@@ -213,12 +200,12 @@ void qTabDeveloper::SetupWidgetWindow() {
             dacWidgets.push_back(
                 new qDacWidget(this, det, true,
                                "vthreshold: ", getSLSIndex(detType, tempid++)));
+            adcWidgets.push_back(new qDacWidget(
+                this, det, false,
+                "Temperature FPGA: ", getSLSIndex(detType, tempid++)));
             break;
 
         case slsDetectorDefs::GOTTHARD2:
-            lblSpinHV->show();
-            spinHV->show();
-            hvmin = 0;
             dacWidgets.push_back(
                 new qDacWidget(this, det, true,
                                "vref_h_adc: ", getSLSIndex(detType, tempid++)));
@@ -258,6 +245,9 @@ void qTabDeveloper::SetupWidgetWindow() {
             dacWidgets.push_back(
                 new qDacWidget(this, det, true,
                                "vcom_adc2: ", getSLSIndex(detType, tempid++)));
+            adcWidgets.push_back(new qDacWidget(
+                this, det, false,
+                "Temperature FPGA: ", getSLSIndex(detType, tempid++)));
             break;
         default:
             break;
@@ -290,92 +280,24 @@ void qTabDeveloper::SetupWidgetWindow() {
 void qTabDeveloper::Initialization() {
     connect(comboDetector, SIGNAL(currentIndexChanged(int)), this,
             SLOT(Refresh()));
-    connect(comboHV, SIGNAL(currentIndexChanged(int)), this,
-            SLOT(SetHighVoltage()));
-    connect(spinHV, SIGNAL(valueChanged(int)), this, SLOT(SetHighVoltage()));
 }
 
 void qTabDeveloper::PopulateDetectors() {
     LOG(logDEBUG) << "Populating detectors";
 
-    comboDetector->clear();
-    comboDetector->addItem("All");
-    auto res = det->getHostname();
-    if (det->size() > 1) {
-        for (auto &it : res) {
-            comboDetector->addItem(QString(it.c_str()));
-        }
-    }
-    comboDetector->setCurrentIndex(0);
-}
-
-void qTabDeveloper::GetHighVoltage() {
-    // not enabled for eiger
-    if (!comboHV->isVisible() && !spinHV->isVisible())
-        return;
-    LOG(logDEBUG) << "Getting High Voltage";
-    disconnect(spinHV, SIGNAL(valueChanged(int)), this, SLOT(SetHighVoltage()));
-    disconnect(comboHV, SIGNAL(currentIndexChanged(int)), this,
-               SLOT(SetHighVoltage()));
     try {
-        // dac units
-        auto retval = det->getHighVoltage({comboDetector->currentIndex() - 1})
-                          .tsquash("Inconsistent values for high voltage.");
-        // spinHV
-        if (spinHV->isVisible()) {
-            if (retval != 0 && retval < hvmin && retval > HV_MAX) {
-                throw sls::RuntimeError(std::string("Unknown High Voltage: ") +
-                                        std::to_string(retval));
-            }
-            spinHV->setValue(retval);
-        }
-        // combo HV
-        else {
-            switch (retval) {
-            case 0:
-                comboHV->setCurrentIndex(HV_0);
-                break;
-            case 90:
-                comboHV->setCurrentIndex(HV_90);
-                break;
-            case 110:
-                comboHV->setCurrentIndex(HV_110);
-                break;
-            case 120:
-                comboHV->setCurrentIndex(HV_120);
-                break;
-            case 150:
-                comboHV->setCurrentIndex(HV_150);
-                break;
-            case 180:
-                comboHV->setCurrentIndex(HV_180);
-                break;
-            case 200:
-                comboHV->setCurrentIndex(HV_200);
-                break;
-            default:
-                throw sls::RuntimeError(std::string("Unknown High Voltage: ") +
-                                        std::to_string(retval));
+        comboDetector->clear();
+        comboDetector->addItem("All");
+        auto res = det->getHostname();
+        if (det->size() > 1) {
+            for (auto &it : res) {
+                comboDetector->addItem(QString(it.c_str()));
             }
         }
+        comboDetector->setCurrentIndex(0);
     }
-    CATCH_DISPLAY("Could not get high voltage.",
-                  "qTabDeveloper::GetHighVoltage")
-    connect(spinHV, SIGNAL(valueChanged(int)), this, SLOT(SetHighVoltage()));
-    connect(comboHV, SIGNAL(currentIndexChanged(int)), this,
-            SLOT(SetHighVoltage()));
-}
-
-void qTabDeveloper::SetHighVoltage() {
-    int val = (comboHV->isVisible() ? comboHV->currentText().toInt()
-                                    : spinHV->value());
-    LOG(logINFO) << "Setting high voltage:" << val;
-
-    try {
-        det->setHighVoltage({comboDetector->currentIndex() - 1});
-    }
-    CATCH_HANDLE("Could not set high voltage.", "qTabDeveloper::SetHighVoltage",
-                 this, &qTabDeveloper::GetHighVoltage)
+    CATCH_DISPLAY("Could not populate readouts for dacs/adcs",
+                  "qTabDeveloper::PopulateDetectors")
 }
 
 slsDetectorDefs::dacIndex
@@ -431,8 +353,8 @@ qTabDeveloper::getSLSIndex(slsDetectorDefs::detectorType detType, int index) {
         case 22:
             return slsDetectorDefs::TEMPERATURE_FPGA;
         default:
-            throw sls::RuntimeError(std::string("Unknown dac/adc index") +
-                                    std::to_string(index));
+            throw RuntimeError(std::string("Unknown dac/adc index") +
+                               std::to_string(index));
         }
         break;
     case slsDetectorDefs::GOTTHARD:
@@ -458,8 +380,8 @@ qTabDeveloper::getSLSIndex(slsDetectorDefs::detectorType detType, int index) {
         case 9:
             return slsDetectorDefs::TEMPERATURE_FPGA;
         default:
-            throw sls::RuntimeError(std::string("Unknown dac/adc index") +
-                                    std::to_string(index));
+            throw RuntimeError(std::string("Unknown dac/adc index") +
+                               std::to_string(index));
         }
         break;
 
@@ -484,8 +406,8 @@ qTabDeveloper::getSLSIndex(slsDetectorDefs::detectorType detType, int index) {
         case 8:
             return slsDetectorDefs::TEMPERATURE_ADC;
         default:
-            throw sls::RuntimeError(std::string("Unknown dac/adc index") +
-                                    std::to_string(index));
+            throw RuntimeError(std::string("Unknown dac/adc index") +
+                               std::to_string(index));
         }
         break;
 
@@ -508,8 +430,8 @@ qTabDeveloper::getSLSIndex(slsDetectorDefs::detectorType detType, int index) {
         case 7:
             return slsDetectorDefs::IBIAS_SFP;
         default:
-            throw sls::RuntimeError(std::string("Unknown dac/adc index") +
-                                    std::to_string(index));
+            throw RuntimeError(std::string("Unknown dac/adc index") +
+                               std::to_string(index));
         }
         break;
 
@@ -549,9 +471,11 @@ qTabDeveloper::getSLSIndex(slsDetectorDefs::detectorType detType, int index) {
             return slsDetectorDefs::VDCSH;
         case 16:
             return slsDetectorDefs::VTHRESHOLD;
+        case 17:
+            return slsDetectorDefs::TEMPERATURE_FPGA;
         default:
-            throw sls::RuntimeError(std::string("Unknown dac/adc index") +
-                                    std::to_string(index));
+            throw RuntimeError(std::string("Unknown dac/adc index") +
+                               std::to_string(index));
         }
         break;
 
@@ -585,14 +509,16 @@ qTabDeveloper::getSLSIndex(slsDetectorDefs::detectorType detType, int index) {
             return slsDetectorDefs::VB_OPA_FD;
         case 13:
             return slsDetectorDefs::VCOM_ADC2;
+        case 14:
+            return slsDetectorDefs::TEMPERATURE_FPGA;
         default:
-            throw sls::RuntimeError(std::string("Unknown dac/adc index") +
-                                    std::to_string(index));
+            throw RuntimeError(std::string("Unknown dac/adc index") +
+                               std::to_string(index));
         }
         break;
 
     default:
-        throw sls::RuntimeError(std::string("Unknown detector type"));
+        throw RuntimeError(std::string("Unknown detector type"));
     }
 }
 
@@ -604,6 +530,7 @@ void qTabDeveloper::Refresh() {
     for (const auto &it : adcWidgets) {
         it->SetDetectorIndex(comboDetector->currentIndex() - 1);
     }
-    GetHighVoltage();
     LOG(logDEBUG) << "**Updated Developer Tab";
 }
+
+} // namespace sls

@@ -86,6 +86,8 @@ template <class PC, class SD, class FP> class PacketStream {
 
     void printStats();
 
+    static constexpr int64_t DefaultFirstFrameIdx = 1;
+
   private:
     struct WriterThread;
 

@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: LGPL-3.0-or-other
 // Copyright (C) 2021 Contributors to the SLS Detector Package
 #include "SlsQt2DPlot.h"
-// #include "sls/ansi.h"
+#include "qDefs.h"
+#include "qVersionResolve.h"
+#include "sls/logger.h"
 
+// Suppressing warning until qwt has a fix, avoid
+// patching and should be backwards compatible
+// https://doc.qt.io/qt-5/qflags-obsolete.html
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #include <qlist.h>
-#include <qprinter.h>
 #include <qtoolbutton.h>
 #include <qwt_color_map.h>
 #include <qwt_plot_layout.h>
@@ -14,11 +20,15 @@
 #include <qwt_scale_draw.h>
 #include <qwt_scale_engine.h>
 #include <qwt_scale_widget.h>
+#pragma GCC diagnostic pop
 
 #include <cmath>
 #include <iostream>
 
-SlsQt2DPlot::SlsQt2DPlot(QWidget *parent) : QwtPlot(parent) {
+namespace sls {
+
+SlsQt2DPlot::SlsQt2DPlot(QWidget *parent, bool gain)
+    : QwtPlot(parent), gainPlot(gain) {
     isLog = 0;
     axisScaleEngine(QwtPlot::yLeft)->setAttribute(QwtScaleEngine::Floating);
     axisScaleEngine(QwtPlot::xBottom)->setAttribute(QwtScaleEngine::Floating);
@@ -30,7 +40,23 @@ SlsQt2DPlot::SlsQt2DPlot(QWidget *parent) : QwtPlot(parent) {
     d_spectrogram->attach(this);
     plotLayout()->setAlignCanvasToScales(true);
     FillTestPlot();
+    setFont(qDefs::GetDefaultFont());
+    SetTitleFont(qDefs::GetDefaultFont());
+    SetXFont(qDefs::GetDefaultFont());
+    SetYFont(qDefs::GetDefaultFont());
+    SetZFont(qDefs::GetDefaultFont());
     Update();
+
+    if (gainPlot) {
+        setTitle("Gain");
+        SetZTitle("");
+        enableAxis(QwtPlot::yLeft, false);
+        enableAxis(QwtPlot::xBottom, false);
+        DisableZoom(true);
+        // set only major ticks from 0 to 3
+        auto div = axisScaleEngine(QwtPlot::yRight)->divideScale(0, 3, 3, 0, 1);
+        setAxisScaleDiv(QwtPlot::yRight, div);
+    }
 }
 
 SlsQt2DPlot::~SlsQt2DPlot() = default;
@@ -116,7 +142,7 @@ void SlsQt2DPlot::FillTestPlot(int mode) {
 
 void SlsQt2DPlot::SetupZoom() {
     // LeftButton for the zooming
-    // MidButton for the panning
+    // MiddleButton for the panning
     // RightButton: zoom out by 1
     // Ctrl+RighButton: zoom out to full size
 
@@ -127,18 +153,23 @@ void SlsQt2DPlot::SetupZoom() {
     zoomer->setMousePattern(QwtEventPattern::MouseSelect3, Qt::RightButton);
     panner = new QwtPlotPanner(canvas());
     panner->setAxisEnabled(QwtPlot::yRight, false);
-    panner->setMouseButton(Qt::MidButton);
+    panner->setMouseButton(Qt::MiddleButton);
 
     // Avoid jumping when labels with more/less digits
     // appear/disappear when scrolling vertically
 
     const QFontMetrics fm(axisWidget(QwtPlot::yLeft)->font());
     QwtScaleDraw *sd = axisScaleDraw(QwtPlot::yLeft);
-    sd->setMinimumExtent(fm.width("100.00"));
-
+    sd->setMinimumExtent(qResolve_GetQFontWidth(fm, "100.00"));
     const QColor c(Qt::darkBlue);
     zoomer->setRubberBandPen(c);
     zoomer->setTrackerPen(c);
+
+    connect(zoomer, SIGNAL(zoomed(const QRectF &)), this,
+            SIGNAL(PlotZoomedSignal(const QRectF &)));
+
+    connect(panner, SIGNAL(panned(int, int)), this,
+            SLOT(GetPannedCoord(int, int)));
 }
 
 void SlsQt2DPlot::UnZoom(bool replot) {
@@ -149,6 +180,32 @@ void SlsQt2DPlot::UnZoom(bool replot) {
     zoomer->setZoomBase(replot); // Call replot for the attached plot before
                                  // initializing the zoomer with its scales.
                                  // zoomer->zoom(0);
+}
+
+void SlsQt2DPlot::GetPannedCoord(int, int) {
+    double xmin = invTransform(QwtPlot::xBottom, 0);
+    double xmax = invTransform(QwtPlot::xBottom, canvas()->rect().width());
+    double ymax = invTransform(QwtPlot::yLeft, 0);
+    double ymin = invTransform(QwtPlot::yLeft, canvas()->rect().height());
+    LOG(logDEBUG1) << "Rect1  " << xmin << "\t" << xmax << "\t" << ymin << "\t"
+                   << ymax;
+    QPointF topLeft = QPointF(xmin, ymin);
+    QPointF bottomRight = QPointF(xmax, ymax);
+    const QRectF rectf = QRectF(topLeft, bottomRight);
+    rectf.getCoords(&xmin, &ymin, &xmax, &ymax);
+    LOG(logDEBUG1) << "RectF  " << xmin << "\t" << xmax << "\t" << ymin << "\t"
+                   << ymax;
+    emit PlotZoomedSignal(rectf);
+}
+
+void SlsQt2DPlot::SetZoom(const QRectF &rect) {
+    double xmin = 0, xmax = 0, ymin = 0, ymax = 0;
+    rect.getCoords(&xmin, &ymin, &xmax, &ymax);
+    LOG(logDEBUG1) << "Plot zooming in to " << xmin << " " << xmax << " "
+                   << ymin << " " << ymax;
+    SetXMinMax(xmin, xmax);
+    SetYMinMax(ymin, ymax);
+    replot();
 }
 
 void SlsQt2DPlot::SetZoom(double xmin, double ymin, double x_width,
@@ -187,7 +244,7 @@ void SlsQt2DPlot::DisableZoom(bool disable) {
                                         Qt::RightButton);
             }
             if (panner)
-                panner->setMouseButton(Qt::MidButton);
+                panner->setMouseButton(Qt::MiddleButton);
         }
     }
 }
@@ -231,10 +288,12 @@ void SlsQt2DPlot::Update() {
         hist->SetMinimumToFirstGreaterThanZero();
     const QwtInterval zInterval = d_spectrogram->data()->interval(Qt::ZAxis);
     rightAxis->setColorMap(zInterval, myColourMap(isLog));
-
     if (!zoomer->zoomRectIndex())
         UnZoom();
-    setAxisScale(QwtPlot::yRight, zInterval.minValue(), zInterval.maxValue());
+    if (!gainPlot) {
+        setAxisScale(QwtPlot::yRight, zInterval.minValue(),
+                     zInterval.maxValue());
+    }
     plotLayout()->setAlignCanvasToScales(true);
     replot();
 }
@@ -290,3 +349,26 @@ void SlsQt2DPlot::showSpectrogram(bool on) {
     d_spectrogram->setDefaultContourPen(on ? QPen() : QPen(Qt::NoPen));
     Update();
 }
+
+void SlsQt2DPlot::EnableRoiBox(std::array<int, 4> roi) {
+    if (roiBox == nullptr) {
+        roiBox = new QwtPlotShapeItem();
+    }
+    roiBox->setPen(QColor(Qt::yellow), 2.0, Qt::SolidLine);
+
+    // TopLeft - BottomRight (max points are +1 on graph)
+    QRect myRect(QPoint(roi[0], roi[2]), QPoint(roi[1] - 1, roi[3] - 1));
+    roiBox->setRect(QRectF(myRect));
+
+    roiBox->attach(this);
+    replot();
+}
+
+void SlsQt2DPlot::DisableRoiBox() {
+    if (roiBox != nullptr) {
+        roiBox->detach();
+        replot();
+    }
+}
+
+} // namespace sls

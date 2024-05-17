@@ -49,12 +49,12 @@ void Implementation::SetLocalNetworkParameters() {
         std::ofstream proc_file(proc_file_name);
         if (proc_file.good()) {
             proc_file << MAX_SOCKET_INPUT_PACKET_QUEUE << std::endl;
-            LOG(logINFOBLUE)
+            LOG(sls::logINFOBLUE)
                 << "Max length of input packet queue "
                    "[/proc/sys/net/core/netdev_max_backlog] modified to "
                 << MAX_SOCKET_INPUT_PACKET_QUEUE;
         } else {
-            LOG(logWARNING)
+            LOG(sls::logWARNING)
                 << "Could not change max length of "
                    "input packet queue [net.core.netdev_max_backlog]. (No Root "
                    "Privileges?)";
@@ -108,11 +108,11 @@ void Implementation::SetupFifoStructure() {
             os << " - NUMA mask: " << numa_mask;
             numa_str = os.str();
         }
-        LOG(logINFO) << "Memory Allocated for Fifo " << i << ": "
+        LOG(sls::logINFO) << "Memory Allocated for Fifo " << i << ": "
                      << (double)(framesize * fifoDepth) / (double)(1024 * 1024)
                      << " MB" << numa_str;
     }
-    LOG(logINFO) << numThreads << " Fifo structure(s) reconstructed";
+    LOG(sls::logINFO) << numThreads << " Fifo structure(s) reconstructed";
 }
 
 MPFrameAssemblerPtr
@@ -254,7 +254,7 @@ void Implementation::setDetectorType(const detectorType d) {
     case MOENCH:
     case MYTHEN3:
     case GOTTHARD2:
-        LOG(logINFO) << " ***** " << sls::ToString(d) << " Receiver *****";
+        LOG(sls::logINFO) << " ***** " << sls::ToString(d) << " Receiver *****";
         break;
     default:
         throw sls::RuntimeError("This is an unknown receiver type " +
@@ -304,7 +304,7 @@ void Implementation::setDetectorType(const detectorType d) {
     SetupFifoStructure();
     CreateThreads();
 
-    LOG(logDEBUG) << " Detector type set to " << sls::ToString(d);
+    LOG(sls::logDEBUG) << " Detector type set to " << sls::ToString(d);
 }
 
 Implementation::PortGeometry Implementation::GetPortGeometry() {
@@ -338,14 +338,14 @@ void Implementation::setDetectorSize(const int *size) {
         if (IsValidThread(it))
             it->SetNumberofModules(nm);
 
-    LOG(logINFO) << log_message;
+    LOG(sls::logINFO) << log_message;
 }
 
 int Implementation::getModulePositionId() const { return modulePos; }
 
 void Implementation::setModulePositionId(const int id) {
     modulePos = id;
-    LOG(logINFO) << "Module Position Id:" << modulePos;
+    LOG(sls::logINFO) << "Module Position Id:" << modulePos;
 
     // update zmq port
     PortGeometry port_geom = GetPortGeometry();
@@ -370,14 +370,14 @@ std::string Implementation::getDetectorHostname() const { return detHostname; }
 void Implementation::setDetectorHostname(const std::string &c) {
     if (!c.empty())
         detHostname = c;
-    LOG(logINFO) << "Detector Hostname: " << detHostname;
+    LOG(sls::logINFO) << "Detector Hostname: " << detHostname;
 }
 
 bool Implementation::getSilentMode() const { return silentMode; }
 
 void Implementation::setSilentMode(const bool i) {
     silentMode = i;
-    LOG(logINFO) << "Silent Mode: " << i;
+    LOG(sls::logINFO) << "Silent Mode: " << i;
 }
 
 uint32_t Implementation::getFifoDepth() const { return fifoDepth; }
@@ -387,7 +387,7 @@ void Implementation::setFifoDepth(const uint32_t i) {
         fifoDepth = i;
         SetupFifoStructure();
     }
-    LOG(logINFO) << "Fifo Depth: " << i;
+    LOG(sls::logINFO) << "Fifo Depth: " << i;
 }
 
 slsDetectorDefs::frameDiscardPolicy
@@ -397,14 +397,14 @@ Implementation::getFrameDiscardPolicy() const {
 
 void Implementation::setFrameDiscardPolicy(const frameDiscardPolicy i) {
     frameDiscardMode = i;
-    LOG(logINFO) << "Frame Discard Policy: " << sls::ToString(frameDiscardMode);
+    LOG(sls::logINFO) << "Frame Discard Policy: " << sls::ToString(frameDiscardMode);
 }
 
 bool Implementation::getFramePaddingEnable() const { return framePadding; }
 
 void Implementation::setFramePaddingEnable(const bool i) {
     framePadding = i;
-    LOG(logINFO) << "Frame Padding: " << framePadding;
+    LOG(sls::logINFO) << "Frame Padding: " << framePadding;
 }
 
 void Implementation::setThreadIds(const pid_t parentTid, const pid_t tcpTid) {
@@ -464,31 +464,31 @@ void Implementation::setFileFormat(const fileFormat f) {
                                     fileFormatType, modulePos);
     }
 
-    LOG(logINFO) << "File Format: " << sls::ToString(fileFormatType);
+    LOG(sls::logINFO) << "File Format: " << sls::ToString(fileFormatType);
 }
 
 std::string Implementation::getFilePath() const { return filePath; }
 
 void Implementation::setFilePath(const std::string &c) {
     if (!c.empty()) {
-        mkdir_p(c); // throws if it can't create
+        sls::mkdir_p(c); // throws if it can't create
         filePath = c;
     }
-    LOG(logINFO) << "File path: " << filePath;
+    LOG(sls::logINFO) << "File path: " << filePath;
 }
 
 std::string Implementation::getFileName() const { return fileName; }
 
 void Implementation::setFileName(const std::string &c) {
     fileName = c;
-    LOG(logINFO) << "File name: " << fileName;
+    LOG(sls::logINFO) << "File name: " << fileName;
 }
 
 uint64_t Implementation::getFileIndex() const { return fileIndex; }
 
 void Implementation::setFileIndex(const uint64_t i) {
     fileIndex = i;
-    LOG(logINFO) << "File Index: " << fileIndex;
+    LOG(sls::logINFO) << "File Index: " << fileIndex;
 }
 
 bool Implementation::getFileWriteEnable() const { return fileWriteEnable; }
@@ -501,7 +501,7 @@ void Implementation::setFileWriteEnable(const bool b) {
                 it->SetupFileWriter(fileWriteEnable, masterFileWriteEnable,
                                     fileFormatType, modulePos);
     }
-    LOG(logINFO) << "File Write Enable: "
+    LOG(sls::logINFO) << "File Write Enable: "
                  << (fileWriteEnable ? "enabled" : "disabled");
 }
 
@@ -517,7 +517,7 @@ void Implementation::setMasterFileWriteEnable(const bool b) {
                 it->SetupFileWriter(fileWriteEnable, masterFileWriteEnable,
                                     fileFormatType, modulePos);
     }
-    LOG(logINFO) << "Master File Write Enable: "
+    LOG(sls::logINFO) << "Master File Write Enable: "
                  << (masterFileWriteEnable ? "enabled" : "disabled");
 }
 
@@ -525,7 +525,7 @@ bool Implementation::getOverwriteEnable() const { return overwriteEnable; }
 
 void Implementation::setOverwriteEnable(const bool b) {
     overwriteEnable = b;
-    LOG(logINFO) << "Overwrite Enable: "
+    LOG(sls::logINFO) << "Overwrite Enable: "
                  << (overwriteEnable ? "enabled" : "disabled");
 }
 
@@ -533,7 +533,7 @@ uint32_t Implementation::getFramesPerFile() const { return framesPerFile; }
 
 void Implementation::setFramesPerFile(const uint32_t i) {
     framesPerFile = i;
-    LOG(logINFO) << "Frames per file: " << framesPerFile;
+    LOG(sls::logINFO) << "Frames per file: " << framesPerFile;
 }
 
 /**************************************************
@@ -543,20 +543,20 @@ void Implementation::setFramesPerFile(const uint32_t i) {
  * ************************************************/
 slsDetectorDefs::runStatus Implementation::getStatus() const { return status; }
 
-uint64_t Implementation::getFramesCaught() const {
-    uint64_t min = -1;
+std::vector<uint64_t> Implementation::getFramesCaught() const {
+    std::vector<uint64_t> res(listener.size());
+    std::vector<uint64_t>::iterator r = res.begin();
     for (const auto &it : listener)
-        if (IsValidThread(it))
-            min = std::min(min, it->GetNumFramesCaught());
-    return min;
+        *r++ = IsValidThread(it) ? it->GetNumFramesCaught() : -1;
+    return res;
 }
 
-uint64_t Implementation::getCurrentFrameIndex() const {
-    uint64_t max = 0;
+std::vector<uint64_t> Implementation::getCurrentFrameIndex() const {
+    std::vector<uint64_t> res(listener.size());
+    std::vector<uint64_t>::iterator r = res.begin();
     for (const auto &it : listener)
-        if (IsValidThread(it))
-            max = std::max(max, it->GetCurrentFrameIndex());
-    return max;
+        *r++ = IsValidThread(it) ? it->GetCurrentFrameIndex() : -1;
+    return res;
 }
 
 double Implementation::getProgress() const {
@@ -595,11 +595,11 @@ std::vector<uint64_t> Implementation::getNumMissingPackets() const {
 
 void Implementation::setScan(slsDetectorDefs::scanParameters s) {
     scanParams = s;
-    LOG(logINFO) << "Scan parameters: " << sls::ToString(scanParams);
+    LOG(sls::logINFO) << "Scan parameters: " << sls::ToString(scanParams);
 }
 
 void Implementation::startReceiver() {
-    LOG(logINFO) << "Starting Receiver";
+    LOG(sls::logINFO) << "Starting Receiver";
     stoppedFlag = false;
     ResetParametersforNewAcquisition();
 
@@ -616,7 +616,7 @@ void Implementation::startReceiver() {
                                     std::string(e.what()));
         }
         if (rawDataReadyCallBack != nullptr) {
-            LOG(logINFO) << "Data Write has been defined externally";
+            LOG(sls::logINFO) << "Data Write has been defined externally";
         }
     }
 
@@ -624,9 +624,9 @@ void Implementation::startReceiver() {
     if (fileWriteEnable) {
         SetupWriter();
     } else
-        LOG(logINFO) << "File Write Disabled";
+        LOG(sls::logINFO) << "File Write Disabled";
 
-    LOG(logINFO) << "Ready ...";
+    LOG(sls::logINFO) << "Ready ...";
 
     // status
     status = RUNNING;
@@ -634,21 +634,21 @@ void Implementation::startReceiver() {
     // Let Threads continue to be ready for acquisition
     StartRunning();
 
-    LOG(logINFO) << "Receiver Started";
-    LOG(logINFO) << "Status: " << sls::ToString(status);
+    LOG(sls::logINFO) << "Receiver Started";
+    LOG(sls::logINFO) << "Status: " << sls::ToString(status);
 }
 
 void Implementation::setStoppedFlag(bool stopped) { stoppedFlag = stopped; }
 
 void Implementation::stopReceiver() {
-    LOG(logINFO) << "Stopping Receiver";
+    LOG(sls::logINFO) << "Stopping Receiver";
 
     // set status to transmitting
     if (activated) {
         startReadout();
     } else if (status == RUNNING) {
         status = TRANSMITTING;
-        LOG(logINFO) << "Status: Transmitting";
+        LOG(sls::logINFO) << "Status: Transmitting";
     }
 
     // wait for the processes (Listener and DataProcessor) to be done
@@ -700,7 +700,7 @@ void Implementation::stopReceiver() {
     }
 
     status = RUN_FINISHED;
-    LOG(logINFO) << "Status: " << sls::ToString(status);
+    LOG(sls::logINFO) << "Status: " << sls::ToString(status);
 
     { // statistics
         uint64_t tot = 0;
@@ -716,7 +716,7 @@ void Implementation::stopReceiver() {
                     std::to_string(abs(signed_mp)) + std::string(" (Extra)");
             }
 
-            TLogLevel lev = (signed_mp > 0) ? logINFORED : logINFOGREEN;
+	    sls::TLogLevel lev = (signed_mp > 0) ? sls::logINFORED : sls::logINFOGREEN;
             LOG(lev) <<
                 // udp port number could be the second if selected interface is
                 // 2 for jungfrau
@@ -728,13 +728,13 @@ void Implementation::stopReceiver() {
 
         if (!passiveMode) {
             if (!activated) {
-                LOG(logINFORED) << "Deactivated Receiver";
+                LOG(sls::logINFORED) << "Deactivated Receiver";
             }
             if (!detectorDataStream[0]) {
-                LOG(logINFORED) << "Deactivated Left Port";
+                LOG(sls::logINFORED) << "Deactivated Left Port";
             }
             if (!detectorDataStream[1]) {
-                LOG(logINFORED) << "Deactivated Right Port";
+                LOG(sls::logINFORED) << "Deactivated Right Port";
             }
             // callback
             if (acquisitionFinishedCallBack) {
@@ -744,8 +744,8 @@ void Implementation::stopReceiver() {
                 } catch (const std::exception &e) {
                     // change status
                     status = IDLE;
-                    LOG(logINFO) << "Receiver Stopped";
-                    LOG(logINFO) << "Status: " << sls::ToString(status);
+                    LOG(sls::logINFO) << "Receiver Stopped";
+                    LOG(sls::logINFO) << "Status: " << sls::ToString(status);
                     throw sls::RuntimeError(
                         "Acquisition Finished Callback Error: " +
                         std::string(e.what()));
@@ -756,8 +756,8 @@ void Implementation::stopReceiver() {
 
     // change status
     status = IDLE;
-    LOG(logINFO) << "Receiver Stopped";
-    LOG(logINFO) << "Status: " << sls::ToString(status);
+    LOG(sls::logINFO) << "Receiver Stopped";
+    LOG(sls::logINFO) << "Status: " << sls::ToString(status);
 }
 
 void Implementation::startReadout() {
@@ -778,7 +778,7 @@ void Implementation::startReadout() {
                                         active_listeners;
         if (totalPacketsReceived != numPacketsToReceive) {
             while (totalPacketsReceived != previousValue) {
-                LOG(logDEBUG3)
+                LOG(sls::logDEBUG3)
                     << "waiting for all packets, previousValue:"
                     << previousValue
                     << " totalPacketsReceived: " << totalPacketsReceived;
@@ -790,7 +790,7 @@ void Implementation::startReadout() {
                     if (IsValidThread(it))
                         totalPacketsReceived += it->GetPacketsCaught();
 
-                LOG(logDEBUG3) << "\tupdated:  totalPacketsReceived:"
+                LOG(sls::logDEBUG3) << "\tupdated:  totalPacketsReceived:"
                                << totalPacketsReceived;
             }
         }
@@ -810,7 +810,7 @@ void Implementation::startReadout() {
         }
 
         status = TRANSMITTING;
-        LOG(logINFO) << "Status: Transmitting";
+        LOG(sls::logINFO) << "Status: Transmitting";
     }
 
     // shut down udp sockets to make listeners push dummy (end) packets for
@@ -829,7 +829,7 @@ void Implementation::restreamStop() {
     for (const auto &it : dataStreamer)
         if (IsValidThread(it))
             it->RestreamStop();
-    LOG(logINFO) << "Restreaming Dummy Header via ZMQ successful";
+    LOG(sls::logINFO) << "Restreaming Dummy Header via ZMQ successful";
 }
 
 void Implementation::ResetParametersforNewAcquisition() {
@@ -859,7 +859,7 @@ void Implementation::CreateUDPSockets() {
         shutDownUDPSockets();
         throw sls::RuntimeError("Could not create UDP Socket(s).");
     }
-    LOG(logDEBUG) << "UDP socket(s) created successfully.";
+    LOG(sls::logDEBUG) << "UDP socket(s) created successfully.";
 }
 
 void Implementation::SetupWriter() {
@@ -1040,35 +1040,35 @@ void Implementation::setNumberofUDPInterfaces(const int n) {
         setUDPSocketBufferSize(0);
     }
 
-    LOG(logINFO) << "Number of Interfaces: " << numUDPInterfaces;
+    LOG(sls::logINFO) << "Number of Interfaces: " << numUDPInterfaces;
 }
 
 std::string Implementation::getEthernetInterface() const { return eth[0]; }
 
 void Implementation::setEthernetInterface(const std::string &c) {
     eth[0] = c;
-    LOG(logINFO) << "Ethernet Interface: " << eth[0];
+    LOG(sls::logINFO) << "Ethernet Interface: " << eth[0];
 }
 
 std::string Implementation::getEthernetInterface2() const { return eth[1]; }
 
 void Implementation::setEthernetInterface2(const std::string &c) {
     eth[1] = c;
-    LOG(logINFO) << "Ethernet Interface 2: " << eth[1];
+    LOG(sls::logINFO) << "Ethernet Interface 2: " << eth[1];
 }
 
 uint32_t Implementation::getUDPPortNumber() const { return udpPortNum[0]; }
 
 void Implementation::setUDPPortNumber(const uint32_t i) {
     udpPortNum[0] = i;
-    LOG(logINFO) << "UDP Port Number[0]: " << udpPortNum[0];
+    LOG(sls::logINFO) << "UDP Port Number[0]: " << udpPortNum[0];
 }
 
 uint32_t Implementation::getUDPPortNumber2() const { return udpPortNum[1]; }
 
 void Implementation::setUDPPortNumber2(const uint32_t i) {
     udpPortNum[1] = i;
-    LOG(logINFO) << "UDP Port Number[1]: " << udpPortNum[1];
+    LOG(sls::logINFO) << "UDP Port Number[1]: " << udpPortNum[1];
 }
 
 int Implementation::getUDPSocketBufferSize() const {
@@ -1115,7 +1115,7 @@ void Implementation::setDataStreamEnable(const bool enable) {
         dataStreamEnable = enable;
         CreateThreads();
     }
-    LOG(logINFO) << "Data Send to Gui: " << dataStreamEnable;
+    LOG(sls::logINFO) << "Data Send to Gui: " << dataStreamEnable;
 }
 
 uint32_t Implementation::getStreamingFrequency() const {
@@ -1124,7 +1124,7 @@ uint32_t Implementation::getStreamingFrequency() const {
 
 void Implementation::setStreamingFrequency(const uint32_t freq) {
     streamingFrequency = freq;
-    LOG(logINFO) << "Streaming Frequency: " << streamingFrequency;
+    LOG(sls::logINFO) << "Streaming Frequency: " << streamingFrequency;
 }
 
 uint32_t Implementation::getStreamingTimer() const {
@@ -1133,7 +1133,7 @@ uint32_t Implementation::getStreamingTimer() const {
 
 void Implementation::setStreamingTimer(const uint32_t time_in_ms) {
     streamingTimerInMs = time_in_ms;
-    LOG(logINFO) << "Streamer Timer: " << streamingTimerInMs;
+    LOG(sls::logINFO) << "Streamer Timer: " << streamingTimerInMs;
 }
 
 uint32_t Implementation::getStreamingStartingFrameNumber() const {
@@ -1142,14 +1142,14 @@ uint32_t Implementation::getStreamingStartingFrameNumber() const {
 
 void Implementation::setStreamingStartingFrameNumber(const uint32_t fnum) {
     streamingStartFnum = fnum;
-    LOG(logINFO) << "Streaming Start Frame num: " << streamingStartFnum;
+    LOG(sls::logINFO) << "Streaming Start Frame num: " << streamingStartFnum;
 }
 
 uint32_t Implementation::getStreamingPort() const { return streamingPort; }
 
 void Implementation::setStreamingPort(const uint32_t i) {
     streamingPort = i;
-    LOG(logINFO) << "Streaming Port: " << streamingPort;
+    LOG(sls::logINFO) << "Streaming Port: " << streamingPort;
 }
 
 sls::IpAddr Implementation::getStreamingSourceIP() const {
@@ -1158,14 +1158,14 @@ sls::IpAddr Implementation::getStreamingSourceIP() const {
 
 void Implementation::setStreamingSourceIP(const sls::IpAddr ip) {
     streamingSrcIP = ip;
-    LOG(logINFO) << "Streaming Source IP: " << streamingSrcIP;
+    LOG(sls::logINFO) << "Streaming Source IP: " << streamingSrcIP;
 }
 
 int Implementation::getStreamingHwm() const { return streamingHwm; }
 
 void Implementation::setStreamingHwm(const int i) {
     streamingHwm = i;
-    LOG(logINFO) << "Streaming Hwm: "
+    LOG(sls::logINFO) << "Streaming Hwm: "
                  << (i == -1 ? "Default (-1)" : std::to_string(streamingHwm));
 }
 
@@ -1181,7 +1181,7 @@ void Implementation::setAdditionalJsonHeader(
     for (const auto &it : dataStreamer)
         if (IsValidThread(it))
             it->SetAdditionalJsonHeader(c);
-    LOG(logINFO) << "Additional JSON Header: "
+    LOG(sls::logINFO) << "Additional JSON Header: "
                  << sls::ToString(additionalJsonHeader);
 }
 
@@ -1201,10 +1201,10 @@ void Implementation::setAdditionalJsonParameter(const std::string &key,
     if (value.empty()) {
         // doesnt exist
         if (pos == additionalJsonHeader.end()) {
-            LOG(logINFO) << "Additional json parameter (" << key
+            LOG(sls::logINFO) << "Additional json parameter (" << key
                          << ") does not exist anyway";
         } else {
-            LOG(logINFO) << "Deleting additional json parameter (" << key
+            LOG(sls::logINFO) << "Deleting additional json parameter (" << key
                          << ")";
             additionalJsonHeader.erase(pos);
         }
@@ -1212,19 +1212,19 @@ void Implementation::setAdditionalJsonParameter(const std::string &key,
     // if found, set it
     else if (pos != additionalJsonHeader.end()) {
         additionalJsonHeader[key] = value;
-        LOG(logINFO) << "Setting additional json parameter (" << key << ") to "
+        LOG(sls::logINFO) << "Setting additional json parameter (" << key << ") to "
                      << value;
     }
     // append if not found
     else {
         additionalJsonHeader[key] = value;
-        LOG(logINFO) << "Adding additional json parameter (" << key << ") to "
+        LOG(sls::logINFO) << "Adding additional json parameter (" << key << ") to "
                      << value;
     }
     for (const auto &it : dataStreamer)
         if (IsValidThread(it))
             it->SetAdditionalJsonHeader(additionalJsonHeader);
-    LOG(logINFO) << "Additional JSON Header: "
+    LOG(sls::logINFO) << "Additional JSON Header: "
                  << sls::ToString(additionalJsonHeader);
 }
 
@@ -1263,14 +1263,14 @@ void Implementation::updateTotalNumberOfFrames() {
     if (numberOfTotalFrames == 0) {
         throw sls::RuntimeError("Invalid total number of frames to receive: 0");
     }
-    LOG(logINFO) << "Total Number of Frames: " << numberOfTotalFrames;
+    LOG(sls::logINFO) << "Total Number of Frames: " << numberOfTotalFrames;
 }
 
 uint64_t Implementation::getNumberOfFrames() const { return numberOfFrames; }
 
 void Implementation::setNumberOfFrames(const uint64_t i) {
     numberOfFrames = i;
-    LOG(logINFO) << "Number of Frames: " << numberOfFrames;
+    LOG(sls::logINFO) << "Number of Frames: " << numberOfFrames;
     updateTotalNumberOfFrames();
 }
 
@@ -1280,7 +1280,7 @@ uint64_t Implementation::getNumberOfTriggers() const {
 
 void Implementation::setNumberOfTriggers(const uint64_t i) {
     numberOfTriggers = i;
-    LOG(logINFO) << "Number of Triggers: " << numberOfTriggers;
+    LOG(sls::logINFO) << "Number of Triggers: " << numberOfTriggers;
     updateTotalNumberOfFrames();
 }
 
@@ -1288,7 +1288,7 @@ uint64_t Implementation::getNumberOfBursts() const { return numberOfBursts; }
 
 void Implementation::setNumberOfBursts(const uint64_t i) {
     numberOfBursts = i;
-    LOG(logINFO) << "Number of Bursts: " << numberOfBursts;
+    LOG(sls::logINFO) << "Number of Bursts: " << numberOfBursts;
     updateTotalNumberOfFrames();
 }
 
@@ -1298,14 +1298,14 @@ int Implementation::getNumberOfAdditionalStorageCells() const {
 
 void Implementation::setNumberOfAdditionalStorageCells(const int i) {
     numberOfAdditionalStorageCells = i;
-    LOG(logINFO) << "Number of Additional Storage Cells: "
+    LOG(sls::logINFO) << "Number of Additional Storage Cells: "
                  << numberOfAdditionalStorageCells;
     updateTotalNumberOfFrames();
 }
 
 void Implementation::setNumberOfGates(const int i) {
     numberOfGates = i;
-    LOG(logINFO) << "Number of Gates: " << numberOfGates;
+    LOG(sls::logINFO) << "Number of Gates: " << numberOfGates;
 }
 
 slsDetectorDefs::timingMode Implementation::getTimingMode() const {
@@ -1314,7 +1314,7 @@ slsDetectorDefs::timingMode Implementation::getTimingMode() const {
 
 void Implementation::setTimingMode(const slsDetectorDefs::timingMode i) {
     timingMode = i;
-    LOG(logINFO) << "Timing Mode: " << timingMode;
+    LOG(sls::logINFO) << "Timing Mode: " << timingMode;
     updateTotalNumberOfFrames();
 }
 
@@ -1324,7 +1324,7 @@ slsDetectorDefs::burstMode Implementation::getBurstMode() const {
 
 void Implementation::setBurstMode(const slsDetectorDefs::burstMode i) {
     burstMode = i;
-    LOG(logINFO) << "Burst Mode: " << burstMode;
+    LOG(sls::logINFO) << "Burst Mode: " << burstMode;
     updateTotalNumberOfFrames();
 }
 
@@ -1332,7 +1332,7 @@ ns Implementation::getAcquisitionPeriod() const { return acquisitionPeriod; }
 
 void Implementation::setAcquisitionPeriod(const ns i) {
     acquisitionPeriod = i;
-    LOG(logINFO) << "Acquisition Period: " << sls::ToString(acquisitionPeriod);
+    LOG(sls::logINFO) << "Acquisition Period: " << sls::ToString(acquisitionPeriod);
 }
 
 ns Implementation::getAcquisitionTime() const { return acquisitionTime; }
@@ -1348,54 +1348,54 @@ void Implementation::updateAcquisitionTime() {
 
 void Implementation::setAcquisitionTime(const ns i) {
     acquisitionTime = i;
-    LOG(logINFO) << "Acquisition Time: " << sls::ToString(acquisitionTime);
+    LOG(sls::logINFO) << "Acquisition Time: " << sls::ToString(acquisitionTime);
 }
 
 void Implementation::setAcquisitionTime1(const ns i) {
     acquisitionTime1 = i;
-    LOG(logINFO) << "Acquisition Time1: " << sls::ToString(acquisitionTime1);
+    LOG(sls::logINFO) << "Acquisition Time1: " << sls::ToString(acquisitionTime1);
     updateAcquisitionTime();
 }
 
 void Implementation::setAcquisitionTime2(const ns i) {
     acquisitionTime2 = i;
-    LOG(logINFO) << "Acquisition Time2: " << sls::ToString(acquisitionTime2);
+    LOG(sls::logINFO) << "Acquisition Time2: " << sls::ToString(acquisitionTime2);
     updateAcquisitionTime();
 }
 
 void Implementation::setAcquisitionTime3(const ns i) {
     acquisitionTime3 = i;
-    LOG(logINFO) << "Acquisition Time3: " << sls::ToString(acquisitionTime3);
+    LOG(sls::logINFO) << "Acquisition Time3: " << sls::ToString(acquisitionTime3);
     updateAcquisitionTime();
 }
 
 void Implementation::setGateDelay1(const ns i) {
     gateDelay1 = i;
-    LOG(logINFO) << "Gate Delay1: " << sls::ToString(gateDelay1);
+    LOG(sls::logINFO) << "Gate Delay1: " << sls::ToString(gateDelay1);
 }
 
 void Implementation::setGateDelay2(const ns i) {
     gateDelay2 = i;
-    LOG(logINFO) << "Gate Delay2: " << sls::ToString(gateDelay2);
+    LOG(sls::logINFO) << "Gate Delay2: " << sls::ToString(gateDelay2);
 }
 
 void Implementation::setGateDelay3(const ns i) {
     gateDelay3 = i;
-    LOG(logINFO) << "Gate Delay3: " << sls::ToString(gateDelay3);
+    LOG(sls::logINFO) << "Gate Delay3: " << sls::ToString(gateDelay3);
 }
 
 ns Implementation::getSubExpTime() const { return subExpTime; }
 
 void Implementation::setSubExpTime(const ns i) {
     subExpTime = i;
-    LOG(logINFO) << "Sub Exposure Time: " << sls::ToString(subExpTime);
+    LOG(sls::logINFO) << "Sub Exposure Time: " << sls::ToString(subExpTime);
 }
 
 ns Implementation::getSubPeriod() const { return subPeriod; }
 
 void Implementation::setSubPeriod(const ns i) {
     subPeriod = i;
-    LOG(logINFO) << "Sub Period: " << sls::ToString(subPeriod);
+    LOG(sls::logINFO) << "Sub Period: " << sls::ToString(subPeriod);
 }
 
 uint32_t Implementation::getNumberofAnalogSamples() const {
@@ -1413,8 +1413,8 @@ void Implementation::setNumberofAnalogSamples(const uint32_t i) {
 
         SetupFifoStructure();
     }
-    LOG(logINFO) << "Number of Analog Samples: " << numberOfAnalogSamples;
-    LOG(logINFO) << "Packets per Frame: " << (generalData->packetsPerFrame);
+    LOG(sls::logINFO) << "Number of Analog Samples: " << numberOfAnalogSamples;
+    LOG(sls::logINFO) << "Packets per Frame: " << (generalData->packetsPerFrame);
 }
 
 uint32_t Implementation::getNumberofDigitalSamples() const {
@@ -1432,8 +1432,8 @@ void Implementation::setNumberofDigitalSamples(const uint32_t i) {
 
         SetupFifoStructure();
     }
-    LOG(logINFO) << "Number of Digital Samples: " << numberOfDigitalSamples;
-    LOG(logINFO) << "Packets per Frame: " << (generalData->packetsPerFrame);
+    LOG(sls::logINFO) << "Number of Digital Samples: " << numberOfDigitalSamples;
+    LOG(sls::logINFO) << "Packets per Frame: " << (generalData->packetsPerFrame);
 }
 
 uint32_t Implementation::getCounterMask() const { return counterMask; }
@@ -1450,9 +1450,9 @@ void Implementation::setCounterMask(const uint32_t i) {
         generalData->SetNumberofCounters(ncounters);
         SetupFifoStructure();
     }
-    LOG(logINFO) << "Counter mask: " << sls::ToStringHex(counterMask);
+    LOG(sls::logINFO) << "Counter mask: " << sls::ToStringHex(counterMask);
     int ncounters = __builtin_popcount(counterMask);
-    LOG(logINFO) << "Number of counters: " << ncounters;
+    LOG(sls::logINFO) << "Number of counters: " << ncounters;
 }
 
 uint32_t Implementation::getDynamicRange() const { return dynamicRange; }
@@ -1468,7 +1468,7 @@ void Implementation::setDynamicRange(const uint32_t i) {
             SetupFifoStructure();
         }
     }
-    LOG(logINFO) << "Dynamic Range: " << dynamicRange;
+    LOG(sls::logINFO) << "Dynamic Range: " << dynamicRange;
 }
 
 slsDetectorDefs::ROI Implementation::getROI() const { return roi; }
@@ -1484,8 +1484,8 @@ void Implementation::setROI(slsDetectorDefs::ROI arg) {
         SetupFifoStructure();
     }
 
-    LOG(logINFO) << "ROI: [" << roi.xmin << ", " << roi.xmax << "]";
-    LOG(logINFO) << "Packets per Frame: " << (generalData->packetsPerFrame);
+    LOG(sls::logINFO) << "ROI: [" << roi.xmin << ", " << roi.xmax << "]";
+    LOG(sls::logINFO) << "Packets per Frame: " << (generalData->packetsPerFrame);
 }
 
 bool Implementation::getTenGigaEnable() const { return tengigaEnable; }
@@ -1511,8 +1511,8 @@ void Implementation::setTenGigaEnable(const bool b) {
         }
         SetupFifoStructure();
     }
-    LOG(logINFO) << "Ten Giga: " << (tengigaEnable ? "enabled" : "disabled");
-    LOG(logINFO) << "Packets per Frame: " << (generalData->packetsPerFrame);
+    LOG(sls::logINFO) << "Ten Giga: " << (tengigaEnable ? "enabled" : "disabled");
+    LOG(sls::logINFO) << "Packets per Frame: " << (generalData->packetsPerFrame);
 }
 
 bool Implementation::getFlipRows() const { return flipRows; }
@@ -1534,7 +1534,7 @@ void Implementation::setFlipRows(bool enable) {
                 dataStreamer[1]->SetFlipRows(true);
         }
     }
-    LOG(logINFO) << "Flip Rows: " << flipRows;
+    LOG(sls::logINFO) << "Flip Rows: " << flipRows;
 }
 
 bool Implementation::getQuad() const { return quadEnable; }
@@ -1562,7 +1562,7 @@ void Implementation::setQuad(const bool b) {
             }
         }
     }
-    LOG(logINFO) << "Quad Enable: " << quadEnable;
+    LOG(sls::logINFO) << "Quad Enable: " << quadEnable;
 }
 
 bool Implementation::getActivate() const { return activated; }
@@ -1573,7 +1573,7 @@ void Implementation::setActivate(bool enable) {
         activated = enable;
         CreateThreads();
     }
-    LOG(logINFO) << "Activation: " << (activated ? "enabled" : "disabled");
+    LOG(sls::logINFO) << "Activation: " << (activated ? "enabled" : "disabled");
 }
 
 bool Implementation::getDetectorDataStream(const portPosition port) const {
@@ -1589,7 +1589,7 @@ void Implementation::setDetectorDataStream(const portPosition port,
         detectorDataStream[index] = enable;
         CreateThreads();
     }
-    LOG(logINFO) << "Detector datastream (" << sls::ToString(port)
+    LOG(sls::logINFO) << "Detector datastream (" << sls::ToString(port)
                  << " Port): " << sls::ToString(detectorDataStream[index]);
 }
 
@@ -1597,23 +1597,23 @@ int Implementation::getReadNRows() const { return readNRows; }
 
 void Implementation::setReadNRows(const int value) {
     readNRows = value;
-    LOG(logINFO) << "Number of rows: " << readNRows;
+    LOG(sls::logINFO) << "Number of rows: " << readNRows;
 }
 
 void Implementation::setThresholdEnergy(const int value) {
     thresholdEnergyeV = value;
-    LOG(logINFO) << "Threshold Energy: " << thresholdEnergyeV << " eV";
+    LOG(sls::logINFO) << "Threshold Energy: " << thresholdEnergyeV << " eV";
 }
 
 void Implementation::setThresholdEnergy(const std::array<int, 3> value) {
     thresholdAllEnergyeV = value;
-    LOG(logINFO) << "Threshold Energy (eV): "
+    LOG(sls::logINFO) << "Threshold Energy (eV): "
                  << sls::ToString(thresholdAllEnergyeV);
 }
 
 void Implementation::setRateCorrections(const std::vector<int64_t> &t) {
     rateCorrections = t;
-    LOG(logINFO) << "Rate Corrections: " << sls::ToString(rateCorrections);
+    LOG(sls::logINFO) << "Rate Corrections: " << sls::ToString(rateCorrections);
 }
 
 slsDetectorDefs::readoutMode Implementation::getReadoutMode() const {
@@ -1631,8 +1631,8 @@ void Implementation::setReadoutMode(const readoutMode f) {
             readoutType);
         SetupFifoStructure();
     }
-    LOG(logINFO) << "Readout Mode: " << sls::ToString(f);
-    LOG(logINFO) << "Packets per Frame: " << (generalData->packetsPerFrame);
+    LOG(sls::logINFO) << "Readout Mode: " << sls::ToString(f);
+    LOG(sls::logINFO) << "Packets per Frame: " << (generalData->packetsPerFrame);
 }
 
 uint32_t Implementation::getADCEnableMask() const {
@@ -1649,9 +1649,9 @@ void Implementation::setADCEnableMask(uint32_t mask) {
 
         SetupFifoStructure();
     }
-    LOG(logINFO) << "ADC Enable Mask for 1Gb mode: 0x" << std::hex
+    LOG(sls::logINFO) << "ADC Enable Mask for 1Gb mode: 0x" << std::hex
                  << adcEnableMaskOneGiga << std::dec;
-    LOG(logINFO) << "Packets per Frame: " << (generalData->packetsPerFrame);
+    LOG(sls::logINFO) << "Packets per Frame: " << (generalData->packetsPerFrame);
 }
 
 uint32_t Implementation::getTenGigaADCEnableMask() const {
@@ -1669,9 +1669,9 @@ void Implementation::setTenGigaADCEnableMask(uint32_t mask) {
 
         SetupFifoStructure();
     }
-    LOG(logINFO) << "ADC Enable Mask for 10Gb mode: 0x" << std::hex
+    LOG(sls::logINFO) << "ADC Enable Mask for 10Gb mode: 0x" << std::hex
                  << adcEnableMaskTenGiga << std::dec;
-    LOG(logINFO) << "Packets per Frame: " << (generalData->packetsPerFrame);
+    LOG(sls::logINFO) << "Packets per Frame: " << (generalData->packetsPerFrame);
 }
 
 std::vector<int> Implementation::getDbitList() const { return ctbDbitList; }

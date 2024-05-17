@@ -18,7 +18,7 @@
 const unsigned int Feb_Control_leftAddress = 0x100;
 const unsigned int Feb_Control_rightAddress = 0x200;
 
-int Feb_Control_master = 0;
+int Feb_Control_master = -1;
 int Feb_Control_normal = 0;
 int Feb_Control_activated = 1;
 
@@ -50,17 +50,16 @@ double ratemax = -1;
 // setup
 void Feb_Control_activate(int activate) { Feb_Control_activated = activate; }
 
-void Feb_Control_FebControl() {
-    Feb_Control_staticBits = Feb_Control_acquireNReadoutMode =
-        Feb_Control_triggerMode = Feb_Control_externalEnableMode =
-            Feb_Control_subFrameMode = 0;
+int Feb_Control_FebControl(int normal) {
+    Feb_Control_staticBits = 0;
+    Feb_Control_acquireNReadoutMode = 0;
+    Feb_Control_triggerMode = 0;
+    Feb_Control_externalEnableMode = 0;
+    Feb_Control_subFrameMode = 0;
     Feb_Control_trimbit_size = 263680;
     Feb_Control_last_downloaded_trimbits =
         malloc(Feb_Control_trimbit_size * sizeof(int));
-}
 
-int Feb_Control_Init(int master, int normal) {
-    Feb_Control_master = master;
     Feb_Control_normal = normal;
     Feb_Interface_SetAddress(Feb_Control_rightAddress, Feb_Control_leftAddress);
     if (Feb_Control_activated) {
@@ -396,35 +395,11 @@ int Feb_Control_ReceiveHighVoltage(unsigned int *value) {
 
     // normal
     if (Feb_Control_normal) {
-        // open file
-        FILE *fd = fopen(NORMAL_HIGHVOLTAGE_INPUTPORT, "r");
-        if (fd == NULL) {
-            LOG(logERROR,
-                ("Could not open file for writing to get high voltage\n"));
-            return 0;
-        }
 
-        // read, assigning line to null and readbytes to 0 then getline
-        // allocates initial buffer
-        size_t readbytes = 0;
-        char *line = NULL;
-        if (getline(&line, &readbytes, fd) == -1) {
-            LOG(logERROR, ("could not read file to get high voltage\n"));
+        if (readADCFromFile(NORMAL_HIGHVOLTAGE_INPUTPORT, value) == FAIL) {
+            LOG(logERROR, ("Could not get high voltage\n"));
             return 0;
         }
-        // read again to read the updated value
-        rewind(fd);
-        free(line);
-        readbytes = 0;
-        readbytes = getline(&line, &readbytes, fd);
-        if (readbytes == -1) {
-            LOG(logERROR, ("could not read file to get high voltage\n"));
-            return 0;
-        }
-        // Remove the trailing 0
-        *value = atoi(line) / 10;
-        free(line);
-        fclose(fd);
     }
 
     // 9m
@@ -715,7 +690,7 @@ int Feb_Control_ProcessingInProgress() {
     unsigned int regr = 0, regl = 0;
     // deactivated should return end of processing
     if (!Feb_Control_activated)
-        return IDLE;
+        return STATUS_IDLE;
 
     if (!Feb_Interface_ReadRegister(Feb_Control_rightAddress, FEB_REG_STATUS,
                                     &regr)) {
@@ -729,8 +704,9 @@ int Feb_Control_ProcessingInProgress() {
                        "processing status\n"));
         return STATUS_ERROR;
     }
+    LOG(logDEBUG1, ("regl:0x%x regr:0x%x\n", regl, regr));
     // processing done
-    if ((regr | regl) & FEB_REG_STATUS_ACQ_DONE_MSK) {
+    if (regr & regl & FEB_REG_STATUS_ACQ_DONE_MSK) {
         return STATUS_IDLE;
     }
     // processing running
@@ -931,7 +907,10 @@ unsigned int Feb_Control_ConvertTimeToRegister(float time_in_sec) {
 
 int Feb_Control_PrepareForAcquisition() {
     LOG(logINFOBLUE, ("Preparing for Acquisition\n"));
-    Feb_Control_PrintAcquisitionSetup();
+    if (!Feb_Control_PrintAcquisitionSetup()) {
+        LOG(logERROR, ("Could not prepare acquisition\n"));
+        return 0;
+    }
 
     if (Feb_Control_Reset() == STATUS_ERROR) {
         LOG(logERROR, ("Trouble reseting daq or data stream\n"));
@@ -988,20 +967,26 @@ int Feb_Control_PrepareForAcquisition() {
     return 1;
 }
 
-void Feb_Control_PrintAcquisitionSetup() {
+int Feb_Control_PrintAcquisitionSetup() {
     time_t rawtime;
     time(&rawtime);
     struct tm *timeinfo = localtime(&rawtime);
-    LOG(logINFO,
-        ("Starting an exposure: (%s)"
-         "\t Dynamic range nbits: %d\n"
-         "\t Trigger mode: 0x%x\n"
-         "\t Number of exposures: %d\n"
-         "\t Exsposure time (if used): %f seconds.\n"
-         "\t Exsposure period (if used): %f seconds.\n\n",
-         asctime(timeinfo), Feb_Control_GetDynamicRange(),
-         Feb_Control_triggerMode, Feb_Control_GetNExposures(),
-         Feb_Control_exposure_time_in_sec, Feb_Control_exposure_period_in_sec));
+    int dr = 0;
+    if (!Feb_Control_GetDynamicRange(&dr)) {
+        LOG(logERROR, ("Could not print acquisition set up\n"));
+        return 0;
+    }
+    LOG(logINFO, ("Starting an exposure: (%s)"
+                  "\t Dynamic range nbits: %d\n"
+                  "\t Trigger mode: 0x%x\n"
+                  "\t Number of exposures: %d\n"
+                  "\t Exsposure time (if used): %f seconds.\n"
+                  "\t Exsposure period (if used): %f seconds.\n\n",
+                  asctime(timeinfo), dr, Feb_Control_triggerMode,
+                  Feb_Control_GetNExposures(), Feb_Control_exposure_time_in_sec,
+                  Feb_Control_exposure_period_in_sec));
+
+    return 1;
 }
 
 int Feb_Control_StartAcquisition() {
@@ -1046,6 +1031,7 @@ int Feb_Control_StopAcquisition() {
         // wait for feb processing to be done
         int is_processing = Feb_Control_ProcessingInProgress();
         int check_error = 0;
+        int check_stuck = 0;
         while (is_processing != STATUS_IDLE) {
             usleep(500);
             is_processing = Feb_Control_ProcessingInProgress();
@@ -1057,12 +1043,29 @@ int Feb_Control_StopAcquisition() {
                     break;
                 check_error++;
             } // reset check_error for next time
-            else
+            else {
                 check_error = 0;
+            }
+
+            // check stuck only 2000 times (1s)
+            if (is_processing == STATUS_RUNNING) {
+                if (check_stuck == 2000) {
+                    LOG(logERROR,
+                        ("Unable to get feb processing done signal\n"));
+                    // at least it is idle
+                    if (Feb_Control_AcquisitionInProgress() == STATUS_IDLE) {
+                        return 1;
+                    }
+                    LOG(logERROR, ("Unable to get acquisition done signal\n"));
+                    return 0;
+                }
+                check_stuck++;
+            } // reset check_stuck for next time
+            else {
+                check_stuck = 0;
+            }
         }
         LOG(logINFO, ("Feb: Processing done (to stop acq)\n"));
-
-        return 0;
     }
     return 1;
 }
@@ -1169,49 +1172,104 @@ int Feb_Control_SoftwareTrigger(int block) {
 }
 
 // parameters
-int Feb_Control_SetDynamicRange(unsigned int four_eight_sixteen_or_thirtytwo) {
+int Feb_Control_SetDynamicRange(int dr) {
     static unsigned int everything_but_bit_mode = DAQ_STATIC_BIT_PROGRAM |
                                                   DAQ_STATIC_BIT_CHIP_TEST |
                                                   DAQ_STATIC_BIT_ROTEST;
-    if (four_eight_sixteen_or_thirtytwo == 4) {
+    switch (dr) {
+    case 4:
         Feb_Control_staticBits =
             DAQ_STATIC_BIT_M4 |
             (Feb_Control_staticBits &
              everything_but_bit_mode); // leave test bits in currernt state
         Feb_Control_subFrameMode &= ~DAQ_NEXPOSURERS_ACTIVATE_AUTO_SUBIMAGING;
-    } else if (four_eight_sixteen_or_thirtytwo == 8) {
+        break;
+    case 8:
         Feb_Control_staticBits = DAQ_STATIC_BIT_M8 | (Feb_Control_staticBits &
                                                       everything_but_bit_mode);
         Feb_Control_subFrameMode &= ~DAQ_NEXPOSURERS_ACTIVATE_AUTO_SUBIMAGING;
-    } else if (four_eight_sixteen_or_thirtytwo == 16) {
+        break;
+    case 12:
+    case 16:
         Feb_Control_staticBits = DAQ_STATIC_BIT_M12 | (Feb_Control_staticBits &
                                                        everything_but_bit_mode);
         Feb_Control_subFrameMode &= ~DAQ_NEXPOSURERS_ACTIVATE_AUTO_SUBIMAGING;
-    } else if (four_eight_sixteen_or_thirtytwo == 32) {
+
+        // disable 16 bit conversion if 12 bit mode  (enable if 16 bit)
+        if (!Feb_Control_Disable16bitConversion(dr == 12))
+            return 0;
+        break;
+    case 32:
         Feb_Control_staticBits = DAQ_STATIC_BIT_M12 | (Feb_Control_staticBits &
                                                        everything_but_bit_mode);
         Feb_Control_subFrameMode |= DAQ_NEXPOSURERS_ACTIVATE_AUTO_SUBIMAGING;
-    } else {
-        LOG(logERROR, ("dynamic range (%d) not valid, not setting bit mode.\n",
-                       four_eight_sixteen_or_thirtytwo));
+        break;
+    default:
+        LOG(logERROR,
+            ("dynamic range (%d) not valid, not setting bit mode.\n", dr));
         LOG(logINFO, ("Set dynamic range int must equal 4,8 16, or 32.\n"));
         return 0;
     }
 
-    LOG(logINFO,
-        ("Dynamic range set to %d\n", four_eight_sixteen_or_thirtytwo));
+    LOG(logINFO, ("Dynamic range set to %d\n", dr));
     return 1;
 }
 
-unsigned int Feb_Control_GetDynamicRange() {
-    if (Feb_Control_subFrameMode & DAQ_NEXPOSURERS_ACTIVATE_AUTO_SUBIMAGING)
-        return 32;
-    else if (DAQ_STATIC_BIT_M4 & Feb_Control_staticBits)
-        return 4;
-    else if (DAQ_STATIC_BIT_M8 & Feb_Control_staticBits)
-        return 8;
+int Feb_Control_GetDynamicRange(int *retval) {
+    if (Feb_Control_subFrameMode & DAQ_NEXPOSURERS_ACTIVATE_AUTO_SUBIMAGING) {
+        *retval = 32;
+    } else if (DAQ_STATIC_BIT_M4 & Feb_Control_staticBits) {
+        *retval = 4;
+    } else if (DAQ_STATIC_BIT_M8 & Feb_Control_staticBits) {
+        *retval = 8;
+    } else {
+        int disable16 = 0;
+        if (!Feb_Control_Get16bitConversionDisabled(&disable16)) {
+            LOG(logERROR, ("Could not get dynamic range (12 or 16 bit)\n"));
+            return 0;
+        }
+        if (disable16) {
+            *retval = 12;
+        } else {
+            *retval = 16;
+        }
+    }
 
-    return 16;
+    return 1;
+}
+
+int Feb_Control_Disable16bitConversion(int disable) {
+    LOG(logINFO, ("%s 16 bit expansion\n", disable ? "Disabling" : "Enabling"));
+
+    uint32_t bitmask = DAQ_REG_HRDWRE_DSBL_16BIT_MSK;
+    unsigned int regval = 0;
+    if (disable) {
+        regval |= bitmask;
+    } else {
+        regval &= ~bitmask;
+    }
+
+    if (!Feb_Control_WriteRegister_BitMask(DAQ_REG_HRDWRE, regval, bitmask)) {
+        LOG(logERROR, ("Could not %s 16 bit expansion (bit mode)\n",
+                       (disable ? "disable" : "enable")));
+        return 0;
+    }
+    return 1;
+}
+
+int Feb_Control_Get16bitConversionDisabled(int *ret) {
+    unsigned int regval = 0;
+    if (!Feb_Control_ReadRegister_BitMask(DAQ_REG_HRDWRE, &regval,
+                                          DAQ_REG_HRDWRE_DSBL_16BIT_MSK)) {
+        LOG(logERROR, ("Could not get 16 bit expansion (bit mode)\n"));
+        return 0;
+    }
+    if (regval) {
+        *ret = 1;
+    } else {
+        *ret = 0;
+    }
+    return 1;
 }
 
 int Feb_Control_SetReadoutSpeed(unsigned int readout_speed) {
@@ -1490,9 +1548,8 @@ int Feb_Control_SetTop(enum TOPINDEX ind, int left, int right) {
     return 1;
 }
 
-void Feb_Control_SetMasterVariable(int val) { Feb_Control_master = val; }
-
 int Feb_Control_SetMaster(enum MASTERINDEX ind) {
+
     uint32_t offset = DAQ_REG_HRDWRE;
     unsigned int addr[2] = {Feb_Control_leftAddress, Feb_Control_rightAddress};
     char *master_names[] = {MASTER_NAMES};
@@ -1529,7 +1586,29 @@ int Feb_Control_SetMaster(enum MASTERINDEX ind) {
     LOG(logINFOBLUE, ("%s Master flag to %s Feb\n",
                       (ind == MASTER_HARDWARE ? "Resetting" : "Overwriting"),
                       master_names[ind]));
+
     return 1;
+}
+
+int Feb_Control_SetMasterEffects(int master, int controlServer) {
+    int prevMaster = Feb_Control_master;
+
+    Feb_Control_master = master;
+    // change in master for 9m
+    if (controlServer && prevMaster != Feb_Control_master &&
+        !Feb_Control_normal) {
+        if (prevMaster) {
+            Feb_Control_CloseSerialCommunication();
+        }
+        if (Feb_Control_master) {
+            if (!Feb_Control_OpenSerialCommunication()) {
+                LOG(logERROR, ("Could not intitalize feb control serial "
+                               "communication\n"));
+                return FAIL;
+            }
+        }
+    }
+    return OK;
 }
 
 int Feb_Control_SetQuad(int val) {
@@ -1544,7 +1623,9 @@ int Feb_Control_SetChipSignalsToTrimQuad(int enable) {
         LOG(logINFO, ("%s chip signals to trim quad\n",
                       enable ? "Enabling" : "Disabling"));
         unsigned int regval = 0;
-        if (!Feb_Control_ReadRegister(DAQ_REG_HRDWRE, &regval)) {
+        // right fpga only
+        uint32_t righOffset = DAQ_REG_HRDWRE + Feb_Control_rightAddress;
+        if (!Feb_Control_ReadRegister(righOffset, &regval)) {
             LOG(logERROR, ("Could not set chip signals to trim quad\n"));
             return 0;
         }
@@ -1554,7 +1635,10 @@ int Feb_Control_SetChipSignalsToTrimQuad(int enable) {
             regval &= ~(DAQ_REG_HRDWRE_PROGRAM_MSK | DAQ_REG_HRDWRE_M8_MSK);
         }
 
-        return Feb_Control_WriteRegister(DAQ_REG_HRDWRE, regval);
+        if (!Feb_Control_WriteRegister(righOffset, regval)) {
+            LOG(logERROR, ("Could not set chip signals to trim quad\n"));
+            return 0;
+        }
     }
     return 1;
 }
@@ -1581,35 +1665,73 @@ int Feb_Control_GetReadNRows() {
 }
 
 int Feb_Control_WriteRegister(uint32_t offset, uint32_t data) {
+    return Feb_Control_WriteRegister_BitMask(offset, data, BIT32_MSK);
+}
+
+int Feb_Control_ReadRegister(uint32_t offset, uint32_t *retval) {
+    return Feb_Control_ReadRegister_BitMask(offset, retval, BIT32_MASK);
+}
+
+int Feb_Control_WriteRegister_BitMask(uint32_t offset, uint32_t data,
+                                      uint32_t bitmask) {
     uint32_t actualOffset = offset;
     char side[2][10] = {"right", "left"};
     unsigned int addr[2] = {Feb_Control_rightAddress, Feb_Control_leftAddress};
 
     int run[2] = {0, 0};
     // both registers
-    if (offset < 0x100) {
+    if (offset < Feb_Control_leftAddress) {
         run[0] = 1;
         run[1] = 1;
     }
     // right registers only
-    else if (offset >= 0x200) {
+    else if (offset >= Feb_Control_rightAddress) {
         run[0] = 1;
-        actualOffset = offset - 0x200;
+        actualOffset = offset - Feb_Control_rightAddress;
     }
     // left registers only
     else {
         run[1] = 1;
-        actualOffset = offset - 0x100;
+        actualOffset = offset - Feb_Control_leftAddress;
     }
 
     for (int iloop = 0; iloop < 2; ++iloop) {
         if (run[iloop]) {
-            LOG(logINFO,
-                ("Writing 0x%x to %s 0x%x\n", data, side[iloop], actualOffset));
-            if (!Feb_Interface_WriteRegister(addr[iloop], actualOffset, data, 0,
-                                             0)) {
-                LOG(logERROR, ("Could not write 0x%x to %s addr 0x%x\n", data,
+            LOG(logDEBUG1, ("Writing 0x%x to %s 0x%x (mask:0x%x)\n", data,
+                            side[iloop], actualOffset, bitmask));
+
+            uint32_t writeVal = 0;
+            if (!Feb_Interface_ReadRegister(addr[iloop], actualOffset,
+                                            &writeVal)) {
+                LOG(logERROR, ("Could not read %s addr 0x%x register\n",
                                side[iloop], actualOffset));
+                return 0;
+            }
+            // set only the bits in the mask
+            writeVal &= ~(bitmask);
+            writeVal |= (data & bitmask);
+
+            LOG(logDEBUG1, ("writing 0x%x to 0x%x\n", writeVal, actualOffset));
+            if (!Feb_Interface_WriteRegister(addr[iloop], actualOffset,
+                                             writeVal, 0, 0)) {
+                LOG(logERROR, ("Could not write 0x%x to %s addr 0x%x\n",
+                               writeVal, side[iloop], actualOffset));
+                return 0;
+            }
+            writeVal &= bitmask;
+
+            uint32_t readVal = 0;
+            if (!Feb_Interface_ReadRegister(addr[iloop], actualOffset,
+                                            &readVal)) {
+                return 0;
+            }
+            readVal &= bitmask;
+
+            if (writeVal != readVal) {
+                LOG(logERROR,
+                    ("Could not write %s addr 0x%x register. Wrote "
+                     "0x%x, read 0x%x (mask:0x%x)\n",
+                     side[iloop], actualOffset, writeVal, readVal, bitmask));
                 return 0;
             }
         }
@@ -1618,26 +1740,27 @@ int Feb_Control_WriteRegister(uint32_t offset, uint32_t data) {
     return 1;
 }
 
-int Feb_Control_ReadRegister(uint32_t offset, uint32_t *retval) {
+int Feb_Control_ReadRegister_BitMask(uint32_t offset, uint32_t *retval,
+                                     uint32_t bitmask) {
     uint32_t actualOffset = offset;
     char side[2][10] = {"right", "left"};
     unsigned int addr[2] = {Feb_Control_rightAddress, Feb_Control_leftAddress};
     uint32_t value[2] = {0, 0};
     int run[2] = {0, 0};
     // both registers
-    if (offset < 0x100) {
+    if (offset < Feb_Control_leftAddress) {
         run[0] = 1;
         run[1] = 1;
     }
     // right registers only
-    else if (offset >= 0x200) {
+    else if (offset >= Feb_Control_rightAddress) {
         run[0] = 1;
-        actualOffset = offset - 0x200;
+        actualOffset = offset - Feb_Control_rightAddress;
     }
     // left registers only
     else {
         run[1] = 1;
-        actualOffset = offset - 0x100;
+        actualOffset = offset - Feb_Control_leftAddress;
     }
 
     for (int iloop = 0; iloop < 2; ++iloop) {
@@ -1648,8 +1771,9 @@ int Feb_Control_ReadRegister(uint32_t offset, uint32_t *retval) {
                                side[iloop], actualOffset));
                 return 0;
             }
-            LOG(logINFO, ("Read 0x%x from %s 0x%x\n", value[iloop], side[iloop],
-                          actualOffset));
+            value[iloop] &= bitmask;
+            LOG(logDEBUG1, ("Read 0x%x from %s 0x%x (mask:0x%x)\n",
+                            value[iloop], side[iloop], actualOffset, bitmask));
             *retval = value[iloop];
             // if not the other (left, not right OR right, not left), return the
             // value
@@ -1658,11 +1782,10 @@ int Feb_Control_ReadRegister(uint32_t offset, uint32_t *retval) {
             }
         }
     }
-    // Inconsistent values
-    if (value[0] != value[1]) {
-        LOG(logERROR,
-            ("Inconsistent values read from left 0x%x and right 0x%x\n",
-             value[0], value[1]));
+    // Inconsistent values when reading both registers
+    if ((run[0] & run[1]) & (value[0] != value[1])) {
+        LOG(logERROR, ("Inconsistent values read from %s: 0x%x and %s: 0x%x\n",
+                       side[0], value[0], side[1], value[1]));
         return 0;
     }
     return 1;
@@ -1824,7 +1947,11 @@ int64_t Feb_Control_Get_RateTable_Period_in_nsec() {
 
 int Feb_Control_SetRateCorrectionTau(int64_t tau_in_Nsec) {
     // period = exptime if 16bit, period = subexptime if 32 bit
-    int dr = Feb_Control_GetDynamicRange();
+    int dr = 0;
+    if (!Feb_Control_GetDynamicRange(&dr)) {
+        LOG(logERROR, ("Could not set rate correction tau\n"));
+        return 0;
+    }
     double period_in_sec =
         (double)(Feb_Control_GetSubFrameExposureTime()) / (double)1e9;
     if (dr == 16)

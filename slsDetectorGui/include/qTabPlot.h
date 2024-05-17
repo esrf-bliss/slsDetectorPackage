@@ -4,13 +4,15 @@
 #include "sls/Detector.h"
 #include "ui_form_tab_plot.h"
 
+namespace sls {
+
 class qDrawPlot;
 
 class qTabPlot : public QWidget, private Ui::TabPlotObject {
     Q_OBJECT
 
   public:
-    qTabPlot(QWidget *parent, sls::Detector *detector, qDrawPlot *p);
+    qTabPlot(QWidget *parent, Detector *detector, qDrawPlot *p);
     ~qTabPlot();
     void SetScanArgument();
     void Refresh();
@@ -36,8 +38,8 @@ class qTabPlot : public QWidget, private Ui::TabPlotObject {
     void CheckAspectRatio();
     void SetZRange();
     void SetStreamingFrequency();
-    void SetStreamingHwm(int value);
-    void SetReceivingHwm(int value);
+    void SelectHwm(int value);
+    void SetHwm(int value);
 
   signals:
     void DisableZoomSignal(bool);
@@ -45,17 +47,22 @@ class qTabPlot : public QWidget, private Ui::TabPlotObject {
   private:
     void SetupWidgetWindow();
     void Initialization();
+    bool VerifyGapPixelsAllowed();
     void Select1DPlot(bool enable);
     void GetGapPixels();
     void GetStreamingFrequency();
+    void GetHwm();
     void GetStreamingHwm();
+    void SetStreamingHwm(int value);
     void GetReceivingHwm();
+    void SetReceivingHwm(int value);
     void SetXYRange();
     void MaintainAspectRatio(int dimension);
 
-    sls::Detector *det;
+    Detector *det;
     qDrawPlot *plot;
-    bool is1d;
+    bool is1d{false};
+    bool isGapPixelsAllowed{false};
 
     /** default plot and axis titles */
     static QString defaultPlotTitle;
@@ -64,4 +71,8 @@ class qTabPlot : public QWidget, private Ui::TabPlotObject {
     static QString defaultImageXAxisTitle;
     static QString defaultImageYAxisTitle;
     static QString defaultImageZAxisTitle;
+
+    enum { SND_HWM, RX_HWM };
 };
+
+} // namespace sls

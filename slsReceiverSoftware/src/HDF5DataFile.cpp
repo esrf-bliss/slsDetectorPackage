@@ -62,7 +62,7 @@ void HDF5DataFile::CloseFile() {
             fd_ = nullptr;
         }
     } catch (const Exception &error) {
-        LOG(logERROR) << "Could not close data HDF5 handles of index "
+        LOG(sls::logERROR) << "Could not close data HDF5 handles of index "
                       << index_;
         error.printErrorStack();
     }
@@ -221,7 +221,7 @@ void HDF5DataFile::CreateFile() {
                                 index_);
     }
     if (!silentMode_) {
-        LOG(logINFO) << "[" << udpPortNumber_
+        LOG(sls::logINFO) << "[" << udpPortNumber_
                      << "]: HDF5 File created: " << fileName_;
     }
 }
@@ -269,7 +269,7 @@ void HDF5DataFile::WriteDataFile(const uint64_t currentFrameNumber,
         dataSet_->write(buffer, dataType_, memspace, *dataSpace_);
         memspace.close();
     } catch (const Exception &error) {
-        LOG(logERROR) << "Could not write to file in object " << index_;
+        LOG(sls::logERROR) << "Could not write to file in object " << index_;
         error.printErrorStack();
         throw sls::RuntimeError("Could not write to file in object " +
                                 std::to_string(index_));
@@ -388,7 +388,7 @@ void HDF5DataFile::ExtendDataset() {
                                 std::to_string(index_));
     }
     if (!silentMode_) {
-        LOG(logINFO) << index_ << " Extending HDF5 dataset by " << extNumImages_
+        LOG(sls::logINFO) << index_ << " Extending HDF5 dataset by " << extNumImages_
                      << ", Total x Dimension: " << (extNumImages_ + numImages_);
     }
     extNumImages_ += numImages_;

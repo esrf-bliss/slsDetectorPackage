@@ -92,8 +92,8 @@ class Implementation : private virtual slsDetectorDefs {
      *                                                 *
      * ************************************************/
     runStatus getStatus() const;
-    uint64_t getFramesCaught() const;
-    uint64_t getCurrentFrameIndex() const;
+    std::vector<uint64_t> getFramesCaught() const;
+    std::vector<uint64_t> getCurrentFrameIndex() const;
     double getProgress() const;
     std::vector<uint64_t> getNumMissingPackets() const;
     void setScan(slsDetectorDefs::scanParameters s);
@@ -369,7 +369,7 @@ class Implementation : private virtual slsDetectorDefs {
     int numUDPInterfaces{1};
     std::array<std::string, MAX_NUMBER_OF_LISTENING_THREADS> eth;
     std::array<uint32_t, MAX_NUMBER_OF_LISTENING_THREADS> udpPortNum{
-        {DEFAULT_UDP_PORTNO, DEFAULT_UDP_PORTNO + 1}};
+        {DEFAULT_UDP_DST_PORTNO, DEFAULT_UDP_DST_PORTNO + 1}};
     int udpSocketBufferSize{0};
     int actualUDPSocketBufferSize{0};
 

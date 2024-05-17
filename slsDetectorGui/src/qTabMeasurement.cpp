@@ -7,7 +7,9 @@
 #include <QStandardItemModel>
 #include <QTimer>
 
-qTabMeasurement::qTabMeasurement(QWidget *parent, sls::Detector *detector,
+namespace sls {
+
+qTabMeasurement::qTabMeasurement(QWidget *parent, Detector *detector,
                                  qDrawPlot *p)
     : QWidget(parent), det(detector), plot(p), progressTimer(nullptr) {
     setupUi(this);
@@ -18,6 +20,7 @@ qTabMeasurement::qTabMeasurement(QWidget *parent, sls::Detector *detector,
 qTabMeasurement::~qTabMeasurement() { delete progressTimer; }
 
 void qTabMeasurement::SetupWidgetWindow() {
+    setFont(QFont("Carlito", 9, QFont::Normal));
     // palette
     red = QPalette();
     red.setColor(QPalette::Active, QPalette::WindowText, Qt::red);
@@ -337,9 +340,26 @@ void qTabMeasurement::GetTimingMode() {
     disconnect(comboTimingMode, SIGNAL(currentIndexChanged(int)), this,
                SLOT(SetTimingMode(int)));
     try {
+
+        slsDetectorDefs::timingMode retval{slsDetectorDefs::AUTO_TIMING};
+        // m3: remove slave modes (always trigger) before squashing
+        if (det->getDetectorType().squash() == slsDetectorDefs::MYTHEN3) {
+            auto retvals = det->getTimingMode();
+            auto is_master = det->getMaster();
+            Result<slsDetectorDefs::timingMode> masterRetvals;
+            for (size_t i = 0; i != is_master.size(); ++i) {
+                if (is_master[i]) {
+                    masterRetvals.push_back(retvals[i]);
+                }
+            }
+            retval = masterRetvals.tsquash(
+                "Inconsistent timing mode for all detectors.");
+        } else {
+            retval = det->getTimingMode().tsquash(
+                "Inconsistent timing mode for all detectors.");
+        }
+
         auto oldMode = comboTimingMode->currentIndex();
-        auto retval = det->getTimingMode().tsquash(
-            "Inconsistent timing mode for all detectors.");
         switch (retval) {
         case slsDetectorDefs::AUTO_TIMING:
         case slsDetectorDefs::TRIGGER_EXPOSURE:
@@ -353,8 +373,8 @@ void qTabMeasurement::GetTimingMode() {
             }
             break;
         default:
-            throw sls::RuntimeError(std::string("Unknown timing mode: ") +
-                                    std::to_string(retval));
+            throw RuntimeError(std::string("Unknown timing mode: ") +
+                               std::to_string(retval));
         }
     }
     CATCH_DISPLAY("Could not get timing mode.",
@@ -365,7 +385,7 @@ void qTabMeasurement::GetTimingMode() {
 
 void qTabMeasurement::SetTimingMode(int val) {
     LOG(logINFO) << "Setting timing mode:"
-                 << comboTimingMode->currentText().toAscii().data();
+                 << comboTimingMode->currentText().toLatin1().data();
     try {
         det->setTimingMode(static_cast<slsDetectorDefs::timingMode>(val));
         EnableWidgetsforTimingMode();
@@ -390,8 +410,8 @@ void qTabMeasurement::GetBurstMode() {
             ShowTriggerDelay();
             break;
         default:
-            throw sls::RuntimeError(std::string("Unknown burst mode: ") +
-                                    std::to_string(retval));
+            throw RuntimeError(std::string("Unknown burst mode: ") +
+                               std::to_string(retval));
         }
     }
     CATCH_DISPLAY("Could not get burst mode.", "qTabMeasurement::GetBurstMode")
@@ -401,7 +421,7 @@ void qTabMeasurement::GetBurstMode() {
 
 void qTabMeasurement::SetBurstMode(int val) {
     LOG(logINFO) << "Setting burst mode:"
-                 << comboBurstMode->currentText().toAscii().data();
+                 << comboBurstMode->currentText().toLatin1().data();
     try {
         det->setBurstMode(static_cast<slsDetectorDefs::burstMode>(val));
         ShowTriggerDelay();
@@ -781,7 +801,7 @@ void qTabMeasurement::SetFileName(bool force) {
     if (dispFileName->isModified() || force) {
         dispFileName->setModified(false);
         std::string val =
-            std::string(dispFileName->text().toAscii().constData());
+            std::string(dispFileName->text().toLatin1().constData());
         LOG(logINFO) << "Setting File Name Prefix:" << val;
         try {
             det->setFileNamePrefix(val);
@@ -846,6 +866,7 @@ void qTabMeasurement::SetNextFrameNumber(int val) {
 }
 
 void qTabMeasurement::ResetProgress() {
+    std::lock_guard<std::mutex> lock(mProgress);
     LOG(logDEBUG) << "Resetting progress";
     lblCurrentFrame->setText("0");
     lblCurrentMeasurement->setText("0");
@@ -854,6 +875,7 @@ void qTabMeasurement::ResetProgress() {
 
 void qTabMeasurement::UpdateProgress() {
     LOG(logDEBUG) << "Updating progress";
+    std::lock_guard<std::mutex> lock(mProgress);
     progressBar->setValue(plot->GetProgress());
     lblCurrentFrame->setText(QString::number(plot->GetCurrentFrameIndex()));
     lblCurrentMeasurement->setText(QString::number(currentMeasurement));
@@ -901,7 +923,6 @@ void qTabMeasurement::StartAcquisition() {
     currentMeasurement = 0;
     ResetProgress();
     Enable(0);
-    progressBar->setValue(0);
     progressTimer->start(100);
     emit EnableTabsSignal(false);
 }
@@ -946,7 +967,7 @@ void qTabMeasurement::AcquireFinished() {
 void qTabMeasurement::AbortAcquire(QString exmsg) {
     LOG(logINFORED) << "Abort Acquire";
     qDefs::ExceptionMessage("Acquire unsuccessful.",
-                            exmsg.toAscii().constData(),
+                            exmsg.toLatin1().constData(),
                             "qDrawPlot::AcquireFinished");
     isAcquisitionStopped = true;
     AcquireFinished();
@@ -958,8 +979,7 @@ void qTabMeasurement::Enable(bool enable) {
 
     // shortcut each time, else it doesnt work a second time
     btnStart->setShortcut(QApplication::translate("TabMeasurementObject",
-                                                  "Shift+Space", nullptr,
-                                                  QApplication::UnicodeUTF8));
+                                                  "Shift+Space", nullptr));
 }
 
 void qTabMeasurement::Refresh() {
@@ -1000,3 +1020,5 @@ void qTabMeasurement::Refresh() {
 
     LOG(logDEBUG) << "**Updated Measurement Tab";
 }
+
+} // namespace sls

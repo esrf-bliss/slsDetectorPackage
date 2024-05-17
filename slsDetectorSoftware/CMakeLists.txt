@@ -7,6 +7,7 @@ set(SOURCES
     src/CmdProxy.cpp
     src/CmdParser.cpp
     src/Pattern.cpp
+    src/CtbConfig.cpp
 )
 
 add_library(slsDetectorObject OBJECT
@@ -16,6 +17,8 @@ add_library(slsDetectorObject OBJECT
 target_include_directories(slsDetectorObject PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
+    PRIVATE
+    ${SLS_INTERNAL_RAPIDJSON_DIR}
 )
 
 target_link_libraries(slsDetectorObject 
@@ -69,9 +72,6 @@ list(APPEND DETECTOR_LIBRARY_TARGETS slsDetectorStatic)
 
 if((CMAKE_BUILD_TYPE STREQUAL "Release") AND SLS_LTO_AVAILABLE)
     set_property(TARGET ${DETECTOR_LIBRARY_TARGETS} PROPERTY INTERPROCEDURAL_OPTIMIZATION True)
-    # set_property(TARGET slsDetectorObject PROPERTY INTERPROCEDURAL_OPTIMIZATION True)
-    # set_property(TARGET slsDetectorStatic PROPERTY INTERPROCEDURAL_OPTIMIZATION True)
-    # set_property(TARGET slsDetectorShared PROPERTY INTERPROCEDURAL_OPTIMIZATION True)
 endif()
 
 
@@ -100,7 +100,7 @@ if(SLS_USE_TEXTCLIENT)
             RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
             COMPILE_DEFINITIONS ${val2}=1
         )
-        if(SLS_LTO_AVAILABLE)
+        if((CMAKE_BUILD_TYPE STREQUAL "Release") AND SLS_LTO_AVAILABLE)
             set_property(TARGET ${val1} PROPERTY INTERPROCEDURAL_OPTIMIZATION True)
         endif()
     endforeach()

@@ -10,7 +10,7 @@
 #include "sls/sls_detector_exceptions.h"
 #include "sls/string_utils.h"
 
-using namespace sls;
+namespace sls {
 
 TEST_CASE("Convert mac address using classes", "[support]") {
 
@@ -115,7 +115,8 @@ TEST_CASE("Copy construct a MacAddr") {
 }
 
 TEST_CASE("udp dst struct basic properties") {
-    static_assert(sizeof(UdpDestination) == 36);
+    static_assert(sizeof(UdpDestination) == 36,
+                  "udpDestination struct size does not match");
     UdpDestination dst{};
     REQUIRE(dst.entry == 0);
     REQUIRE(dst.port == 0);
@@ -127,3 +128,5 @@ TEST_CASE("udp dst struct basic properties") {
 }
 
 // TODO!(Erik) Look up a real hostname and verify the IP
+
+} // namespace sls

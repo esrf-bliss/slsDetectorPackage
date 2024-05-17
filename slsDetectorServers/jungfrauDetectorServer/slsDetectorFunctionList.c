@@ -21,13 +21,14 @@
 #include <pthread.h>
 #include <time.h>
 #endif
-
+extern int portno;
 // Global variable from slsDetectorServer_funcs
 extern int debugflag;
 extern int updateFlag;
 extern udpStruct udpDetails[MAX_UDP_DESTINATION];
 extern int numUdpDestinations;
 extern const enum detectorType myDetectorType;
+extern int ignoreConfigFileFlag;
 
 // Global variable from communication_funcs.c
 extern int isControlServer;
@@ -41,6 +42,7 @@ char initErrorMessage[MAX_STR_LENGTH];
 #ifdef VIRTUAL
 pthread_t pthread_virtual_tid;
 int virtual_image_test_mode = 0;
+int virtual_moduleid = 0;
 #endif
 
 enum detectorSettings thisSettings = UNINITIALIZED;
@@ -66,68 +68,74 @@ void basictests() {
     memset(initErrorMessage, 0, MAX_STR_LENGTH);
 #ifdef VIRTUAL
     LOG(logINFOBLUE, ("******** Jungfrau Virtual Server *****************\n"));
+#else
+    LOG(logINFOBLUE, ("************ Jungfrau Server *********************\n"));
+
+    initError = defineGPIOpins(initErrorMessage);
+    if (initError == FAIL) {
+        return;
+    }
+    initError = resetFPGA(initErrorMessage);
+    if (initError == FAIL) {
+        return;
+    }
+#endif
     if (mapCSP0() == FAIL) {
         strcpy(initErrorMessage,
-               "Could not map to memory. Dangerous to continue.\n");
+               "Could not map to memory. Cannot proceed. Check Firmware.\n");
         LOG(logERROR, (initErrorMessage));
         initError = FAIL;
     }
-    return;
-#else
-    defineGPIOpins();
-    resetFPGA();
-    if (mapCSP0() == FAIL) {
-        strcpy(initErrorMessage,
-               "Could not map to memory. Dangerous to continue.\n");
-        LOG(logERROR, ("%s\n\n", initErrorMessage));
-        initError = FAIL;
-        return;
-    }
-
+#ifndef VIRTUAL
     // does check only if flag is 0 (by default), set by command line
     if ((!debugflag) && (!updateFlag) &&
         ((checkType() == FAIL) || (testFpga() == FAIL) ||
          (testBus() == FAIL))) {
-        strcpy(initErrorMessage, "Could not pass basic tests of FPGA and bus. "
-                                 "Dangerous to continue.\n");
+        sprintf(initErrorMessage,
+                "Could not pass basic tests of FPGA and bus. Cannot proceed. "
+                "Check Firmware. (Firmware version:0x%llx) \n",
+                getFirmwareVersion());
         LOG(logERROR, ("%s\n\n", initErrorMessage));
         initError = FAIL;
         return;
     }
-
-    uint16_t hversion = getHardwareVersionNumber();
+#endif
+    char hversion[MAX_STR_LENGTH] = {0};
+    memset(hversion, 0, MAX_STR_LENGTH);
+    getHardwareVersion(hversion);
     uint16_t hsnumber = getHardwareSerialNumber();
     uint32_t ipadd = getDetectorIP();
     uint64_t macadd = getDetectorMAC();
     int64_t fwversion = getFirmwareVersion();
-    int64_t swversion = getServerVersion();
+    char swversion[MAX_STR_LENGTH] = {0};
+    memset(swversion, 0, MAX_STR_LENGTH);
+    getServerVersion(swversion);
     int64_t sw_fw_apiversion = 0;
-    int64_t client_sw_apiversion = getClientServerAPIVersion();
     uint32_t requiredFirmwareVersion =
-        (isHardwareVersion2() ? REQRD_FRMWRE_VRSN_BOARD2 : REQRD_FRMWRE_VRSN);
+        (isHardwareVersion_1_0() ? REQRD_FRMWRE_VRSN_BOARD2
+                                 : REQRD_FRMWRE_VRSN);
 
     if (fwversion >= MIN_REQRD_VRSN_T_RD_API)
         sw_fw_apiversion = getFirmwareAPIVersion();
 
     LOG(logINFOBLUE,
         ("************ Jungfrau Server *********************\n"
-         "Hardware Version:\t\t 0x%x\n"
+         "Hardware Version:\t\t %s\n"
          "Hardware Serial Nr:\t\t 0x%x\n"
 
          "Detector IP Addr:\t\t 0x%x\n"
          "Detector MAC Addr:\t\t 0x%llx\n\n"
 
          "Firmware Version:\t\t 0x%llx\n"
-         "Software Version:\t\t 0x%llx\n"
+         "Software Version:\t\t %s\n"
          "F/w-S/w API Version:\t\t 0x%llx\n"
          "Required Firmware Version:\t 0x%x\n"
-         "Client-Software API Version:\t 0x%llx\n"
          "********************************************************\n",
          hversion, hsnumber, ipadd, (long long unsigned int)macadd,
-         (long long int)fwversion, (long long int)swversion,
-         (long long int)sw_fw_apiversion, requiredFirmwareVersion,
-         (long long int)client_sw_apiversion));
+         (long long int)fwversion, swversion, (long long int)sw_fw_apiversion,
+         requiredFirmwareVersion));
 
+#ifndef VIRTUAL
     // return if flag is not zero, debug mode
     if (debugflag || updateFlag) {
         return;
@@ -254,9 +262,7 @@ int getTestImageMode() { return virtual_image_test_mode; }
 
 /* Ids */
 
-uint64_t getServerVersion() { return APIJUNGFRAU; }
-
-uint64_t getClientServerAPIVersion() { return APIJUNGFRAU; }
+void getServerVersion(char *version) { strcpy(version, APIJUNGFRAU); }
 
 u_int64_t getFirmwareVersion() {
 #ifdef VIRTUAL
@@ -273,9 +279,24 @@ u_int64_t getFirmwareAPIVersion() {
     return ((bus_r(API_VERSION_REG) & API_VERSION_MSK) >> API_VERSION_OFST);
 }
 
+void getHardwareVersion(char *version) {
+    strcpy(version, "unknown");
+    int hwversion = getHardwareVersionNumber();
+    const int hwNumberList[] = HARDWARE_VERSION_NUMBERS;
+    const char *hwNamesList[] = HARDWARE_VERSION_NAMES;
+    for (int i = 0; i != NUM_HARDWARE_VERSIONS; ++i) {
+        LOG(logDEBUG, ("0x%x %d 0x%x %s\n", hwversion, i, hwNumberList[i],
+                       hwNamesList[i]));
+        if (hwNumberList[i] == hwversion) {
+            strcpy(version, hwNamesList[i]);
+            return;
+        }
+    }
+}
+
 u_int16_t getHardwareVersionNumber() {
 #ifdef VIRTUAL
-    return 0;
+    return 0x3;
 #endif
     return ((bus_r(MOD_SERIAL_NUM_REG) & HARDWARE_VERSION_NUM_MSK) >>
             HARDWARE_VERSION_NUM_OFST);
@@ -289,15 +310,9 @@ u_int16_t getHardwareSerialNumber() {
             HARDWARE_SERIAL_NUM_OFST);
 }
 
-// is board 1.0?, with value 2 (resistor network)
-int isHardwareVersion2() {
-#ifdef VIRTUAL
-    return 0;
-#endif
-    return (((bus_r(MOD_SERIAL_NUM_REG) & HARDWARE_VERSION_NUM_MSK) ==
-             HARDWARE_VERSION_2_VAL)
-                ? 1
-                : 0);
+int isHardwareVersion_1_0() {
+    const int hwNumberList[] = HARDWARE_VERSION_NUMBERS;
+    return ((getHardwareVersionNumber() == hwNumberList[0]) ? 1 : 0);
 }
 
 int getChipVersion() {
@@ -324,6 +339,29 @@ u_int32_t getDetectorNumber() {
     return 0;
 #endif
     return bus_r(MOD_SERIAL_NUM_REG);
+}
+
+int getModuleId(int *ret, char *mess) {
+    return ((bus_r(MOD_ID_REG) & MOD_ID_MSK) >> MOD_ID_OFST);
+}
+
+void setModuleId(int modid) {
+    LOG(logINFOBLUE, ("Setting module id in fpga: %d\n", modid));
+    bus_w(MOD_ID_REG, bus_r(MOD_ID_REG) & ~MOD_ID_MSK);
+    bus_w(MOD_ID_REG,
+          bus_r(MOD_ID_REG) | ((modid << MOD_ID_OFST) & MOD_ID_MSK));
+}
+
+int updateModuleId() {
+    int modid = getModuleIdInFile(&initError, initErrorMessage, ID_FILE);
+    if (initError == FAIL) {
+        return FAIL;
+    }
+#ifdef VIRTUAL
+    virtual_moduleid = modid;
+#endif
+    setModuleId(modid);
+    return OK;
 }
 
 u_int64_t getDetectorMAC() {
@@ -386,19 +424,29 @@ void initControlServer() {
 }
 
 void initStopServer() {
-
-    usleep(CTRL_SRVR_INIT_TIME_US);
-    if (mapCSP0() == FAIL) {
-        LOG(logERROR,
-            ("Stop Server: Map Fail. Dangerous to continue. Goodbye!\n"));
-        exit(EXIT_FAILURE);
-    }
+    if (!updateFlag && initError == OK) {
+        usleep(CTRL_SRVR_INIT_TIME_US);
+        LOG(logINFOBLUE, ("Configuring Stop server\n"));
+        if (mapCSP0() == FAIL) {
+            initError = FAIL;
+            strcpy(initErrorMessage,
+                   "Stop Server: Map Fail. Cannot proceed. Check Firmware.\n");
+            LOG(logERROR, (initErrorMessage));
+            initCheckDone = 1;
+            return;
+        }
+        if (readConfigFile() == FAIL) {
+            initCheckDone = 1;
+            return;
+        }
 #ifdef VIRTUAL
-    sharedMemory_setStop(0);
-    // temp threshold and reset event (read by stop server)
-    setThresholdTemperature(DEFAULT_TMP_THRSHLD);
-    setTemperatureEvent(0);
+        sharedMemory_setStop(0);
+        // temp threshold and reset event (read by stop server)
+        setThresholdTemperature(DEFAULT_TMP_THRSHLD);
+        setTemperatureEvent(0);
 #endif
+    }
+    initCheckDone = 1;
 }
 
 /* set up detector */
@@ -415,7 +463,13 @@ void setupDetector() {
     setupUDPCommParameters();
 #endif
 
+    // altera pll
+    ALTERA_PLL_SetDefines(
+        PLL_CNTRL_REG, PLL_PARAM_REG, PLL_CNTRL_RCNFG_PRMTR_RST_MSK,
+        PLL_CNTRL_WR_PRMTR_MSK, PLL_CNTRL_PLL_RST_MSK, PLL_CNTRL_ADDR_MSK,
+        PLL_CNTRL_ADDR_OFST, PLL_CNTRL_DBIT_WR_PRMTR_MSK, DBIT_CLK_INDEX);
     ALTERA_PLL_ResetPLL();
+
     resetCore();
     resetPeripheral();
     cleanFifos();
@@ -443,12 +497,6 @@ void setupDetector() {
     LTC2620_Configure();
     resetToDefaultDacs(0);
 
-    // altera pll
-    ALTERA_PLL_SetDefines(
-        PLL_CNTRL_REG, PLL_PARAM_REG, PLL_CNTRL_RCNFG_PRMTR_RST_MSK,
-        PLL_CNTRL_WR_PRMTR_MSK, PLL_CNTRL_PLL_RST_MSK, PLL_CNTRL_ADDR_MSK,
-        PLL_CNTRL_ADDR_OFST, PLL_CNTRL_DBIT_WR_PRMTR_MSK, DBIT_CLK_INDEX);
-
     /* Only once at server startup */
     bus_w(DAQ_REG, 0x0);
 
@@ -459,6 +507,10 @@ void setupDetector() {
         return;
     }
 
+    if (updateModuleId() == FAIL) {
+        return;
+    }
+
     setReadoutSpeed(HALF_SPEED);
     cleanFifos();
     resetCore();
@@ -466,8 +518,8 @@ void setupDetector() {
     alignDeserializer();
     configureASICTimer();
     bus_w(ADC_PORT_INVERT_REG,
-          (isHardwareVersion2() ? ADC_PORT_INVERT_BOARD2_VAL
-                                : ADC_PORT_INVERT_VAL));
+          (isHardwareVersion_1_0() ? ADC_PORT_INVERT_BOARD2_VAL
+                                   : ADC_PORT_INVERT_VAL));
 
     initReadoutConfiguration();
 
@@ -495,12 +547,14 @@ void setupDetector() {
     // temp threshold and reset event
     setThresholdTemperature(DEFAULT_TMP_THRSHLD);
     setTemperatureEvent(0);
-    setFlipRows(DEFAULT_FLIP_ROWS);
     if (getChipVersion() == 11) {
         setFilterResistor(DEFAULT_FILTER_RESISTOR);
         setNumberOfFilterCells(DEFAULT_FILTER_CELL);
     }
-    setReadNRows(MAX_ROWS_PER_READOUT);
+    if (!isHardwareVersion_1_0()) {
+        setFlipRows(DEFAULT_FLIP_ROWS);
+        setReadNRows(MAX_ROWS_PER_READOUT);
+    }
 }
 
 int resetToDefaultDacs(int hardReset) {
@@ -635,6 +689,11 @@ int readConfigFile() {
         return initError;
     }
 
+    if (ignoreConfigFileFlag) {
+        LOG(logWARNING, ("Ignoring Config file\n"));
+        return OK;
+    }
+
     const int fileNameSize = 128;
     char fname[fileNameSize];
     if (getAbsPath(fname, fileNameSize, CONFIG_FILE) == FAIL) {
@@ -731,16 +790,25 @@ int readConfigFile() {
                         version, line);
                 break;
             }
-            // version 1.1 and HW 1.0 (version reg value = 2) is incompatible
-            if (version == 11 && isHardwareVersion2()) {
+            // chipversion 1.1 and HW 1.0 is incompatible
+            if (version == 11 && isHardwareVersion_1_0()) {
                 strcpy(initErrorMessage,
                        "Chip version 1.1 (from on-board config file) is "
-                       "incompatible with old board (v1.0). Please update "
+                       "incompatible with hardware version v1.0. Please update "
                        "board or correct on-board config file.\n");
                 break;
             }
 
             setChipVersion(version);
+        }
+
+        // other commands
+        else {
+            sprintf(initErrorMessage,
+                    "Could not scan command from on-board server "
+                    "config file. Line:[%s].\n",
+                    line);
+            break;
         }
 
         memset(line, 0, LZ);
@@ -788,12 +856,22 @@ void resetPeripheral() {
 
 /* set parameters -  dr, roi */
 
-int setDynamicRange(int dr) { return DYNAMIC_RANGE; }
+int setDynamicRange(int dr) {
+    if (dr == 16)
+        return OK;
+    return FAIL;
+}
+
+int getDynamicRange(int *retval) {
+    *retval = DYNAMIC_RANGE;
+    return OK;
+}
 
 void setADCInvertRegister(uint32_t val) {
     LOG(logINFO, ("Setting ADC Port Invert Reg to 0x%x\n", val));
-    uint32_t defaultValue = (isHardwareVersion2() ? ADC_PORT_INVERT_BOARD2_VAL
-                                                  : ADC_PORT_INVERT_VAL);
+    uint32_t defaultValue =
+        (isHardwareVersion_1_0() ? ADC_PORT_INVERT_BOARD2_VAL
+                                 : ADC_PORT_INVERT_VAL);
     uint32_t changeValue = defaultValue ^ val;
     LOG(logINFO, ("\t default: 0x%x, final:0x%x\n", defaultValue, changeValue));
     bus_w(ADC_PORT_INVERT_REG, changeValue);
@@ -801,8 +879,8 @@ void setADCInvertRegister(uint32_t val) {
 
 uint32_t getADCInvertRegister() {
     uint32_t readValue = bus_r(ADC_PORT_INVERT_REG);
-    int32_t defaultValue = (isHardwareVersion2() ? ADC_PORT_INVERT_BOARD2_VAL
-                                                 : ADC_PORT_INVERT_VAL);
+    int32_t defaultValue = (isHardwareVersion_1_0() ? ADC_PORT_INVERT_BOARD2_VAL
+                                                    : ADC_PORT_INVERT_VAL);
     uint32_t val = defaultValue ^ readValue;
     LOG(logDEBUG1, ("\tread:0x%x, default:0x%x returned:0x%x\n", readValue,
                     defaultValue, val));
@@ -1306,6 +1384,60 @@ int setHighVoltage(int val) {
 
 /* parameters - timing, extsig */
 
+int setMaster(enum MASTERINDEX m) {
+    char *master_names[] = {MASTER_NAMES};
+    LOG(logINFOBLUE, ("Setting up as %s in (%s server)\n", master_names[m],
+                      (isControlServer ? "control" : "stop")));
+
+    int prevSync = getSynchronization();
+    setSynchronization(0);
+    int retval = -1;
+    int retMaster = OK;
+    switch (m) {
+    case OW_MASTER:
+        bus_w(CONTROL_REG, bus_r(CONTROL_REG) | CONTROL_MASTER_MSK);
+        isMaster(&retval);
+        if (retval != 1) {
+            LOG(logERROR, ("Could not set master\n"));
+            retMaster = FAIL;
+        }
+        break;
+    case OW_SLAVE:
+        bus_w(CONTROL_REG, bus_r(CONTROL_REG) & ~CONTROL_MASTER_MSK);
+        isMaster(&retval);
+        if (retval != 0) {
+            LOG(logERROR, ("Could not set slave\n"));
+            retMaster = FAIL;
+        }
+        break;
+    default:
+        LOG(logERROR, ("Cannot reset to hardware settings from client. Restart "
+                       "detector server.\n"));
+        retMaster = FAIL;
+    }
+    setSynchronization(prevSync);
+    return retMaster;
+}
+
+int isMaster(int *retval) {
+    *retval =
+        ((bus_r(CONTROL_REG) & CONTROL_MASTER_MSK) >> CONTROL_MASTER_OFST);
+    return OK;
+}
+
+int getSynchronization() {
+    return ((bus_r(EXT_SIGNAL_REG) & EXT_SYNC_MSK) >> EXT_SYNC_OFST);
+}
+
+void setSynchronization(int enable) {
+    LOG(logINFOBLUE,
+        ("%s Synchronization\n", (enable ? "Enabling" : "Disabling")));
+    if (enable)
+        bus_w(EXT_SIGNAL_REG, bus_r(EXT_SIGNAL_REG) | EXT_SYNC_MSK);
+    else
+        bus_w(EXT_SIGNAL_REG, bus_r(EXT_SIGNAL_REG) & ~EXT_SYNC_MSK);
+}
+
 void setTiming(enum timingMode arg) {
     switch (arg) {
     case AUTO_TIMING:
@@ -1322,7 +1454,7 @@ void setTiming(enum timingMode arg) {
 }
 
 enum timingMode getTiming() {
-    if (bus_r(EXT_SIGNAL_REG) == EXT_SIGNAL_MSK)
+    if ((bus_r(EXT_SIGNAL_REG) & EXT_SIGNAL_MSK) >> EXT_SIGNAL_OFST)
         return TRIGGER_EXPOSURE;
     return AUTO_TIMING;
 }
@@ -1588,6 +1720,7 @@ int configureMAC() {
 
 int setDetectorPosition(int pos[]) {
     int ret = OK;
+    // row, col
     uint32_t innerPos[2] = {pos[X], pos[Y]};
     uint32_t outerPos[2] = {pos[X], pos[Y]};
     int selInterface = getPrimaryInterface();
@@ -1597,54 +1730,55 @@ int setDetectorPosition(int pos[]) {
             ("Setting detector position: 1 Interface %s \n(%d, %d)\n",
              (selInterface ? "Inner" : "Outer"), innerPos[X], innerPos[Y]));
     } else {
-        ++outerPos[X];
+        // top has row incremented by 1
+        ++innerPos[Y];
         LOG(logDEBUG, ("Setting detector position: 2 Interfaces \n"
                        "  inner top(%d, %d), outer bottom(%d, %d)\n",
                        innerPos[X], innerPos[Y], outerPos[X], outerPos[Y]));
     }
-    detPos[0] = innerPos[0];
-    detPos[1] = innerPos[1];
-    detPos[2] = outerPos[0];
-    detPos[3] = outerPos[1];
+    detPos[0] = innerPos[X];
+    detPos[1] = innerPos[Y];
+    detPos[2] = outerPos[X];
+    detPos[3] = outerPos[Y];
 
-    // row
+    // row [Y]
     // outer
     uint32_t addr = COORD_ROW_REG;
     bus_w(addr,
           (bus_r(addr) & ~COORD_ROW_OUTER_MSK) |
-              ((outerPos[X] << COORD_ROW_OUTER_OFST) & COORD_ROW_OUTER_MSK));
+              ((outerPos[Y] << COORD_ROW_OUTER_OFST) & COORD_ROW_OUTER_MSK));
     if (((bus_r(addr) & COORD_ROW_OUTER_MSK) >> COORD_ROW_OUTER_OFST) !=
-        outerPos[X])
-        ret = FAIL;
-    // inner
-    bus_w(addr,
-          (bus_r(addr) & ~COORD_ROW_INNER_MSK) |
-              ((innerPos[X] << COORD_ROW_INNER_OFST) & COORD_ROW_INNER_MSK));
-    if (((bus_r(addr) & COORD_ROW_INNER_MSK) >> COORD_ROW_INNER_OFST) !=
-        innerPos[X])
-        ret = FAIL;
-
-    // col
-    // outer
-    addr = COORD_COL_REG;
-    bus_w(addr,
-          (bus_r(addr) & ~COORD_COL_OUTER_MSK) |
-              ((outerPos[Y] << COORD_COL_OUTER_OFST) & COORD_COL_OUTER_MSK));
-    if (((bus_r(addr) & COORD_COL_OUTER_MSK) >> COORD_COL_OUTER_OFST) !=
         outerPos[Y])
         ret = FAIL;
     // inner
     bus_w(addr,
-          (bus_r(addr) & ~COORD_COL_INNER_MSK) |
-              ((innerPos[Y] << COORD_COL_INNER_OFST) & COORD_COL_INNER_MSK));
-    if (((bus_r(addr) & COORD_COL_INNER_MSK) >> COORD_COL_INNER_OFST) !=
+          (bus_r(addr) & ~COORD_ROW_INNER_MSK) |
+              ((innerPos[Y] << COORD_ROW_INNER_OFST) & COORD_ROW_INNER_MSK));
+    if (((bus_r(addr) & COORD_ROW_INNER_MSK) >> COORD_ROW_INNER_OFST) !=
         innerPos[Y])
+        ret = FAIL;
+
+    // col [X]
+    // outer
+    addr = COORD_COL_REG;
+    bus_w(addr,
+          (bus_r(addr) & ~COORD_COL_OUTER_MSK) |
+              ((outerPos[X] << COORD_COL_OUTER_OFST) & COORD_COL_OUTER_MSK));
+    if (((bus_r(addr) & COORD_COL_OUTER_MSK) >> COORD_COL_OUTER_OFST) !=
+        outerPos[X])
+        ret = FAIL;
+    // inner
+    bus_w(addr,
+          (bus_r(addr) & ~COORD_COL_INNER_MSK) |
+              ((innerPos[X] << COORD_COL_INNER_OFST) & COORD_COL_INNER_MSK));
+    if (((bus_r(addr) & COORD_COL_INNER_MSK) >> COORD_COL_INNER_OFST) !=
+        innerPos[X])
         ret = FAIL;
 
     if (ret == OK) {
         if (getNumberofUDPInterfaces() == 1) {
-            LOG(logINFOBLUE,
-                ("Position set to [%d, %d]\n", innerPos[X], innerPos[Y]));
+            LOG(logINFOBLUE, ("Position set to [%d, %d] #(col, row)\n",
+                              innerPos[X], innerPos[Y]));
         } else {
             LOG(logINFOBLUE, (" Inner (top) position set to [%d, %d]\n",
                               innerPos[X], innerPos[Y]));
@@ -1665,6 +1799,11 @@ int setReadNRows(int value) {
         LOG(logERROR, ("Invalid number of rows %d\n", value));
         return FAIL;
     }
+    if (isHardwareVersion_1_0()) {
+        LOG(logERROR, ("Could not set number of rows. Only available for "
+                       "Hardware Board version v2.0.\n"));
+        return FAIL;
+    }
 
     // regval is numpackets - 1
     int regval = (value / READ_N_ROWS_MULTIPLE) - 1;
@@ -1673,7 +1812,6 @@ int setReadNRows(int value) {
     bus_w(addr, bus_r(addr) & ~READ_N_ROWS_NUM_ROWS_MSK);
     bus_w(addr, bus_r(addr) | ((regval << READ_N_ROWS_NUM_ROWS_OFST) &
                                READ_N_ROWS_NUM_ROWS_MSK));
-
     if (value == MAX_ROWS_PER_READOUT) {
         LOG(logINFO, ("Disabling Partial Readout (#rows)\n"));
         bus_w(addr, bus_r(addr) & ~READ_N_ROWS_ENBL_MSK);
@@ -1685,6 +1823,10 @@ int setReadNRows(int value) {
 }
 
 int getReadNRows() {
+    // cannot set it in old board
+    if (isHardwareVersion_1_0()) {
+        return MAX_ROWS_PER_READOUT;
+    }
     int enable = (bus_r(READ_N_ROWS_REG) & READ_N_ROWS_ENBL_MSK);
     int regval = ((bus_r(READ_N_ROWS_REG) & READ_N_ROWS_NUM_ROWS_MSK) >>
                   READ_N_ROWS_NUM_ROWS_OFST);
@@ -1855,7 +1997,7 @@ int setReadoutSpeed(int val) {
     switch (val) {
 
     case FULL_SPEED:
-        if (isHardwareVersion2()) {
+        if (isHardwareVersion_1_0()) {
             LOG(logERROR, ("Cannot set full speed. Should not be here\n"));
             return FAIL;
         }
@@ -1876,7 +2018,7 @@ int setReadoutSpeed(int val) {
 
     case HALF_SPEED:
         LOG(logINFO, ("Setting Half Speed (20 MHz):\n"));
-        if (isHardwareVersion2()) {
+        if (isHardwareVersion_1_0()) {
             adcOfst = ADC_OFST_HALF_SPEED_BOARD2_VAL;
             sampleAdcSpeed = SAMPLE_ADC_HALF_SPEED_BOARD2;
             adcPhase = ADC_PHASE_HALF_SPEED_BOARD2;
@@ -1897,7 +2039,7 @@ int setReadoutSpeed(int val) {
 
     case QUARTER_SPEED:
         LOG(logINFO, ("Setting Half Speed (10 MHz):\n"));
-        if (isHardwareVersion2()) {
+        if (isHardwareVersion_1_0()) {
             adcOfst = ADC_OFST_QUARTER_SPEED_BOARD2_VAL;
             sampleAdcSpeed = SAMPLE_ADC_QUARTER_SPEED_BOARD2;
             adcPhase = ADC_PHASE_QUARTER_SPEED_BOARD2;
@@ -2157,6 +2299,11 @@ int getFlipRows() {
 }
 
 void setFlipRows(int arg) {
+    if (isHardwareVersion_1_0()) {
+        LOG(logERROR, ("Could not set flip rows. Only available for "
+                       "Hardware Board version 2.0.\n"));
+        return;
+    }
     if (arg >= 0) {
         if (arg == 0) {
             LOG(logINFO, ("Switching off bottom row flipping\n"));
@@ -2478,15 +2625,31 @@ void *start_timer(void *arg) {
     {
         const int npixels = (NCHAN * NCHIP);
         const int pixelsPerPacket = dataSize / NUM_BYTES_PER_PIXEL;
+        int dataVal = 0;
+        int gainVal = 0;
         int pixelVal = 0;
         for (int i = 0; i < npixels; ++i) {
-            // avoiding gain also being divided when gappixels enabled in call
-            // back
-            if (i > 0 && i % pixelsPerPacket == 0) {
-                ++pixelVal;
+            if (i % pixelsPerPacket == 0) {
+                ++dataVal;
             }
+            if ((i % 1024) < 300) {
+                gainVal = 1;
+            } else if ((i % 1024) < 600) {
+                gainVal = 2;
+            } else {
+                gainVal = 3;
+            }
+            pixelVal = (dataVal & ~GAIN_VAL_MSK) | (gainVal << GAIN_VAL_OFST);
+// to debug multi module geometry (row, column) in virtual servers (all pixels
+// in a module set to particular value)
+#ifdef TEST_MOD_GEOMETRY
+            *((uint16_t *)(imageData + i * sizeof(uint16_t))) =
+                portno % 1900 + (i >= npixels / 2 ? 1 : 0);
+#else
             *((uint16_t *)(imageData + i * sizeof(uint16_t))) =
                 virtual_image_test_mode ? 0x0FFE : (uint16_t)pixelVal;
+
+#endif
         }
     }
 
@@ -2511,6 +2674,10 @@ void *start_timer(void *arg) {
 
             int srcOffset = 0;
             int srcOffset2 = DATA_BYTES / 2;
+            int row0 = (numInterfaces == 1 ? detPos[1] : detPos[3]);
+            int col0 = (numInterfaces == 1 ? detPos[0] : detPos[2]);
+            int row1 = detPos[1];
+            int col1 = detPos[0];
             // loop packet (128 packets)
             for (int i = 0; i != maxPacketsPerFrame; ++i) {
 
@@ -2526,12 +2693,12 @@ void *start_timer(void *arg) {
                     sls_detector_header *header =
                         (sls_detector_header *)(packetData);
                     header->detType = (uint16_t)myDetectorType;
-                    header->version = SLS_DETECTOR_HEADER_VERSION - 1;
+                    header->version = SLS_DETECTOR_HEADER_VERSION;
                     header->frameNumber = frameNr + iframes;
                     header->packetNumber = pnum;
-                    header->modId = 0;
-                    header->row = detPos[0];
-                    header->column = detPos[1];
+                    header->modId = virtual_moduleid;
+                    header->row = row0;
+                    header->column = col0;
 
                     // fill data
                     memcpy(packetData + sizeof(sls_detector_header),
@@ -2553,12 +2720,12 @@ void *start_timer(void *arg) {
                     sls_detector_header *header =
                         (sls_detector_header *)(packetData2);
                     header->detType = (uint16_t)myDetectorType;
-                    header->version = SLS_DETECTOR_HEADER_VERSION - 1;
+                    header->version = SLS_DETECTOR_HEADER_VERSION;
                     header->frameNumber = frameNr + iframes;
                     header->packetNumber = pnum;
-                    header->modId = 0;
-                    header->row = detPos[2];
-                    header->column = detPos[3];
+                    header->modId = virtual_moduleid;
+                    header->row = row1;
+                    header->column = col1;
 
                     // fill data
                     memcpy(packetData2 + sizeof(sls_detector_header),
@@ -2598,7 +2765,7 @@ void *start_timer(void *arg) {
     }
 
     sharedMemory_setStatus(IDLE);
-    LOG(logINFOBLUE, ("Finished Acquiring\n"));
+    LOG(logINFOBLUE, ("Transmitting frames done\n"));
     return NULL;
 }
 #endif
@@ -2624,8 +2791,34 @@ int stopStateMachine() {
     bus_w(CONTROL_REG, bus_r(CONTROL_REG) & ~CONTROL_STOP_ACQ_MSK);
 
     LOG(logINFO, ("Status Register: %08x\n", bus_r(STATUS_REG)));
+    return OK;
+}
 
-    resetCore();
+int softwareTrigger(int block) {
+#ifndef VIRTUAL
+    // ready for trigger
+    if (getRunStatus() != WAITING) {
+        LOG(logWARNING, ("Not yet ready for trigger!\n"));
+        return 0;
+    }
+#endif
+
+    LOG(logINFO, ("Sending Software Trigger\n"));
+    bus_w(CONTROL_REG, bus_r(CONTROL_REG) | CONTROL_SOFTWARE_TRIGGER_MSK);
+    bus_w(CONTROL_REG, bus_r(CONTROL_REG) & ~CONTROL_SOFTWARE_TRIGGER_MSK);
+
+#ifndef VIRTUAL
+    // block till frame is sent out
+    if (block) {
+        enum runStatus s = getRunStatus();
+        while (s == RUNNING || s == TRANSMITTING) {
+            usleep(5000);
+            s = getRunStatus();
+        }
+    }
+    LOG(logINFO, ("Ready for Next Trigger...\n"));
+#endif
+
     return OK;
 }
 
@@ -2685,26 +2878,17 @@ enum runStatus getRunStatus() {
     return s;
 }
 
-void readFrame(int *ret, char *mess) {
-    // wait for status to be done
+void waitForAcquisitionEnd() {
     while (runBusy()) {
         usleep(500);
     }
-#ifdef VIRTUAL
-    LOG(logINFOGREEN, ("acquisition successfully finished\n"));
-    return;
-#endif
-
-    *ret = (int)OK;
-    // frames left to give status
+#ifndef VIRTUAL
     int64_t retval = getNumFramesLeft() + 1;
-
     if (retval > 0) {
-        LOG(logERROR, ("No data and run stopped: %lld frames left\n",
-                       (long long int)retval));
-    } else {
-        LOG(logINFOGREEN, ("Acquisition successfully finished\n"));
+        LOG(logINFORED, ("%lld frames left\n", (long long int)retval));
     }
+#endif
+    LOG(logINFOGREEN, ("Blocking Acquisition done\n"));
 }
 
 u_int32_t runBusy() {

@@ -37,9 +37,7 @@ int main(int argc, char *argv[]) {
     // Check for --version in the arguments
     for (int i = 1; i < argc; ++i) {
         if (!(strcmp(argv[i], "--version")) || !(strcmp(argv[i], "-v"))) {
-            int64_t tempval = APILIB;
-            std::cout << argv[0] << " " << GITBRANCH << " (0x" << std::hex
-                      << tempval << ")" << std::endl;
+            std::cout << argv[0] << " " << APILIB << std::endl;
             return 0;
         }
     }
@@ -53,21 +51,31 @@ int main(int argc, char *argv[]) {
 
     if (parser.isHelp())
         action = slsDetectorDefs::HELP_ACTION;
+    else {
 
-    // Free shared memory should work also without a detector
-    // if we have an option for verify in the detector constructor
-    // we could avoid this but clutter the code
-    if (parser.command() == "free" && action != slsDetectorDefs::HELP_ACTION) {
-        if (parser.detector_id() != -1)
-            std::cout << "Cannot free shared memory of sub-detector\n";
-        else
-            sls::freeSharedMemory(parser.multi_id());
-        return 0;
+        // Free shared memory should work also without a detector
+        // if we have an option for verify in the detector constructor
+        // we could avoid this but clutter the code
+        if (parser.command() == "free") {
+            if (parser.detector_id() != -1)
+                std::cout << "Cannot free shared memory of sub-detector\n";
+            else
+                sls::freeSharedMemory(parser.multi_id());
+            return 0;
+        }
+    }
+
+    // prevent mem size check
+    if (parser.command() == "config" && action == slsDetectorDefs::PUT_ACTION) {
+        sls::freeSharedMemory(parser.multi_id());
     }
 
     try {
-        sls::Detector det(parser.multi_id());
-        sls::CmdProxy proxy(&det);
+        std::unique_ptr<sls::Detector> det{nullptr};
+        if (action != slsDetectorDefs::HELP_ACTION) {
+            det = sls::make_unique<sls::Detector>(parser.multi_id());
+        }
+        sls::CmdProxy proxy(det.get());
         proxy.Call(parser.command(), parser.arguments(), parser.detector_id(),
                    action, std::cout, parser.receiver_id());
     } catch (const sls::RuntimeError &e) {

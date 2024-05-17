@@ -34,7 +34,7 @@ add_executable(ctbGui
     ctbAdcs.cpp
     ctbPattern.cpp
     ctbAcquisition.cpp
-    ${CMAKE_SOURCE_DIR}/slsDetectorCalibration/tiffIO.cpp
+    ${CMAKE_SOURCE_DIR}/slsDetectorCalibration/tiffio/src/tiffIO.cpp
 )
 
 
@@ -43,6 +43,7 @@ target_include_directories(ctbGui PRIVATE
     ${CMAKE_SOURCE_DIR}/slsDetectorCalibration/dataStructures
     ${CMAKE_SOURCE_DIR}/slsDetectorCalibration/interpolations
     ${CMAKE_SOURCE_DIR}/slsDetectorCalibration/
+    ${CMAKE_SOURCE_DIR}/slsDetectorCalibration/tiffio/include/
 )
 
 # Headders needed for ROOT dictionary generation
@@ -61,7 +62,6 @@ set( HEADERS
 #set(ROOT_INCLUDE_PATH ${CMAKE_CURRENT_SOURCE_DIR})
 
 # ROOT dictionary generation 
-include("${ROOT_DIR}/RootMacros.cmake")
 root_generate_dictionary(ctbDict ${HEADERS} LINKDEF ctbLinkDef.h)
 add_library(ctbRootLib SHARED ctbDict.cxx)
 target_include_directories(ctbRootLib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -87,3 +87,4 @@ set_target_properties(ctbGui PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 
 )
+

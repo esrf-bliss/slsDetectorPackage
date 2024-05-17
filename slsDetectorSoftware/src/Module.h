@@ -14,12 +14,12 @@
 #include <map>
 #include <vector>
 
+namespace sls {
+
 class ServerInterface;
 
 #define MODULE_SHMAPIVERSION 0x190726
 #define MODULE_SHMVERSION    0x200402
-
-namespace sls {
 
 /**
  * @short structure allocated in shared memory to store Module settings for
@@ -40,7 +40,7 @@ struct sharedModule {
     int stopPort;
     char settingsDir[MAX_STR_LENGTH];
     /** list of the energies at which the Module has been trimmed  */
-    sls::StaticVector<int, MAX_TRIMEN> trimEnergies;
+    StaticVector<int, MAX_TRIMEN> trimEnergies;
     /**  number of channels per chip */
     slsDetectorDefs::xy nChan;
     slsDetectorDefs::xy nChip;
@@ -52,7 +52,7 @@ struct sharedModule {
     /** Listening tcp port from gui (only data) */
     int zmqport;
     /**  Listening tcp ip address from gui (only data) **/
-    sls::IpAddr zmqip;
+    IpAddr zmqip;
     int numUDPInterfaces;
     /** to inform rxr when stopping rxr */
     bool stoppedFlag;
@@ -90,12 +90,18 @@ class Module : public virtual slsDetectorDefs {
     void setHostname(const std::string &hostname, const bool initialChecks);
 
     int64_t getFirmwareVersion() const;
-    int64_t getDetectorServerVersion() const;
+    std::string getControlServerLongVersion() const;
+    std::string getStopServerLongVersion() const;
+    void throwDeprecatedServerVersion() const;
+    std::string getDetectorServerVersion() const;
+    std::string getHardwareVersion() const;
+    std::string getKernelVersion() const;
     int64_t getSerialNumber() const;
     int getModuleId() const;
-    int64_t getReceiverSoftwareVersion() const;
-    static detectorType getTypeFromDetector(const std::string &hostname,
-                                            int cport = DEFAULT_PORTNO);
+    std::string getReceiverSoftwareVersion() const;
+    static detectorType
+    getTypeFromDetector(const std::string &hostname,
+                        int cport = DEFAULT_TCP_CNTRL_PORTNO);
 
     /** Get Detector type from shared memory */
     detectorType getDetectorType() const;
@@ -113,12 +119,21 @@ class Module : public virtual slsDetectorDefs {
     std::string getSettingsDir() const;
     std::string setSettingsDir(const std::string &dir);
     void loadTrimbits(const std::string &fname);
+    void saveTrimbits(const std::string &fname);
     int getAllTrimbits() const;
     void setAllTrimbits(int val);
     std::vector<int> getTrimEn() const;
     int setTrimEn(const std::vector<int> &energies = {});
     bool getFlipRows() const;
     void setFlipRows(bool value);
+    bool isMaster() const;
+    void setMaster(const bool master);
+    bool getSynchronization() const;
+    bool getSynchronizationFromStopServer() const;
+    void setSynchronization(const bool value);
+    std::vector<int> getBadChannels() const;
+    void setBadChannels(std::vector<int> list);
+
     bool isVirtualDetectorServer() const;
 
     /**************************************************
@@ -183,6 +198,7 @@ class Module : public virtual slsDetectorDefs {
     void setDBITPipeline(int value);
     int getReadNRows() const;
     void setReadNRows(const int value);
+
     /**************************************************
      *                                                *
      *    Acquisition                                 *
@@ -198,8 +214,9 @@ class Module : public virtual slsDetectorDefs {
     runStatus getRunStatus() const;
     runStatus getReceiverStatus() const;
     double getReceiverProgress() const;
-    int64_t getFramesCaughtByReceiver() const;
-    std::vector<uint64_t> getNumMissingPackets() const;
+    std::vector<int64_t> getFramesCaughtByReceiver() const;
+    std::vector<int64_t> getNumMissingPackets() const;
+    std::vector<int64_t> getReceiverCurrentFrameIndex() const;
     uint64_t getNextFrameNumber() const;
     void setNextFrameNumber(uint64_t value);
     void sendSoftwareTrigger(const bool block);
@@ -213,32 +230,32 @@ class Module : public virtual slsDetectorDefs {
      *                                                 *
      * ************************************************/
     int getNumberofUDPInterfacesFromShm() const;
-    int getNumberofUDPInterfaces() const;
+    void updateNumberofUDPInterfaces();
     void setNumberofUDPInterfaces(int n);
     int getSelectedUDPInterface() const;
     void selectUDPInterface(int n);
-    sls::IpAddr getSourceUDPIP() const;
-    void setSourceUDPIP(const sls::IpAddr ip);
-    sls::IpAddr getSourceUDPIP2() const;
-    void setSourceUDPIP2(const sls::IpAddr ip);
-    sls::MacAddr getSourceUDPMAC() const;
-    void setSourceUDPMAC(const sls::MacAddr mac);
-    sls::MacAddr getSourceUDPMAC2() const;
-    void setSourceUDPMAC2(const sls::MacAddr mac);
-    sls::UdpDestination getDestinationUDPList(const uint32_t entry) const;
-    void setDestinationUDPList(const sls::UdpDestination dest);
+    IpAddr getSourceUDPIP() const;
+    void setSourceUDPIP(const IpAddr ip);
+    IpAddr getSourceUDPIP2() const;
+    void setSourceUDPIP2(const IpAddr ip);
+    MacAddr getSourceUDPMAC() const;
+    void setSourceUDPMAC(const MacAddr mac);
+    MacAddr getSourceUDPMAC2() const;
+    void setSourceUDPMAC2(const MacAddr mac);
+    UdpDestination getDestinationUDPList(const uint32_t entry) const;
+    void setDestinationUDPList(const UdpDestination dest);
     int getNumberofUDPDestinations() const;
     void clearUDPDestinations();
     int getFirstUDPDestination() const;
     void setFirstUDPDestination(const int value);
-    sls::IpAddr getDestinationUDPIP() const;
-    void setDestinationUDPIP(const sls::IpAddr ip);
-    sls::IpAddr getDestinationUDPIP2() const;
-    void setDestinationUDPIP2(const sls::IpAddr ip);
-    sls::MacAddr getDestinationUDPMAC() const;
-    void setDestinationUDPMAC(const sls::MacAddr mac);
-    sls::MacAddr getDestinationUDPMAC2() const;
-    void setDestinationUDPMAC2(const sls::MacAddr mac);
+    IpAddr getDestinationUDPIP() const;
+    void setDestinationUDPIP(const IpAddr ip);
+    IpAddr getDestinationUDPIP2() const;
+    void setDestinationUDPIP2(const IpAddr ip);
+    MacAddr getDestinationUDPMAC() const;
+    void setDestinationUDPMAC(const MacAddr mac);
+    MacAddr getDestinationUDPMAC2() const;
+    void setDestinationUDPMAC2(const MacAddr mac);
     int getDestinationUDPPort() const;
     void setDestinationUDPPort(int udpport);
     int getDestinationUDPPort2() const;
@@ -264,7 +281,8 @@ class Module : public virtual slsDetectorDefs {
      * ************************************************/
     bool getUseReceiverFlag() const;
     std::string getReceiverHostname() const;
-    void setReceiverHostname(const std::string &receiver);
+    void setReceiverHostname(const std::string &receiver,
+                             const bool initialChecks);
     int getReceiverPort() const;
     int setReceiverPort(int port_number);
     int getReceiverFifoDepth() const;
@@ -280,8 +298,13 @@ class Module : public virtual slsDetectorDefs {
     void setReceiverUDPSocketBufferSize(int udpsockbufsize);
     bool getReceiverLock() const;
     void setReceiverLock(bool lock);
-    sls::IpAddr getReceiverLastClientIP() const;
+    IpAddr getReceiverLastClientIP() const;
     std::array<pid_t, NUM_RX_THREAD_IDS> getReceiverThreadIds() const;
+    bool getRxArping() const;
+    void setRxArping(bool enable);
+    defs::ROI getRxROI() const;
+    void setRxROI(const slsDetectorDefs::ROI arg);
+    void setRxROIMetadata(const slsDetectorDefs::ROI arg);
 
     /**************************************************
      *                                                *
@@ -323,12 +346,12 @@ class Module : public virtual slsDetectorDefs {
     void setReceiverStreamingStartingFrame(int fnum);
     int getReceiverStreamingPort() const;
     void setReceiverStreamingPort(int port);
-    sls::IpAddr getReceiverStreamingIP() const;
-    void setReceiverStreamingIP(const sls::IpAddr ip);
+    IpAddr getReceiverStreamingIP() const;
+    void setReceiverStreamingIP(const IpAddr ip);
     int getClientStreamingPort() const;
     void setClientStreamingPort(int port);
-    sls::IpAddr getClientStreamingIP() const;
-    void setClientStreamingIP(const sls::IpAddr ip);
+    IpAddr getClientStreamingIP() const;
+    void setClientStreamingIP(const IpAddr ip);
     int getReceiverStreamingHwm() const;
     void setReceiverStreamingHwm(const int limit);
 
@@ -362,6 +385,8 @@ class Module : public virtual slsDetectorDefs {
     void setQuad(const bool enable);
     bool getDataStream(const portPosition port) const;
     void setDataStream(const portPosition port, const bool enable);
+    bool getTop() const;
+    void setTop(bool value);
 
     /**************************************************
      *                                                *
@@ -437,8 +462,6 @@ class Module : public virtual slsDetectorDefs {
     int getADCConfiguration(const int chipIndex, const int adcIndex) const;
     void setADCConfiguration(const int chipIndex, const int adcIndex,
                              int value);
-    void getBadChannels(const std::string &fname) const;
-    void setBadChannels(const std::string &fname);
 
     /**************************************************
      *                                                *
@@ -453,10 +476,19 @@ class Module : public virtual slsDetectorDefs {
     int64_t getGateDelay(int gateIndex) const;
     void setGateDelay(int gateIndex, int64_t value);
     std::array<time::ns, 3> getGateDelayForAllGates() const;
-    bool isMaster() const;
     int getChipStatusRegister() const;
     void setGainCaps(int caps);
     int getGainCaps();
+    defs::polarity getPolarity() const;
+    void setPolarity(const defs::polarity enable);
+    bool getInterpolation() const;
+    void setInterpolation(const bool enable);
+    bool getPumpProbe() const;
+    void setPumpProbe(const bool enable);
+    bool getAnalogPulsing() const;
+    void setAnalogPulsing(const bool enable);
+    bool getDigitalPulsing() const;
+    void setDigitalPulsing(const bool enable);
 
     /**************************************************
      *                                                *
@@ -536,11 +568,15 @@ class Module : public virtual slsDetectorDefs {
      *    Advanced                                    *
      *                                                *
      * ************************************************/
-    void programFPGA(std::vector<char> buffer);
+    void programFPGA(std::vector<char> buffer,
+                     const bool forceDeleteNormalFile);
     void resetFPGA();
-    void copyDetectorServer(const std::string &fname,
-                            const std::string &hostname);
+    void updateDetectorServer(std::vector<char> buffer,
+                              const std::string &serverName);
+    void updateKernel(std::vector<char> buffer);
     void rebootController();
+    bool getUpdateMode() const;
+    void setUpdateMode(const bool updatemode);
     uint32_t readRegister(uint32_t addr) const;
     uint32_t writeRegister(uint32_t addr, uint32_t val);
     void setBit(uint32_t addr, int n);
@@ -563,14 +599,15 @@ class Module : public virtual slsDetectorDefs {
     void setStopPort(int port_number);
     bool getLockDetector() const;
     void setLockDetector(bool lock);
-    sls::IpAddr getLastClientIP() const;
-    std::string execCommand(const std::string &cmd);
+    IpAddr getLastClientIP() const;
+    std::string executeCommand(const std::string &cmd);
     int64_t getNumberOfFramesFromStart() const;
     int64_t getActualTime() const;
     int64_t getMeasurementTime() const;
-    uint64_t getReceiverCurrentFrameIndex() const;
 
   private:
+    std::string getReceiverLongVersion() const;
+
     void checkArgs(const void *args, size_t args_size, void *retval,
                    size_t retval_size) const;
 
@@ -708,10 +745,14 @@ class Module : public virtual slsDetectorDefs {
     Called when new shared memory is created */
     void initializeModuleStructure(detectorType type);
 
+    void initialDetectorServerChecks();
+    const std::string getDetectorAPI() const;
     void checkDetectorVersionCompatibility();
     void checkReceiverVersionCompatibility();
     void setModule(sls_detector_module &module, bool trimbits = true);
-    int sendModule(sls_detector_module *myMod, sls::ClientSocket &client);
+    sls_detector_module getModule();
+    void sendModule(sls_detector_module *myMod, ClientSocket &client);
+    void receiveModule(sls_detector_module *myMod, ClientSocket &client);
     void updateReceiverStreamingIP();
 
     void updateRateCorrection();
@@ -745,11 +786,60 @@ class Module : public virtual slsDetectorDefs {
     std::string getTrimbitFilename(detectorSettings settings, int e_eV);
     sls_detector_module readSettingsFile(const std::string &fname,
                                          bool trimbits = true);
-    void programFPGAviaBlackfin(std::vector<char> buffer);
-    void programFPGAviaNios(std::vector<char> buffer);
+    void saveSettingsFile(sls_detector_module &myMod, const std::string &fname);
+    void sendProgram(bool blackfin, std::vector<char> buffer,
+                     const int functionEnum, const std::string &functionType,
+                     const std::string serverName = "",
+                     const bool forceDeleteNormalFile = false);
+    void simulatingActivityinDetector(const std::string &functionType,
+                                      const int timeRequired);
 
     const int moduleIndex;
-    mutable sls::SharedMemory<sharedModule> shm{0, 0};
+    mutable SharedMemory<sharedModule> shm{0, 0};
+    static const int BLACKFIN_ERASE_FLASH_TIME = 65;
+    static const int BLACKFIN_WRITE_TO_FLASH_TIME = 30;
+    static const int NIOS_ERASE_FLASH_TIME_FPGA = 10;
+    static const int NIOS_WRITE_TO_FLASH_TIME_FPGA = 45;
+    static const int NIOS_ERASE_FLASH_TIME_KERNEL = 9;
+    static const int NIOS_WRITE_TO_FLASH_TIME_KERNEL = 40;
+
+    enum mythen3_DacIndex {
+        M_VCASSH,
+        M_VTH2,
+        M_VRSHAPER,
+        M_VRSHAPER_N,
+        M_VIPRE_OUT,
+        M_VTH3,
+        M_VTH1,
+        M_VICIN,
+        M_VCAS,
+        M_VRPREAMP,
+        M_VCAL_N,
+        M_VIPRE,
+        M_VISHAPER,
+        M_VCAL_P,
+        M_VTRIM,
+        M_VDCSH
+    };
+
+    enum eiger_DacIndex {
+        E_SVP,
+        E_VTR,
+        E_VRF,
+        E_VRS,
+        E_SVN,
+        E_VTGSTV,
+        E_VCMP_LL,
+        E_VCMP_LR,
+        E_CAL,
+        E_VCMP_RL,
+        E_RXB_RB,
+        E_RXB_LB,
+        E_VCMP_RR,
+        E_VCP,
+        E_VCN,
+        E_VIS
+    };
 };
 
 } // namespace sls

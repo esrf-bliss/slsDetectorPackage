@@ -177,7 +177,7 @@ void Beb_AdjustIPChecksum(struct udp_header_type *ip) {
     ip->ip_header_checksum[1] = ip_checksum & 0xff;
 }
 
-void Beb_GetModuleConfiguration(int *master, int *top, int *normal) {
+int Beb_GetModuleConfiguration(int *master, int *top, int *normal) {
     *top = 0;
     *master = 0;
     // mapping new memory to read master top module configuration
@@ -187,6 +187,7 @@ void Beb_GetModuleConfiguration(int *master, int *top, int *normal) {
     int fd = Beb_open(&csp0base, XPAR_PLB_GPIO_SYS_BASEADDR);
     if (fd < 0) {
         LOG(logERROR, ("Module Configuration FAIL\n"));
+        return FAIL;
     } else {
         // read data
         ret = Beb_Read32(csp0base, BEB_CONFIG_RD_OFST);
@@ -202,6 +203,7 @@ void Beb_GetModuleConfiguration(int *master, int *top, int *normal) {
         // close file pointer
         Beb_close(fd, csp0base);
     }
+    return OK;
 }
 
 int Beb_IsTransmitting(int *retval, int tengiga, int waitForDelay) {
@@ -492,6 +494,11 @@ int Beb_SetDataStream(enum portPosition port, int enable) {
         u_int32_t reg = XPAR_GPIO_P15_STREAMING_REG;
         u_int32_t mask = (port == LEFT ? XPAR_GPIO_LFT_STRM_DSBL_MSK
                                        : XPAR_GPIO_RGHT_STRM_DSBL_MSK);
+        // invert left/right if bottom
+        if (!Beb_top) {
+            mask = (port == LEFT ? XPAR_GPIO_RGHT_STRM_DSBL_MSK
+                                 : XPAR_GPIO_LFT_STRM_DSBL_MSK);
+        }
 
         u_int32_t value = Beb_Read32(csp0base, reg);
         // disabling in firmware
@@ -529,6 +536,11 @@ int Beb_GetDataStream(enum portPosition port, int *retval) {
         u_int32_t reg = XPAR_GPIO_P15_STREAMING_REG;
         u_int32_t mask = (port == LEFT ? XPAR_GPIO_LFT_STRM_DSBL_MSK
                                        : XPAR_GPIO_RGHT_STRM_DSBL_MSK);
+        // invert left/right if bottom
+        if (!Beb_top) {
+            mask = (port == LEFT ? XPAR_GPIO_RGHT_STRM_DSBL_MSK
+                                 : XPAR_GPIO_LFT_STRM_DSBL_MSK);
+        }
 
         u_int32_t value = Beb_Read32(csp0base, reg);
         // disabling in firmware
@@ -682,6 +694,10 @@ int Beb_GetTransmissionDelayLeft() {
         return Beb_deactivated_transmission_delay_left;
     }
     u_int32_t offset = TXM_DELAY_LEFT_OFFSET;
+    // invert left/right if bottom
+    if (!Beb_top) {
+        offset = TXM_DELAY_RIGHT_OFFSET;
+    }
     u_int32_t *csp0base = 0;
     int fd = Beb_open(&csp0base, XPAR_PLB_GPIO_SYS_BASEADDR);
     if (fd <= 0) {
@@ -706,6 +722,10 @@ int Beb_SetTransmissionDelayLeft(int value) {
         return 1;
     }
     u_int32_t offset = TXM_DELAY_LEFT_OFFSET;
+    // invert left/right if bottom
+    if (!Beb_top) {
+        offset = TXM_DELAY_RIGHT_OFFSET;
+    }
     u_int32_t *csp0base = 0;
     int fd = Beb_open(&csp0base, XPAR_PLB_GPIO_SYS_BASEADDR);
     if (fd <= 0) {
@@ -726,6 +746,10 @@ int Beb_GetTransmissionDelayRight() {
     }
 
     u_int32_t offset = TXM_DELAY_RIGHT_OFFSET;
+    // invert left/right if bottom
+    if (!Beb_top) {
+        offset = TXM_DELAY_LEFT_OFFSET;
+    }
     u_int32_t *csp0base = 0;
     int fd = Beb_open(&csp0base, XPAR_PLB_GPIO_SYS_BASEADDR);
     if (fd <= 0) {
@@ -750,6 +774,10 @@ int Beb_SetTransmissionDelayRight(int value) {
         return 1;
     }
     u_int32_t offset = TXM_DELAY_RIGHT_OFFSET;
+    // invert left/right if bottom
+    if (!Beb_top) {
+        offset = TXM_DELAY_LEFT_OFFSET;
+    }
     u_int32_t *csp0base = 0;
     int fd = Beb_open(&csp0base, XPAR_PLB_GPIO_SYS_BASEADDR);
     if (fd <= 0) {
@@ -836,11 +864,17 @@ void Beb_ResetFrameNumber() {
 }
 
 int Beb_SetUpTransferParameters(short the_bit_mode) {
-    if (the_bit_mode != 4 && the_bit_mode != 8 && the_bit_mode != 16 &&
-        the_bit_mode != 32)
+    switch (the_bit_mode) {
+    case 4:
+    case 8:
+    case 12:
+    case 16:
+    case 32:
+        Beb_bit_mode = the_bit_mode;
+        return 1;
+    default:
         return 0;
-    Beb_bit_mode = the_bit_mode;
-    return 1;
+    }
 }
 
 int Beb_StopAcquisition() {
@@ -1061,19 +1095,21 @@ int *Beb_GetDetectorPosition() { return Beb_positions; }
 int Beb_SetDetectorPosition(int pos[]) {
     if (!Beb_activated)
         return OK;
-    LOG(logINFO, ("Got Position values %d %d...\n", pos[0], pos[1]));
+    LOG(logINFO, ("Setting Position: (%d, %d)\n", pos[X], pos[Y]));
 
     // save positions
-    Beb_positions[0] = pos[0];
-    Beb_positions[1] = pos[1];
+    Beb_positions[Y] = pos[Y];
+    Beb_positions[X] = pos[X];
 
     // get left and right
-    int posLeft[2] = {pos[0], Beb_top ? pos[1] : pos[1] + 1};
-    int posRight[2] = {pos[0], Beb_top ? pos[1] + 1 : pos[1]};
+    int posLeft[2] = {Beb_top ? pos[X] : pos[X] + 1, pos[Y]};
+    int posRight[2] = {Beb_top ? pos[X] + 1 : pos[X], pos[Y]};
 
     if (Beb_quadEnable) {
-        posRight[0] = 1; // right is next row
-        posRight[1] = 0; // right same first column
+        posLeft[Y] = 1;  // left is next row
+        posLeft[X] = 0;  // left same first row
+        posRight[Y] = 0; // right same first row
+        posRight[X] = 0; // right same first column
     }
 
     int ret = FAIL;
@@ -1088,7 +1124,7 @@ int Beb_SetDetectorPosition(int pos[]) {
         uint32_t value = 0;
         ret = OK;
         // x left
-        int posval = Beb_swap_uint16(posLeft[0]);
+        int posval = Beb_swap_uint16(posLeft[Y]);
         value = Beb_Read32(csp0base, UDP_HEADER_A_LEFT_OFST);
         value &= UDP_HEADER_ID_MSK; // to keep previous id value
         Beb_Write32(csp0base, UDP_HEADER_A_LEFT_OFST,
@@ -1100,7 +1136,7 @@ int Beb_SetDetectorPosition(int pos[]) {
             ret = FAIL;
         }
         // x right
-        posval = Beb_swap_uint16(posRight[0]);
+        posval = Beb_swap_uint16(posRight[Y]);
         value = Beb_Read32(csp0base, UDP_HEADER_A_RIGHT_OFST);
         value &= UDP_HEADER_ID_MSK; // to keep previous id value
         Beb_Write32(csp0base, UDP_HEADER_A_RIGHT_OFST,
@@ -1113,7 +1149,7 @@ int Beb_SetDetectorPosition(int pos[]) {
         }
 
         // y left (column)
-        posval = Beb_swap_uint16(posLeft[1]);
+        posval = Beb_swap_uint16(posLeft[X]);
         value = Beb_Read32(csp0base, UDP_HEADER_B_LEFT_OFST);
         value &= UDP_HEADER_Z_MSK; // to keep previous z value
         Beb_Write32(csp0base, UDP_HEADER_B_LEFT_OFST,
@@ -1126,7 +1162,7 @@ int Beb_SetDetectorPosition(int pos[]) {
         }
 
         // y right
-        posval = Beb_swap_uint16(posRight[1]);
+        posval = Beb_swap_uint16(posRight[X]);
         value = Beb_Read32(csp0base, UDP_HEADER_B_RIGHT_OFST);
         value &= UDP_HEADER_Z_MSK; // to keep previous z value
         Beb_Write32(csp0base, UDP_HEADER_B_RIGHT_OFST,
@@ -1142,10 +1178,10 @@ int Beb_SetDetectorPosition(int pos[]) {
         Beb_close(fd, csp0base);
     }
     if (ret == OK) {
-        LOG(logINFO, ("Position set to...\n"
+        LOG(logINFO, ("Position set to (col, row):\n"
                       "\tLeft: [%d, %d]\n"
                       "\tRight:[%d, %d]\n",
-                      posLeft[0], posLeft[1], posRight[0], posRight[1]));
+                      posLeft[X], posLeft[Y], posRight[X], posRight[Y]));
     }
 
     return ret;
@@ -1225,20 +1261,20 @@ int Beb_GetNextFrameNumber(uint64_t *retval, int tengigaEnable) {
 
     else {
         uint64_t left10g =
-            Beb_Read32(csp0base, UDP_HEADER_GET_FNUM_1G_LEFT_MSB_OFST);
-        temp = Beb_Read32(csp0base, UDP_HEADER_GET_FNUM_1G_LEFT_LSB_OFST);
+            Beb_Read32(csp0base, UDP_HEADER_GET_FNUM_10G_LEFT_MSB_OFST);
+        temp = Beb_Read32(csp0base, UDP_HEADER_GET_FNUM_10G_LEFT_LSB_OFST);
         left10g = ((left10g << 32) | temp) >> 16;
         ++left10g; // increment for firmware
 
         uint64_t right10g =
-            Beb_Read32(csp0base, UDP_HEADER_GET_FNUM_1G_LEFT_MSB_OFST);
-        temp = Beb_Read32(csp0base, UDP_HEADER_GET_FNUM_1G_LEFT_LSB_OFST);
+            Beb_Read32(csp0base, UDP_HEADER_GET_FNUM_10G_LEFT_MSB_OFST);
+        temp = Beb_Read32(csp0base, UDP_HEADER_GET_FNUM_10G_LEFT_LSB_OFST);
         right10g = ((right10g << 32) | temp) >> 16;
         Beb_close(fd, csp0base);
         ++right10g; // increment for firmware
 
         if (left10g != right10g) {
-            LOG(logERROR, ("Retrieved inconsistent frame numbers from `0g left "
+            LOG(logERROR, ("Retrieved inconsistent frame numbers from 10g left "
                            "%llu and right %llu\n",
                            (long long int)left10g, (long long int)right10g));
             *retval = (left10g > right10g)

@@ -69,17 +69,17 @@ class GeneralData {
      * @param oddStartingPacket odd starting packet (gotthard)
      * @param frameNumber frame number
      * @param packetNumber packet number
-     * @param bunchId bunch Id
+     * @param detSpec1 bunch Id
      */
     virtual void GetHeaderInfo(int index, char *packetData,
                                bool oddStartingPacket, uint64_t &frameNumber,
                                uint32_t &packetNumber,
-                               uint64_t &bunchId) const {
+                               uint64_t &detSpec1) const {
         frameNumber = ((uint32_t)(*((uint32_t *)(packetData))));
         frameNumber++;
         packetNumber = frameNumber & packetIndexMask;
         frameNumber = (frameNumber & frameIndexMask) >> frameIndexOffset;
-        bunchId = -1;
+        detSpec1 = -1;
     }
 
     /**
@@ -87,7 +87,7 @@ class GeneralData {
      * @param i ROI
      */
     virtual void SetROI(slsDetectorDefs::ROI i) {
-        LOG(logERROR) << "SetROI is a generic function that should be "
+        LOG(sls::logERROR) << "SetROI is a generic function that should be "
                          "overloaded by a derived class";
     };
 
@@ -98,7 +98,7 @@ class GeneralData {
      * @returns adc configured
      */
     virtual int GetAdcConfigured(int index, slsDetectorDefs::ROI i) const {
-        LOG(logERROR) << "GetAdcConfigured is a generic function that should "
+        LOG(sls::logERROR) << "GetAdcConfigured is a generic function that should "
                          "be overloaded by a derived class";
         return 0;
     };
@@ -108,7 +108,7 @@ class GeneralData {
      * @param dr dynamic range
      */
     virtual void SetDynamicRange(int dr) {
-        LOG(logERROR) << "SetDynamicRange is a generic function that should be "
+        LOG(sls::logERROR) << "SetDynamicRange is a generic function that should be "
                          "overloaded by a derived class";
     };
 
@@ -117,7 +117,7 @@ class GeneralData {
      * @param tg true if 10GbE is enabled, else false
      */
     virtual void SetTenGigaEnable(bool tg) {
-        LOG(logERROR) << "SetTenGigaEnable is a generic function that should "
+        LOG(sls::logERROR) << "SetTenGigaEnable is a generic function that should "
                          "be overloaded by a derived class";
     };
 
@@ -128,7 +128,7 @@ class GeneralData {
      * @returns true or false for odd starting packet number
      */
     virtual bool SetOddStartingPacket(int index, char *packetData) {
-        LOG(logERROR) << "SetOddStartingPacket is a generic function that "
+        LOG(sls::logERROR) << "SetOddStartingPacket is a generic function that "
                          "should be overloaded by a derived class";
         return false;
     };
@@ -144,7 +144,7 @@ class GeneralData {
      */
     virtual int setImageSize(uint32_t a, uint32_t as, uint32_t ds, bool t,
                              slsDetectorDefs::readoutMode f) {
-        LOG(logERROR) << "setImageSize is a generic function that should be "
+        LOG(sls::logERROR) << "setImageSize is a generic function that should be "
                          "overloaded by a derived class";
         return 0;
     };
@@ -154,7 +154,7 @@ class GeneralData {
      * @param n number of interfaces
      */
     virtual void SetNumberofInterfaces(const int n) {
-        LOG(logERROR) << "SetNumberofInterfaces is a generic function that "
+        LOG(sls::logERROR) << "SetNumberofInterfaces is a generic function that "
                          "should be overloaded by a derived class";
     }
 
@@ -163,7 +163,7 @@ class GeneralData {
      * @param n number of counters
      */
     virtual void SetNumberofCounters(const int n) {
-        LOG(logERROR) << "SetNumberofCounters is a generic function that "
+        LOG(sls::logERROR) << "SetNumberofCounters is a generic function that "
                          "should be overloaded by a derived class";
     }
 };
@@ -201,11 +201,11 @@ class GotthardData : public GeneralData {
      * @param oddStartingPacket odd starting packet (gotthard)
      * @param frameNumber frame number
      * @param packetNumber packet number
-     * @param bunchId bunch Id
+     * @param detSpec1 bunch Id
      */
     void GetHeaderInfo(int index, char *packetData, bool oddStartingPacket,
                        uint64_t &frameNumber, uint32_t &packetNumber,
-                       uint64_t &bunchId) const {
+                       uint64_t &detSpec1) const {
         if (nPixelsX == 1280) {
             frameNumber = *reinterpret_cast<uint32_t *>(packetData);
             if (oddStartingPacket)
@@ -216,7 +216,7 @@ class GotthardData : public GeneralData {
             frameNumber = *reinterpret_cast<uint32_t *>(packetData);
             packetNumber = 0;
         }
-        bunchId = -1;
+        detSpec1 = -1;
     }
 
     /**
@@ -273,13 +273,13 @@ class GotthardData : public GeneralData {
             // adc = mid value/numchans also for only 1 roi
             adc = ((((i.xmax) + (i.xmin)) / 2) / (nChan * nChipsPerAdc));
             if ((adc < 0) || (adc > 4)) {
-                LOG(logWARNING) << index
+                LOG(sls::logWARNING) << index
                                 << ": Deleting ROI. "
                                    "Adc value should be between 0 and 4";
                 adc = -1;
             }
         }
-        LOG(logINFO) << "Adc Configured: " << adc;
+        LOG(sls::logINFO) << "Adc Configured: " << adc;
         return adc;
     };
 
@@ -460,7 +460,7 @@ class Mythen3Data : public GeneralData {
      */
     void UpdateImageSize() {
         nPixelsX = (NCHAN * ncounters); // max 1280 channels x 3 counters
-        LOG(logINFO) << "nPixelsX: " << nPixelsX;
+        LOG(sls::logINFO) << "nPixelsX: " << nPixelsX;
         imageSize = nPixelsX * nPixelsY * GetPixelDepth();
         // 10g
         if (tgEnable) {
@@ -481,9 +481,9 @@ class Mythen3Data : public GeneralData {
             packetsPerFrame = imageSize / dataSize;
         }
 
-        LOG(logINFO) << "Packets Per Frame: " << packetsPerFrame;
+        LOG(sls::logINFO) << "Packets Per Frame: " << packetsPerFrame;
         packetSize = headerSizeinPacket + dataSize;
-        LOG(logINFO) << "PacketSize: " << packetSize;
+        LOG(sls::logINFO) << "PacketSize: " << packetSize;
     };
 };
 
@@ -523,13 +523,13 @@ class Gotthard2Data : public GeneralData {
      * @param oddStartingPacket odd starting packet (gotthard)
      * @param frameNumber frame number
      * @param packetNumber packet number
-     * @param bunchId bunch Id
+     * @param detSpec1 bunch Id
      */
     void GetHeaderInfo(int index, char *packetData, bool oddStartingPacket,
                        uint64_t &frameNumber, uint32_t &packetNumber,
-                       uint64_t &bunchId) const {
+                       uint64_t &detSpec1) const {
         frameNumber = *reinterpret_cast<uint64_t *>(packetData);
-        bunchId = *reinterpret_cast<uint64_t *>(packetData + 8);
+        detSpec1 = *reinterpret_cast<uint64_t *>(packetData + 8);
         packetNumber = 0;
     };
 };
@@ -582,7 +582,7 @@ class ChipTestBoardData : public GeneralData {
             nachans = __builtin_popcount(a);
 
             adatabytes = nachans * NUM_BYTES_PER_ANALOG_CHANNEL * as;
-            LOG(logDEBUG1) << " Number of Analog Channels:" << nachans
+            LOG(sls::logDEBUG1) << " Number of Analog Channels:" << nachans
                            << " Databytes: " << adatabytes;
         }
         // digital channels
@@ -590,10 +590,10 @@ class ChipTestBoardData : public GeneralData {
             f == slsDetectorDefs::ANALOG_AND_DIGITAL) {
             ndchans = NCHAN_DIGITAL;
             ddatabytes = (sizeof(uint64_t) * ds);
-            LOG(logDEBUG1) << "Number of Digital Channels:" << ndchans
+            LOG(sls::logDEBUG1) << "Number of Digital Channels:" << ndchans
                            << " Databytes: " << ddatabytes;
         }
-        LOG(logDEBUG1) << "Total Number of Channels:" << nachans + ndchans
+        LOG(sls::logDEBUG1) << "Total Number of Channels:" << nachans + ndchans
                        << " Databytes: " << adatabytes + ddatabytes;
 
         nPixelsX = nachans + ndchans;
@@ -664,7 +664,7 @@ class MoenchData : public GeneralData {
             nrows = 2;
         }
         nPixelsY = as / 25 * nrows;
-        LOG(logINFO) << "Number of Pixels: [" << nPixelsX << ", " << nPixelsY
+        LOG(sls::logINFO) << "Number of Pixels: [" << nPixelsX << ", " << nPixelsY
                      << "]";
 
         // 10G
@@ -680,7 +680,7 @@ class MoenchData : public GeneralData {
         packetSize = headerSizeinPacket + dataSize;
         packetsPerFrame = ceil((double)imageSize / (double)dataSize);
 
-        LOG(logDEBUG) << "Databytes: " << imageSize;
+        LOG(sls::logDEBUG) << "Databytes: " << imageSize;
 
         return imageSize;
     }

@@ -13,7 +13,7 @@
 
 ThreadObject::ThreadObject(int threadIndex, std::string threadType)
     : index(threadIndex), type(threadType) {
-    LOG(logDEBUG) << type << " thread created: " << index;
+    LOG(sls::logDEBUG) << type << " thread created: " << index;
     sem_init(&semaphore, 1, 0);
     try {
         threadObject = std::thread(&ThreadObject::RunningThread, this);
@@ -40,7 +40,7 @@ void ThreadObject::StopRunning() { runningFlag = false; }
 
 void ThreadObject::RunningThread() {
     threadId = syscall(SYS_gettid);
-    LOG(logINFOBLUE) << "Created [ " << type << "Thread " << index
+    LOG(sls::logINFOBLUE) << "Created [ " << type << "Thread " << index
                      << ", Tid: " << threadId << "]";
     while (!killThread) {
         while (IsRunning()) {
@@ -49,7 +49,7 @@ void ThreadObject::RunningThread() {
         // wait till the next acquisition
         sem_wait(&semaphore);
     }
-    LOG(logINFOBLUE) << "Exiting [ " << type << " Thread " << index
+    LOG(sls::logINFOBLUE) << "Exiting [ " << type << " Thread " << index
                      << ", Tid: " << threadId << "]";
     threadId = 0;
 }
@@ -61,11 +61,11 @@ void ThreadObject::SetThreadPriority(int priority) {
     param.sched_priority = priority;
     if (sched_setscheduler(threadId, SCHED_RR, &param) == EPERM) {
         if (index == 0) {
-            LOG(logWARNING) << "Could not prioritize " << type
+            LOG(sls::logWARNING) << "Could not prioritize " << type
                             << " thread. "
                                "(No Root Privileges?)";
         }
     } else {
-        LOG(logINFO) << "Priorities set - " << type << ": " << priority;
+        LOG(sls::logINFO) << "Priorities set - " << type << ": " << priority;
     }
 }
