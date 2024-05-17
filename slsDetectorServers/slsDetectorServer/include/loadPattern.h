@@ -6,7 +6,7 @@
 #include "clogger.h"
 
 void initializePatternAddresses();
-#if defined(CHIPTESTBOARDD) || defined(MOENCHD)
+#ifdef CHIPTESTBOARDD
 #ifdef VIRTUAL
 void initializePatternWord();
 #endif
@@ -54,8 +54,9 @@ uint64_t getPatternBitMask();
 #ifdef MYTHEN3D
 void startPattern();
 #endif
-
-int loadPattern(char *mess, enum TLogLevel printLevel, patternParameters *pat);
+char *getPatternFileName();
+int loadPattern(char *mess, enum TLogLevel printLevel, patternParameters *pat,
+                char *patfname);
 int getPattern(char *mess, patternParameters *pat);
 int loadPatternFile(char *patFname, char *errMessage);
 

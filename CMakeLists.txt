@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: LGPL-3.0-or-other
 # Copyright (C) 2021 Contributors to the SLS Detector Package
-cmake_minimum_required(VERSION 3.12)
+cmake_minimum_required(VERSION 3.14)
 project(slsDetectorPackage)
-set(PROJECT_VERSION 7.0.2)
+set(PROJECT_VERSION 8.0.1)
 
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
@@ -10,9 +10,56 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 add_compile_definitions(NO_WARN_X86_INTRINSICS)
 
 cmake_policy(SET CMP0074 NEW)
+
+if (${CMAKE_VERSION} VERSION_GREATER "3.24")
+    cmake_policy(SET CMP0135 NEW) #Fetch content download timestamp
+endif()
 include(cmake/project_version.cmake)
 include(cmake/SlsAddFlag.cmake)
-include(cmake/SlsFindZeroMQ.cmake)
+
+
+
+# Using FetchContent to get libzmq
+include(FetchContent)
+option(SLS_FETCH_ZMQ_FROM_GITHUB "Fetch zmq from github" OFF)
+option(SLS_FETCH_PYBIND11_FROM_GITHUB "Fetch pybind11 from github" OFF)
+
+if(SLS_FETCH_ZMQ_FROM_GITHUB)
+    # Opt in to pull down a zmq version from github instead of
+    # using the bundled verison
+    FetchContent_Declare(
+        libzmq
+        GIT_REPOSITORY https://github.com/zeromq/libzmq.git
+        GIT_TAG        v4.3.4
+    )
+else()
+    # Standard behaviour use libzmq included in this repo (libs/libzmq)
+    FetchContent_Declare(
+        libzmq
+        URL ${CMAKE_CURRENT_SOURCE_DIR}/libs/libzmq/libzmq-4.3.4.tar.gz
+        URL_HASH MD5=cc20b769ac10afa352e5ed2769bb23b3
+    )
+endif()
+
+# Disable unwanted options from libzmq
+set(BUILD_TESTS OFF CACHE BOOL "Switch off libzmq test build")
+set(BUILD_SHARED OFF CACHE BOOL "Switch off libzmq shared libs")
+set(WITH_PERF_TOOL OFF CACHE BOOL "")
+set(ENABLE_CPACK OFF CACHE BOOL "")
+set(ENABLE_CLANG OFF CACHE BOOL "")
+set(ENABLE_CURVE OFF CACHE BOOL "")
+set(ENABLE_DRAFTS OFF CACHE BOOL "")
+
+# Using GetProperties and Populate to be able to exclude zmq
+# from install (not possible with FetchContent_MakeAvailable(libzmq))
+FetchContent_GetProperties(libzmq)
+if(NOT libzmq_POPULATED)
+  FetchContent_Populate(libzmq)
+  add_subdirectory(${libzmq_SOURCE_DIR} ${libzmq_BINARY_DIR} EXCLUDE_FROM_ALL)
+endif()
+
+
+
 include(GNUInstallDirs)
 
 # If conda build, always set lib dir to 'lib'
@@ -58,6 +105,7 @@ option(SLS_BUILD_EXAMPLES "examples" OFF)
 option(SLS_TUNE_LOCAL "tune to local machine" OFF)
 option(SLS_DEVEL_HEADERS "install headers for devel" OFF)
 option(SLS_USE_MOENCH "compile zmq and post processing for Moench" OFF)
+option(SLS_USE_JUNGFRAU "compile post processing for Jungfrau" OFF)
 
 #Convenience option to switch off defaults when building Moench binaries only
 option(SLS_BUILD_ONLY_MOENCH "compile only Moench" OFF)
@@ -69,6 +117,18 @@ if(SLS_BUILD_ONLY_MOENCH)
     set(SLS_USE_RECEIVER OFF CACHE BOOL "Disabled for MOENCH_ONLY" FORCE)
     set(SLS_USE_RECEIVER_BINARIES OFF CACHE BOOL "Disabled for MOENCH_ONLY" FORCE)
     set(SLS_USE_MOENCH ON CACHE BOOL "Enable" FORCE)
+endif()
+
+#Convenience option to switch off defaults when building Jungfrau binaries only
+option(SLS_BUILD_ONLY_JUNGFRAU "compile only Jungfrau" OFF)
+if(SLS_BUILD_ONLY_JUNGFRAU)
+    message(STATUS "Build JUNGFRAU binaries only!")
+    set(SLS_BUILD_SHARED_LIBRARIES OFF CACHE BOOL "Disabled for JUNGFRAU_ONLY" FORCE)
+    set(SLS_USE_TEXTCLIENT OFF CACHE BOOL "Disabled for JUNGFRAU_ONLY" FORCE)
+    set(SLS_USE_DETECTOR OFF CACHE BOOL "Disabled for JUNGFRAU_ONLY" FORCE)
+    set(SLS_USE_RECEIVER OFF CACHE BOOL "Disabled for JUNGFRAU_ONLY" FORCE)
+    set(SLS_USE_RECEIVER_BINARIES OFF CACHE BOOL "Disabled for JUNGFRAU_ONLY" FORCE)
+    set(SLS_USE_JUNGFRAU ON CACHE BOOL "Enable" FORCE)
 endif()
 
 
@@ -206,10 +266,6 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_INSTALL_RPATH $ORIGIN)
 set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
 
-
-custom_find_zmq()
-
-
 if (SLS_USE_TESTS)
     enable_testing()
     add_subdirectory(tests)
@@ -243,7 +299,22 @@ endif (SLS_USE_INTEGRATION_TESTS)
 
 if (SLS_USE_PYTHON)
     find_package (Python 3.6 COMPONENTS Interpreter Development)
-    add_subdirectory(libs/pybind  ${CMAKE_BINARY_DIR}/bin/)
+    if(SLS_FETCH_PYBIND11_FROM_GITHUB)
+        FetchContent_Declare(
+            pybind11
+            GIT_REPOSITORY https://github.com/pybind/pybind11
+            GIT_TAG        v2.11.0
+        )
+
+    else()
+        FetchContent_Declare(
+            pybind11
+            URL ${CMAKE_SOURCE_DIR}/libs/pybind11/v2.11.0.tar.gz
+            URL_HASH MD5=90c4946e87c64d8d8fc0ae4edf35d780
+        )
+    endif()
+    FetchContent_MakeAvailable(pybind11)
+
     add_subdirectory(python)
 endif(SLS_USE_PYTHON)
 
@@ -267,6 +338,11 @@ if(SLS_USE_MOENCH)
     add_subdirectory(slsDetectorCalibration/tiffio)
     add_subdirectory(slsDetectorCalibration/moenchExecutables)
 endif(SLS_USE_MOENCH)
+
+if(SLS_USE_JUNGFRAU)
+    add_subdirectory(slsDetectorCalibration/tiffio)
+    add_subdirectory(slsDetectorCalibration/jungfrauExecutables)
+endif(SLS_USE_JUNGFRAU)
 
 if(SLS_MASTER_PROJECT)
     set(CMAKE_INSTALL_DIR "share/cmake/${PROJECT_NAME}")

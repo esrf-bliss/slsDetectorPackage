@@ -52,8 +52,13 @@ Client Commands
 
         # multi modules with custom ports
         rx_hostname xxx:1955+xxx:1956+
+        
+        
+        # multi modules using increasing tcp ports when using multi detector command
+        rx_tcpport 1955
+        rx_hostname xxx
 
-        # multi modules with custom ports on same rxr pc
+        # or specify multi modules with custom ports on same rxr pc
         0:rx_tcpport 1954
         1:rx_tcpport 1955
         2:rx_tcpport 1956
@@ -140,21 +145,14 @@ ZMQ: Json Header Format
             "quad": unsigned int,
             "addJsonHeader": {
                 string : string
-            },
-            "rx_roi": [
-                unsigned int,
-                unsigned int,
-                unsigned int,
-                unsigned int
-            ]
+            }
         }
 
    +--------------+----------------------------------------------+
    |   Field      |       Description                            |
    +--------------+----------------------------------------------+
    | jsonversion  | Version of the json header.                  |
-   |              | Value at 4 for v6.x.x - v7.0.1               | 
-   |              | Value at 5 for v7.0.2                        |
+   |              | Value at 4 for v6.x.x and v7.x.x             |
    +--------------+----------------------------------------------+
    | bitmode      | Bits per pixel [4|8|16|32]                   |
    +--------------+----------------------------------------------+
@@ -229,10 +227,7 @@ ZMQ: Json Header Format
    | addJsonHeader| Optional custom parameters that is required  |
    |              | for processing code.                         |
    +--------------+----------------------------------------------+
-   | rx_roi       | ROI in the receiver per port (xmin, xmax,    |
-   |              | ymin, ymax). For external guis to know       |
-   |              | what is saved                                |
-   +--------------+----------------------------------------------+
+
 
 SLS Receiver Header Format
 --------------------------

@@ -224,7 +224,8 @@ std::string GetHelpDac(std::string dac) {
     }
     if (dac == "vref_prech") {
         return std::string(
-            "[dac or mV value][(optional unit) mV] \n\t[Gotthard2][Jungfrau] "
+            "[dac or mV value][(optional unit) mV] "
+            "\n\t[Gotthard2][Jungfrau] "
             "Dac for reference votlage for precharing the preamplifier.");
     }
     if (dac == "vref_l_adc") {
@@ -254,24 +255,24 @@ std::string GetHelpDac(std::string dac) {
             "common mode voltage of ADC DAC bank 2.");
     }
     if (dac == "vb_ds") {
-        return std::string(
-            "[dac or mV value][(optional unit) mV] \n\t[Jungfrau] Dac for ??");
+        return std::string("[dac or mV value][(optional unit) mV] "
+                           "\n\t[Jungfrau] Dac for ??");
     }
     if (dac == "vb_comp") {
-        return std::string(
-            "[dac or mV value][(optional unit) mV] \n\t[Jungfrau] Dac for ??");
+        return std::string("[dac or mV value][(optional unit) mV] "
+                           "\n\t[Jungfrau] Dac for ??");
     }
     if (dac == "vb_pixbuf") {
-        return std::string(
-            "[dac or mV value][(optional unit) mV] \n\t[Jungfrau] Dac for ??");
+        return std::string("[dac or mV value][(optional unit) mV] "
+                           "\n\t[Jungfrau] Dac for ??");
     }
     if (dac == "vin_com") {
-        return std::string(
-            "[dac or mV value][(optional unit) mV] \n\t[Jungfrau] Dac for ??");
+        return std::string("[dac or mV value][(optional unit) mV] "
+                           "\n\t[Jungfrau] Dac for ??");
     }
     if (dac == "vdd_prot") {
-        return std::string(
-            "[dac or mV value][(optional unit) mV] \n\t[Jungfrau] Dac for ??");
+        return std::string("[dac or mV value][(optional unit) mV] "
+                           "\n\t[Jungfrau] Dac for ??");
     }
     if (dac == "vbp_colbuf") {
         return std::string(

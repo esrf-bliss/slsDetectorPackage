@@ -250,7 +250,7 @@ void getServerVersion(char *version) { strcpy(version, APIMYTHEN3); }
 
 u_int64_t getFirmwareVersion() {
 #ifdef VIRTUAL
-    return 0;
+    return REQRD_FRMWRE_VRSN;
 #endif
     return ((bus_r(FPGA_VERSION_REG) & FPGA_COMPILATION_DATE_MSK) >>
             FPGA_COMPILATION_DATE_OFST);
@@ -1375,7 +1375,7 @@ int setTrimbits(int *trimbits) {
             error = 1;
         } else {
             memset(cmess, 0, MAX_STR_LENGTH);
-            error |= loadPattern(cmess, logDEBUG5, pat);
+            error |= loadPattern(cmess, logDEBUG5, pat, "");
             if (!error)
                 startPattern();
             free(pat);
@@ -1963,8 +1963,8 @@ int configureMAC() {
         uint32_t dstip = udpDetails[iRxEntry].dstip;
         uint64_t srcmac = udpDetails[iRxEntry].srcmac;
         uint64_t dstmac = udpDetails[iRxEntry].dstmac;
-        int srcport = udpDetails[iRxEntry].srcport;
-        int dstport = udpDetails[iRxEntry].dstport;
+        uint16_t srcport = udpDetails[iRxEntry].srcport;
+        uint16_t dstport = udpDetails[iRxEntry].dstport;
 
         char src_mac[MAC_ADDRESS_SIZE], src_ip[INET_ADDRSTRLEN],
             dst_mac[MAC_ADDRESS_SIZE], dst_ip[INET_ADDRSTRLEN];
@@ -1976,10 +1976,10 @@ int configureMAC() {
             LOG(logINFOBLUE, ("\tEntry %d\n", iRxEntry));
             LOG(logINFO, ("\tSource IP   : %s\n"
                           "\tSource MAC  : %s\n"
-                          "\tSource Port : %d\n"
+                          "\tSource Port : %hu\n"
                           "\tDest IP     : %s\n"
                           "\tDest MAC    : %s\n"
-                          "\tDest Port   : %d\n",
+                          "\tDest Port   : %hu\n",
                           src_ip, src_mac, srcport, dst_ip, dst_mac, dstport));
         }
 #ifdef VIRTUAL
@@ -2827,7 +2827,7 @@ int setChipStatusRegister(int csr) {
         iret = FAIL;
     } else {
         memset(cmess, 0, MAX_STR_LENGTH);
-        iret = loadPattern(cmess, logDEBUG5, pat);
+        iret = loadPattern(cmess, logDEBUG5, pat, "");
         if (iret == OK) {
             startPattern();
             LOG(logINFO, ("CSR is now: 0x%x\n", csr));

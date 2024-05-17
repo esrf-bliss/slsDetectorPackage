@@ -4,6 +4,7 @@
 from .eiger import Eiger
 from .ctb import Ctb
 from .dacs import DetectorDacs, Dac
+from .powers import DetectorPowers, Power
 from .detector import Detector
 from .jungfrau import Jungfrau
 from .mythen3 import Mythen3
@@ -26,3 +27,4 @@ MacAddr = _slsdet.MacAddr
 scanParameters = _slsdet.scanParameters
 currentSrcParameters = _slsdet.currentSrcParameters
 DurationWrapper = _slsdet.DurationWrapper
+pedestalParameters = _slsdet.pedestalParameters

@@ -242,7 +242,8 @@ std::string DetectorImpl::exec(const char *cmd) {
     return result;
 }
 
-void DetectorImpl::setVirtualDetectorServers(const int numdet, const int port) {
+void DetectorImpl::setVirtualDetectorServers(const int numdet,
+                                             const uint16_t port) {
     std::vector<std::string> hostnames;
     for (int i = 0; i < numdet; ++i) {
         // * 2 is for control and stop port
@@ -279,31 +280,14 @@ void DetectorImpl::setHostname(const std::vector<std::string> &name) {
     }
 }
 
-void DetectorImpl::addModule(const std::string &hostname) {
-    LOG(logINFO) << "Adding module " << hostname;
-
-    int port = DEFAULT_TCP_CNTRL_PORTNO;
-    std::string host = hostname;
-    auto res = split(hostname, ':');
-    if (res.size() > 1) {
-        host = res[0];
-        port = StringTo<int>(res[1]);
-    }
-
-    if (host != "localhost") {
-        for (auto &module : modules) {
-            if (module->getHostname() == host) {
-                LOG(logWARNING)
-                    << "Module " << host << "already part of the Detector!"
-                    << std::endl
-                    << "Remove it before adding it back in a new position!";
-                return;
-            }
-        }
-    }
+void DetectorImpl::addModule(const std::string &name) {
+    LOG(logINFO) << "Adding module " << name;
+    auto host = verifyUniqueDetHost(name);
+    std::string hostname = host.first;
+    uint16_t port = host.second;
 
     // get type by connecting
-    detectorType type = Module::getTypeFromDetector(host, port);
+    detectorType type = Module::getTypeFromDetector(hostname, port);
 
     // gotthard cannot have more than 2 modules (50um=1, 25um=2
     if ((type == GOTTHARD || type == GOTTHARD2) && modules.size() > 2) {
@@ -316,15 +300,15 @@ void DetectorImpl::addModule(const std::string &hostname) {
     shm()->totalNumberOfModules = modules.size();
     modules[pos]->setControlPort(port);
     modules[pos]->setStopPort(port + 1);
-    modules[pos]->setHostname(host, shm()->initialChecks);
+    modules[pos]->setHostname(hostname, shm()->initialChecks);
 
     // module type updated by now
     shm()->detType = Parallel(&Module::getDetectorType, {})
                          .tsquash("Inconsistent detector types.");
-    // for moench and ctb
+    // for ctb
     modules[pos]->updateNumberOfChannels();
 
-    // for eiger, jungfrau, gotthard2
+    // for eiger, jungfrau, moench, gotthard2
     modules[pos]->updateNumberofUDPInterfaces();
 
     // update zmq port in case numudpinterfaces changed
@@ -418,6 +402,7 @@ void DetectorImpl::setGapPixelsinCallback(const bool enable) {
     if (enable) {
         switch (shm()->detType) {
         case JUNGFRAU:
+        case MOENCH:
             break;
         case EIGER:
             if (size() && modules[0]->getQuad()) {
@@ -440,6 +425,7 @@ int DetectorImpl::getTransmissionDelay() const {
     bool eiger = false;
     switch (shm()->detType) {
     case JUNGFRAU:
+    case MOENCH:
     case MYTHEN3:
         break;
     case EIGER:
@@ -483,6 +469,7 @@ void DetectorImpl::setTransmissionDelay(int step) {
     bool eiger = false;
     switch (shm()->detType) {
     case JUNGFRAU:
+    case MOENCH:
     case MYTHEN3:
         break;
     case EIGER:
@@ -884,10 +871,10 @@ int DetectorImpl::insertGapPixels(char *image, char *&gpImage, bool quadEnable,
         nMod1TotPixelsx /= 2;
     }
     // eiger requires inter chip gap pixels are halved
-    // jungfrau prefers same inter chip gap pixels as the boundary pixels
+    // jungfrau/moench prefers same inter chip gap pixels as the boundary pixels
     int divisionValue = 2;
     slsDetectorDefs::detectorType detType = shm()->detType;
-    if (detType == JUNGFRAU) {
+    if (detType == JUNGFRAU || detType == MOENCH) {
         divisionValue = 1;
     }
     LOG(logDEBUG) << "Insert Gap pixels Calculations:\n\t"
@@ -1233,10 +1220,26 @@ int DetectorImpl::acquire() {
         dataProcessingThread.join();
 
         if (acquisition_finished != nullptr) {
-            int status = Parallel(&Module::getRunStatus, {}).squash(ERROR);
+            // status
+            runStatus status = IDLE;
+            auto statusList = Parallel(&Module::getRunStatus, {});
+            status = statusList.squash(ERROR);
+            // difference, but none error
+            if (status == ERROR && (!statusList.any(ERROR))) {
+                // handle jf sync issue (master idle, slaves stopped)
+                if (statusList.contains_only(IDLE, STOPPED)) {
+                    status = STOPPED;
+                } else
+                    status = statusList.squash(RUNNING);
+            }
+
+            // progress
             auto a = Parallel(&Module::getReceiverProgress, {});
             double progress = (*std::max_element(a.begin(), a.end()));
-            acquisition_finished(progress, status, acqFinished_p);
+
+            // callback
+            acquisition_finished(progress, static_cast<int>(status),
+                                 acqFinished_p);
         }
 
         clock_gettime(CLOCK_REALTIME, &end);
@@ -1267,6 +1270,7 @@ bool DetectorImpl::handleSynchronization(Positions pos) {
             handleSync = true;
             break;
         case defs::JUNGFRAU:
+        case defs::MOENCH:
             if (Parallel(&Module::getSynchronizationFromStopServer, pos)
                     .tsquash("Inconsistent synchronization among modules")) {
                 handleSync = true;
@@ -1305,13 +1309,24 @@ void DetectorImpl::startAcquisition(const bool blocking, Positions pos) {
         std::vector<int> masters;
         std::vector<int> slaves;
         getMasterSlaveList(pos, masters, slaves);
+        if (masters.empty()) {
+            throw RuntimeError("Cannot start acquisition in sync mode. No "
+                               "master module found");
+        }
         if (!slaves.empty()) {
             Parallel(&Module::startAcquisition, slaves);
         }
-        if (!masters.empty()) {
-            Parallel((blocking ? &Module::startAndReadAll
-                               : &Module::startAcquisition),
-                     masters);
+        if (blocking) {
+            Parallel(&Module::startAndReadAll, masters);
+            // ensure all status normal (slaves not blocking)
+            // to catch those slaves that are still 'waiting'
+            auto status = Parallel(&Module::getRunStatus, pos);
+            if (!status.contains_only(IDLE, STOPPED, RUN_FINISHED)) {
+                throw RuntimeError("Acquisition not successful. "
+                                   "Unexpected detector status");
+            }
+        } else {
+            Parallel(&Module::startAcquisition, masters);
         }
     }
     // all in parallel
@@ -1439,8 +1454,8 @@ std::vector<char> DetectorImpl::readProgrammingFile(const std::string &fname) {
     bool isPof = false;
     switch (shm()->detType) {
     case JUNGFRAU:
-    case CHIPTESTBOARD:
     case MOENCH:
+    case CHIPTESTBOARD:
         if (fname.find(".pof") == std::string::npos) {
             throw RuntimeError("Programming file must be a pof file.");
         }
@@ -1578,6 +1593,7 @@ defs::xy DetectorImpl::getPortGeometry() const {
         portGeometry.x = modules[0]->getNumberofUDPInterfacesFromShm();
         break;
     case JUNGFRAU:
+    case MOENCH:
         portGeometry.y = modules[0]->getNumberofUDPInterfacesFromShm();
         break;
     default:
@@ -1595,8 +1611,131 @@ defs::xy DetectorImpl::calculatePosition(int moduleIndex,
     return pos;
 }
 
+void DetectorImpl::verifyUniqueDetHost(const uint16_t port,
+                                       std::vector<int> positions) const {
+    // port for given positions
+    if (positions.empty() || (positions.size() == 1 && positions[0] == -1)) {
+        positions.resize(modules.size());
+        std::iota(begin(positions), end(positions), 0);
+    }
+    std::vector<std::pair<std::string, uint16_t>> hosts(size());
+    for (auto it : positions) {
+        hosts[it].second = port;
+    }
+    verifyUniqueHost(true, hosts);
+}
+
+void DetectorImpl::verifyUniqueRxHost(const uint16_t port,
+                                      const int moduleId) const {
+    std::vector<std::pair<std::string, uint16_t>> hosts(size());
+    hosts[moduleId].second = port;
+    verifyUniqueHost(false, hosts);
+}
+
+std::pair<std::string, uint16_t>
+DetectorImpl::verifyUniqueDetHost(const std::string &name) {
+    // extract port
+    // C++17 could be auto [hostname, port] = ParseHostPort(name);
+    auto res = ParseHostPort(name);
+    std::string hostname = res.first;
+    uint16_t port = res.second;
+    if (port == 0) {
+        port = DEFAULT_TCP_CNTRL_PORTNO;
+    }
+
+    int detSize = size();
+    // mod not yet added
+    std::vector<std::pair<std::string, uint16_t>> hosts(detSize + 1);
+    hosts[detSize].first = hostname;
+    hosts[detSize].second = port;
+
+    verifyUniqueHost(true, hosts);
+    return std::make_pair(hostname, port);
+}
+
+std::pair<std::string, uint16_t>
+DetectorImpl::verifyUniqueRxHost(const std::string &name,
+                                 std::vector<int> positions) const {
+    // no checks if setting to none
+    if (name == "none" || name.empty()) {
+        return make_pair(name, 0);
+    }
+    // extract port
+    // C++17 could be auto [hostname, port] = ParseHostPort(name);
+    auto res = ParseHostPort(name);
+    std::string hostname = res.first;
+    uint16_t port = res.second;
+
+    // hostname and port for given positions
+    if (positions.empty() || (positions.size() == 1 && positions[0] == -1)) {
+        positions.resize(modules.size());
+        std::iota(begin(positions), end(positions), 0);
+    }
+
+    std::vector<std::pair<std::string, uint16_t>> hosts(size());
+    for (auto it : positions) {
+        hosts[it].first = hostname;
+        hosts[it].second = port;
+    }
+
+    verifyUniqueHost(false, hosts);
+    return std::make_pair(hostname, port);
+}
+
+std::vector<std::pair<std::string, uint16_t>>
+DetectorImpl::verifyUniqueRxHost(const std::vector<std::string> &names) const {
+    if ((int)names.size() != size()) {
+        throw RuntimeError(
+            "Receiver hostnames size " + std::to_string(names.size()) +
+            " does not match detector size " + std::to_string(size()));
+    }
+
+    // extract ports
+    std::vector<std::pair<std::string, uint16_t>> hosts;
+    for (const auto &name : names) {
+        hosts.push_back(ParseHostPort(name));
+    }
+
+    verifyUniqueHost(false, hosts);
+    return hosts;
+}
+
+void DetectorImpl::verifyUniqueHost(
+    bool isDet, std::vector<std::pair<std::string, uint16_t>> &hosts) const {
+
+    // fill from shm if not provided
+    for (int i = 0; i != size(); ++i) {
+        if (hosts[i].first.empty()) {
+            hosts[i].first = (isDet ? modules[i]->getHostname()
+                                    : modules[i]->getReceiverHostname());
+        }
+        if (hosts[i].second == 0) {
+            hosts[i].second = (isDet ? modules[i]->getControlPort()
+                                     : modules[i]->getReceiverPort());
+        }
+    }
+
+    // remove the ones without a hostname
+    hosts.erase(std::remove_if(hosts.begin(), hosts.end(),
+                               [](const std::pair<std::string, uint16_t> &x) {
+                                   return (x.first == "none" ||
+                                           x.first.empty());
+                               }),
+                hosts.end());
+
+    // must be unique
+    if (hasDuplicates(hosts)) {
+        throw RuntimeError(
+            "Cannot set due to duplicate hostname-port number pairs.");
+    }
+
+    for (auto it : hosts) {
+        LOG(logDEBUG) << it.first << " " << it.second << std::endl;
+    }
+}
+
 defs::ROI DetectorImpl::getRxROI() const {
-    if (shm()->detType == CHIPTESTBOARD || shm()->detType == MOENCH) {
+    if (shm()->detType == CHIPTESTBOARD) {
         throw RuntimeError("RxRoi not implemented for this Detector");
     }
     if (modules.size() == 0) {
@@ -1671,7 +1810,7 @@ defs::ROI DetectorImpl::getRxROI() const {
 }
 
 void DetectorImpl::setRxROI(const defs::ROI arg) {
-    if (shm()->detType == CHIPTESTBOARD || shm()->detType == MOENCH) {
+    if (shm()->detType == CHIPTESTBOARD) {
         throw RuntimeError("RxRoi not implemented for this Detector");
     }
     if (modules.size() == 0) {
@@ -1888,6 +2027,77 @@ void DetectorImpl::setCtbDacNames(const std::vector<std::string> &names) {
 
 std::string DetectorImpl::getCtbDacName(defs::dacIndex i) const {
     return ctb_shm()->getDacName(static_cast<int>(i));
+}
+
+void DetectorImpl::setCtbDacName(const defs::dacIndex index,
+                                 const std::string &name) {
+    ctb_shm()->setDacName(index, name);
+}
+
+std::vector<std::string> DetectorImpl::getCtbAdcNames() const {
+    return ctb_shm()->getAdcNames();
+}
+
+void DetectorImpl::setCtbAdcNames(const std::vector<std::string> &names) {
+    ctb_shm()->setAdcNames(names);
+}
+
+std::string DetectorImpl::getCtbAdcName(const int i) const {
+    return ctb_shm()->getAdcName(i);
+}
+
+void DetectorImpl::setCtbAdcName(const int index, const std::string &name) {
+    ctb_shm()->setAdcName(index, name);
+}
+
+std::vector<std::string> DetectorImpl::getCtbSignalNames() const {
+    return ctb_shm()->getSignalNames();
+}
+
+void DetectorImpl::setCtbSignalNames(const std::vector<std::string> &names) {
+    ctb_shm()->setSignalNames(names);
+}
+
+std::string DetectorImpl::getCtbSignalName(const int i) const {
+    return ctb_shm()->getSignalName(i);
+}
+
+void DetectorImpl::setCtbSignalName(const int index, const std::string &name) {
+    ctb_shm()->setSignalName(index, name);
+}
+
+std::vector<std::string> DetectorImpl::getCtbPowerNames() const {
+    return ctb_shm()->getPowerNames();
+}
+
+void DetectorImpl::setCtbPowerNames(const std::vector<std::string> &names) {
+    ctb_shm()->setPowerNames(names);
+}
+
+std::string DetectorImpl::getCtbPowerName(const defs::dacIndex i) const {
+    return ctb_shm()->getPowerName(static_cast<int>(i - defs::V_POWER_A));
+}
+
+void DetectorImpl::setCtbPowerName(const defs::dacIndex index,
+                                   const std::string &name) {
+    ctb_shm()->setPowerName(static_cast<int>(index - defs::V_POWER_A), name);
+}
+
+std::vector<std::string> DetectorImpl::getCtbSlowADCNames() const {
+    return ctb_shm()->getSlowADCNames();
+}
+
+void DetectorImpl::setCtbSlowADCNames(const std::vector<std::string> &names) {
+    ctb_shm()->setSlowADCNames(names);
+}
+
+std::string DetectorImpl::getCtbSlowADCName(const defs::dacIndex i) const {
+    return ctb_shm()->getSlowADCName(static_cast<int>(i - defs::SLOW_ADC0));
+}
+
+void DetectorImpl::setCtbSlowADCName(const defs::dacIndex index,
+                                     const std::string &name) {
+    ctb_shm()->setSlowADCName(static_cast<int>(index - defs::SLOW_ADC0), name);
 }
 
 } // namespace sls

@@ -97,12 +97,12 @@ void qTabSettings::SetupWidgetWindow() {
         spinHV->show();
         lblGainMode->setEnabled(true);
         comboGainMode->setEnabled(true);
-    } else if (detType == slsDetectorDefs::GOTTHARD) {
-        comboHV->show();
-        lblComboHV->show();
     } else if (detType == slsDetectorDefs::MOENCH) {
         lblSpinHV->show();
         spinHV->show();
+    } else if (detType == slsDetectorDefs::GOTTHARD) {
+        comboHV->show();
+        lblComboHV->show();
     } else if (detType == slsDetectorDefs::GOTTHARD2) {
         lblSpinHV->show();
         spinHV->show();

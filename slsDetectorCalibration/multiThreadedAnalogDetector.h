@@ -69,6 +69,11 @@ class threadedAnalogDetector {
     };
     virtual double setThreshold(double th) { return det->setThreshold(th); };
 
+    virtual double setClusterSize(int csx, int csy) { 
+      //cout << "44" << endl; 
+      return det->setClusterSize(csx); 
+    };
+
     virtual void setROI(int xmin, int xmax, int ymin, int ymax) {
         det->setROI(xmin, xmax, ymin, ymax);
     };
@@ -125,6 +130,7 @@ class threadedAnalogDetector {
     // return 1;}
 
     virtual int isBusy() {
+      //std::cout << busy << " " << fifoData->isEmpty() << " " << fifoData->getDataValue() << " " << fifoData->getFreeValue() <<  std::endl;
         if (busy == 0) {
             usleep(100);
             if (busy == 0) {
@@ -442,7 +448,7 @@ class multiThreadedAnalogDetector {
         for (int i = 0; i < nThreads; i++) {
             ret1 = dets[i]->isBusy();
             ret |= ret1;
-            //   if (ret1) cout << "thread " << i <<" still busy " << endl;
+	    //if (ret1) cout << "thread " << i <<" still busy " << endl;
         }
         return ret;
     }

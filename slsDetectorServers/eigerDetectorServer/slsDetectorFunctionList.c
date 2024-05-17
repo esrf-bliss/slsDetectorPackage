@@ -123,18 +123,18 @@ void basictests() {
     int64_t sw_fw_apiversion = getFirmwareAPIVersion();
 
     LOG(logINFOBLUE,
-        ("**************************************************\n"
-         "Detector IP Addr:\t\t 0x%x\n"
-         "Detector MAC Addr:\t\t 0x%llx\n"
+        ("\n********************************************************\n"
+         "Detector IP Addr         : 0x%x\n"
+         "Detector MAC Addr        : 0x%llx\n"
 
-         "Firmware Version:\t\t %lld\n"
-         "Software Version:\t\t %s\n"
-         "F/w-S/w API Version:\t\t %lld\n"
-         "Required Firmware Version:\t %d\n"
+         "Firmware (Beb) Version   : %lld\n"
+         "F/w-S/w API Version      : %lld\n"
+         "Required Firmware Version: %d\n"
+         "Software Version         : %s\n"
          "********************************************************\n",
          (unsigned int)ipadd, (long long unsigned int)macadd,
-         (long long int)fwversion, swversion, (long long int)sw_fw_apiversion,
-         REQUIRED_FIRMWARE_VERSION));
+         (long long int)fwversion, (long long int)sw_fw_apiversion,
+         REQUIRED_FIRMWARE_VERSION, swversion));
 
     // update default udpdstip and udpdstmac (1g is hardware ip and hardware
     // mac)
@@ -161,9 +161,9 @@ void basictests() {
     // check for API compatibility - old server
     if (sw_fw_apiversion > REQUIRED_FIRMWARE_VERSION) {
         sprintf(initErrorMessage,
-                "This firmware-software api version (0x%llx) is incompatible "
+                "This firmware-software api version (0x%lld) is incompatible "
                 "with the software's minimum required firmware version "
-                "(0x%llx).\nPlease update detector software to be compatible "
+                "(0x%lld).\nPlease update detector software to be compatible "
                 "with this firmware.\n",
                 (long long int)sw_fw_apiversion,
                 (long long int)REQUIRED_FIRMWARE_VERSION);
@@ -210,18 +210,68 @@ void getServerVersion(char *version) { strcpy(version, APIEIGER); }
 
 u_int64_t getFirmwareVersion() {
 #ifdef VIRTUAL
-    return 0;
+    return REQUIRED_FIRMWARE_VERSION;
 #else
     return Beb_GetFirmwareRevision();
 #endif
 }
 
+uint64_t getFrontEndFirmwareVersion(enum fpgaPosition fpgaPosition) {
+    uint64_t retval = 0;
+#ifdef VIRTUAL
+    return REQUIRED_FIRMWARE_VERSION;
+#else
+    sharedMemory_lockLocalLink();
+    switch (fpgaPosition) {
+    case FRONT_LEFT:
+        retval = Feb_Control_GetFrontLeftFirmwareVersion(fpgaPosition);
+        break;
+    case FRONT_RIGHT:
+        retval = Feb_Control_GetFrontRightFirmwareVersion(fpgaPosition);
+        break;
+    default:
+        LOG(logERROR,
+            ("unknown index for fpga position to read firmware version\n"));
+        retval = 0;
+    }
+    sharedMemory_unlockLocalLink();
+#endif
+    return retval;
+}
+
 u_int64_t getFirmwareAPIVersion() {
 #ifdef VIRTUAL
-    return 0;
+    return REQUIRED_FIRMWARE_VERSION;
 #else
-    return (u_int64_t)Beb_GetFirmwareSoftwareAPIVersion();
+    return Beb_GetFirmwareSoftwareAPIVersion();
 #endif
+}
+
+void getHardwareVersion(char *version) {
+    strcpy(version, "unknown");
+    int hwversion = getHardwareVersionNumber();
+    const int hwNumberList[] = HARDWARE_VERSION_NUMBERS;
+    const char *hwNamesList[] = HARDWARE_VERSION_NAMES;
+    for (int i = 0; i != NUM_HARDWARE_VERSIONS; ++i) {
+        LOG(logDEBUG, ("0x%x %d 0x%x %s\n", hwversion, i, hwNumberList[i],
+                       hwNamesList[i]));
+        if (hwNumberList[i] == hwversion) {
+            strcpy(version, hwNamesList[i]);
+            return;
+        }
+    }
+}
+
+int getHardwareVersionNumber() {
+    int retval = 0;
+#ifndef VIRTUAL
+    sharedMemory_lockLocalLink();
+    if (!Feb_Control_GetFPGAHardwareVersion(&retval)) {
+        retval = -1;
+    }
+    sharedMemory_unlockLocalLink();
+#endif
+    return retval;
 }
 
 int getModuleId(int *ret, char *mess) {
@@ -355,6 +405,37 @@ void initControlServer() {
         Beb_SetTopVariable(top);
         Beb_Beb();
         LOG(logDEBUG1, ("Control server: BEB Initialization done\n"));
+
+        // Getting the feb versions after initialization
+        char hversion[MAX_STR_LENGTH] = {0};
+        memset(hversion, 0, MAX_STR_LENGTH);
+        getHardwareVersion(hversion);
+        int64_t fwversion = getFirmwareVersion();
+        int64_t feblfwversion = getFrontEndFirmwareVersion(FRONT_LEFT);
+        int64_t febrfwversion = getFrontEndFirmwareVersion(FRONT_RIGHT);
+        LOG(logINFOBLUE,
+            ("\n********************************************************\n"
+             "Feb Versions\n"
+             "Hardware Version         : %s\n"
+             "Firmware (Febl) Version  : %lld\n"
+             "Firmware (Febr) Version  : %lld\n"
+             "********************************************************\n",
+             hversion, (long long int)feblfwversion,
+             (long long int)febrfwversion));
+
+        // ensure febl, febr and beb fw versions are the same
+        if (fwversion != feblfwversion || fwversion != febrfwversion) {
+            sprintf(
+                initErrorMessage,
+                "Inconsistent firmware versions in feb and beb. [Beb: %lld, "
+                "Febl: %lld Febr: %lld]\n",
+                (long long int)fwversion, (long long int)feblfwversion,
+                (long long int)febrfwversion);
+            LOG(logERROR, (initErrorMessage));
+            initError = FAIL;
+            return;
+        }
+
 #endif
         // also reads config file and deactivates
         setupDetector();
@@ -849,6 +930,59 @@ int readRegister(uint32_t offset, uint32_t *retval) {
     sharedMemory_unlockLocalLink();
     return OK;
 #endif
+}
+
+int setBit(const uint32_t addr, const int nBit) {
+#ifndef VIRTUAL
+    uint32_t regval = 0;
+    if (readRegister(addr, &regval) == FAIL) {
+        return FAIL;
+    }
+    uint32_t bitmask = (1 << nBit);
+    uint32_t val = regval | bitmask;
+
+    sharedMemory_lockLocalLink();
+    if (!Feb_Control_WriteRegister_BitMask(addr, val, bitmask)) {
+        sharedMemory_unlockLocalLink();
+        return FAIL;
+    }
+    sharedMemory_unlockLocalLink();
+#endif
+    return OK;
+}
+
+int clearBit(const uint32_t addr, const int nBit) {
+#ifndef VIRTUAL
+    uint32_t regval = 0;
+    if (readRegister(addr, &regval) == FAIL) {
+        return FAIL;
+    }
+    uint32_t bitmask = (1 << nBit);
+    uint32_t val = regval & ~bitmask;
+
+    sharedMemory_lockLocalLink();
+    if (!Feb_Control_WriteRegister_BitMask(addr, val, bitmask)) {
+        sharedMemory_unlockLocalLink();
+        return FAIL;
+    }
+    sharedMemory_unlockLocalLink();
+#endif
+    return OK;
+}
+
+int getBit(const uint32_t addr, const int nBit, int *retval) {
+#ifndef VIRTUAL
+    uint32_t regval = 0;
+    uint32_t bitmask = (1 << nBit);
+    sharedMemory_lockLocalLink();
+    if (!Feb_Control_ReadRegister_BitMask(addr, &regval, bitmask)) {
+        sharedMemory_unlockLocalLink();
+        return FAIL;
+    }
+    sharedMemory_unlockLocalLink();
+    *retval = (regval >> nBit);
+#endif
+    return OK;
 }
 
 /* set parameters -  dr, roi */
@@ -1674,9 +1808,9 @@ int configureMAC() {
         uint32_t dstip = udpDetails[iRxEntry].dstip;
         uint64_t srcmac = udpDetails[iRxEntry].srcmac;
         uint64_t dstmac = udpDetails[iRxEntry].dstmac;
-        int srcport = udpDetails[iRxEntry].srcport;
-        int dstport = udpDetails[iRxEntry].dstport;
-        int dstport2 = udpDetails[iRxEntry].dstport2;
+        uint16_t srcport = udpDetails[iRxEntry].srcport;
+        uint16_t dstport = udpDetails[iRxEntry].dstport;
+        uint16_t dstport2 = udpDetails[iRxEntry].dstport2;
 
         char src_mac[MAC_ADDRESS_SIZE], src_ip[INET_ADDRSTRLEN],
             dst_mac[MAC_ADDRESS_SIZE], dst_ip[INET_ADDRSTRLEN];
@@ -1690,11 +1824,11 @@ int configureMAC() {
             LOG(logINFO,
                 ("\tSource IP   : %s\n"
                  "\tSource MAC  : %s\n"
-                 "\tSource Port : %d\n"
+                 "\tSource Port : %hu\n"
                  "\tDest IP     : %s\n"
                  "\tDest MAC    : %s\n"
-                 "\tDest Port   : %d\n"
-                 "\tDest Port2  : %d\n",
+                 "\tDest Port   : %hu\n"
+                 "\tDest Port2  : %hu\n",
                  src_ip, src_mac, srcport, dst_ip, dst_mac, dstport, dstport2));
         }
 

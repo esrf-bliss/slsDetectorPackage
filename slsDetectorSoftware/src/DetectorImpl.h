@@ -220,7 +220,7 @@ class DetectorImpl : public virtual slsDetectorDefs {
      * @param numdet number of modules
      * @param port starting port number
      */
-    void setVirtualDetectorServers(const int numdet, const int port);
+    void setVirtualDetectorServers(const int numdet, const uint16_t port);
 
     /** Sets the hostname of all sls modules in shared memory and updates
      * local cache */
@@ -306,6 +306,19 @@ class DetectorImpl : public virtual slsDetectorDefs {
                               Positions pos = {});
     void setDefaultDac(defs::dacIndex index, int defaultValue,
                        defs::detectorSettings sett, Positions pos);
+
+    void verifyUniqueDetHost(const uint16_t port,
+                             std::vector<int> positions) const;
+    void verifyUniqueRxHost(const uint16_t port, const int moduleId) const;
+
+    std::pair<std::string, uint16_t>
+    verifyUniqueDetHost(const std::string &name);
+    std::pair<std::string, uint16_t>
+    verifyUniqueRxHost(const std::string &name,
+                       std::vector<int> positions) const;
+    std::vector<std::pair<std::string, uint16_t>>
+    verifyUniqueRxHost(const std::vector<std::string> &names) const;
+
     defs::ROI getRxROI() const;
     void setRxROI(const defs::ROI arg);
     void clearRxROI();
@@ -315,8 +328,29 @@ class DetectorImpl : public virtual slsDetectorDefs {
     void setBadChannels(const std::vector<int> list, Positions pos);
 
     std::vector<std::string> getCtbDacNames() const;
-    std::string getCtbDacName(defs::dacIndex i) const;
+    std::string getCtbDacName(const defs::dacIndex i) const;
     void setCtbDacNames(const std::vector<std::string> &names);
+    void setCtbDacName(const defs::dacIndex index, const std::string &name);
+
+    std::vector<std::string> getCtbAdcNames() const;
+    std::string getCtbAdcName(const int i) const;
+    void setCtbAdcNames(const std::vector<std::string> &names);
+    void setCtbAdcName(const int index, const std::string &name);
+
+    std::vector<std::string> getCtbSignalNames() const;
+    std::string getCtbSignalName(const int i) const;
+    void setCtbSignalNames(const std::vector<std::string> &names);
+    void setCtbSignalName(const int index, const std::string &name);
+
+    std::vector<std::string> getCtbPowerNames() const;
+    std::string getCtbPowerName(const defs::dacIndex i) const;
+    void setCtbPowerNames(const std::vector<std::string> &names);
+    void setCtbPowerName(const defs::dacIndex index, const std::string &name);
+
+    std::vector<std::string> getCtbSlowADCNames() const;
+    std::string getCtbSlowADCName(const defs::dacIndex i) const;
+    void setCtbSlowADCNames(const std::vector<std::string> &names);
+    void setCtbSlowADCName(const defs::dacIndex index, const std::string &name);
 
   private:
     /**
@@ -364,7 +398,7 @@ class DetectorImpl : public virtual slsDetectorDefs {
      */
     void readFrameFromReceiver();
 
-    /** [Eiger][Jungfrau]
+    /** [Eiger][Jungfrau][Moench]
      * add gap pixels to the imag
      * @param image pointer to image without gap pixels
      * @param gpImage poiner to image with gap pixels, if NULL, allocated
@@ -406,6 +440,9 @@ class DetectorImpl : public virtual slsDetectorDefs {
 
     defs::xy getPortGeometry() const;
     defs::xy calculatePosition(int moduleIndex, defs::xy geometry) const;
+
+    void verifyUniqueHost(
+        bool isDet, std::vector<std::pair<std::string, uint16_t>> &hosts) const;
 
     const int detectorIndex{0};
     SharedMemory<sharedDetector> shm{0, -1};
