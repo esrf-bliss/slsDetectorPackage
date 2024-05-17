@@ -55,7 +55,7 @@ void printHelp() {
  */
 int StartAcq(std::string filepath, std::string filename, uint64_t fileindex,
              uint32_t datasize, void *p) {
-    LOG(logINFOBLUE) << "#### StartAcq:  filepath:" << filepath
+    LOG(sls::logINFOBLUE) << "#### StartAcq:  filepath:" << filepath
                      << "  filename:" << filename << " fileindex:" << fileindex
                      << "  datasize:" << datasize << " ####";
     return 0;
@@ -67,7 +67,7 @@ int StartAcq(std::string filepath, std::string filename, uint64_t fileindex,
  * @param p pointer to object
  */
 void AcquisitionFinished(uint64_t frames, void *p) {
-    LOG(logINFOBLUE) << "#### AcquisitionFinished: frames:" << frames
+    LOG(sls::logINFOBLUE) << "#### AcquisitionFinished: frames:" << frames
                      << " ####";
 }
 
@@ -88,18 +88,18 @@ void GetData(char *metadata, char *datapointer, uint32_t datasize, void *p) {
     PRINT_IN_COLOR(
         detectorHeader.modId ? detectorHeader.modId : detectorHeader.row,
         "#### %d GetData: ####\n"
-        "frameNumber: %lu\t\texpLength: %u\t\tpacketNumber: %u\t\tbunchId: %lu"
+        "frameNumber: %lu\t\texpLength: %u\t\tpacketNumber: %u\t\tdetSpec1: %lu"
         "\t\ttimestamp: %lu\t\tmodId: %u\t\t"
-        "row: %u\t\tcolumn: %u\t\treserved: %u\t\tdebug: %u"
-        "\t\troundRNumber: %u\t\tdetType: %u\t\tversion: %u"
+        "row: %u\t\tcolumn: %u\t\tdetSpec2: %u\t\tdetSpec3: %u"
+        "\t\tdetSpec4: %u\t\tdetType: %u\t\tversion: %u"
         //"\t\tpacketsMask:%s"
         "\t\tfirstbytedata: 0x%x\t\tdatsize: %u\n\n",
         detectorHeader.row, (long unsigned int)detectorHeader.frameNumber,
         detectorHeader.expLength, detectorHeader.packetNumber,
-        (long unsigned int)detectorHeader.bunchId,
+        (long unsigned int)detectorHeader.detSpec1,
         (long unsigned int)detectorHeader.timestamp, detectorHeader.modId,
-        detectorHeader.row, detectorHeader.column, detectorHeader.reserved,
-        detectorHeader.debug, detectorHeader.roundRNumber,
+        detectorHeader.row, detectorHeader.column, detectorHeader.detSpec2,
+        detectorHeader.detSpec3, detectorHeader.detSpec4,
         detectorHeader.detType, detectorHeader.version,
         // header->packetsMask.to_string().c_str(),
         ((uint8_t)(*((uint8_t *)(datapointer)))), datasize);
@@ -124,19 +124,19 @@ void GetData(char *metadata, char *datapointer, uint32_t &revDatasize,
     PRINT_IN_COLOR(
         detectorHeader.modId ? detectorHeader.modId : detectorHeader.row,
         "#### %d GetData: ####\n"
-        "frameNumber: %llu\t\texpLength: %u\t\tpacketNumber: %u\t\tbunchId: "
+        "frameNumber: %llu\t\texpLength: %u\t\tpacketNumber: %u\t\tdetSpec1: "
         "%llu"
         "\t\ttimestamp: %llu\t\tmodId: %u\t\t"
-        "row: %u\t\tcolumn: %u\t\treserved: %u\t\tdebug: %u"
-        "\t\troundRNumber: %u\t\tdetType: %u\t\tversion: %u"
+        "row: %u\t\tcolumn: %u\t\tdetSpec2: %u\t\tdetSpec3: %u"
+        "\t\tdetSpec4: %u\t\tdetType: %u\t\tversion: %u"
         //"\t\tpacketsMask:%s"
         "\t\tfirstbytedata: 0x%x\t\tdatsize: %u\n\n",
         detectorHeader.row, (long long unsigned int)detectorHeader.frameNumber,
         detectorHeader.expLength, detectorHeader.packetNumber,
-        (long long unsigned int)detectorHeader.bunchId,
+        (long long unsigned int)detectorHeader.detSpec1,
         (long long unsigned int)detectorHeader.timestamp, detectorHeader.modId,
-        detectorHeader.row, detectorHeader.column, detectorHeader.reserved,
-        detectorHeader.debug, detectorHeader.roundRNumber,
+        detectorHeader.row, detectorHeader.column, detectorHeader.detSpec2,
+        detectorHeader.detSpec3, detectorHeader.detSpec4,
         detectorHeader.detType, detectorHeader.version,
         // header->packetsMask.to_string().c_str(),
         ((uint8_t)(*((uint8_t *)(datapointer)))), revDatasize);
@@ -222,7 +222,7 @@ int main(int argc, char *argv[]) {
             try {
                 receiver = sls::make_unique<sls::Receiver>(startTCPPort + i);
             } catch (...) {
-                LOG(logINFOBLUE)
+                LOG(sls::logINFOBLUE)
                     << "Exiting Child Process [ Tid: " << syscall(SYS_gettid)
                     << " ]";
                 throw;

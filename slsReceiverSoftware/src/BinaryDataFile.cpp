@@ -58,7 +58,7 @@ void BinaryDataFile::CreateFile() {
     setvbuf(fd_, nullptr, _IONBF, 0);
 
     if (!silentMode_) {
-        LOG(logINFO) << "[" << udpPortNumber_
+        LOG(sls::logINFO) << "[" << udpPortNumber_
                      << "]: Binary File created: " << fileName_;
     }
 }

@@ -5,79 +5,19 @@
 #include "sls/sls_detector_defs.h"
 
 #define MIN_REQRD_VRSN_T_RD_API  0x171220
-#define REQRD_FRMWRE_VRSN_BOARD2 0x210831 // 1.0 pcb (version = 010)
-#define REQRD_FRMWRE_VRSN        0x211008 // 2.0 pcb (version = 011)
+#define REQRD_FRMWRE_VRSN_BOARD2 0x230516 // 1.0 pcb (version = 010)
+#define REQRD_FRMWRE_VRSN        0x230515 // 2.0 pcb (version = 011)
 
+#define NUM_HARDWARE_VERSIONS (2)
+#define HARDWARE_VERSION_NUMBERS                                               \
+    { 0x2, 0x3 }
+#define HARDWARE_VERSION_NAMES                                                 \
+    { "1.0", "2.0" }
+
+#define ID_FILE            "detid_jungfrau.txt"
 #define LINKED_SERVER_NAME "jungfrauDetectorServer"
 
 #define CTRL_SRVR_INIT_TIME_US (300 * 1000)
-
-/* Struct Definitions */
-typedef struct udp_header_struct {
-    uint32_t udp_destmac_msb;
-    uint16_t udp_srcmac_msb;
-    uint16_t udp_destmac_lsb;
-    uint32_t udp_srcmac_lsb;
-    uint8_t ip_tos;
-    uint8_t ip_ihl : 4, ip_ver : 4;
-    uint16_t udp_ethertype;
-    uint16_t ip_identification;
-    uint16_t ip_totallength;
-    uint8_t ip_protocol;
-    uint8_t ip_ttl;
-    uint16_t ip_fragmentoffset : 13, ip_flags : 3;
-    uint16_t ip_srcip_msb;
-    uint16_t ip_checksum;
-    uint16_t ip_destip_msb;
-    uint16_t ip_srcip_lsb;
-    uint16_t udp_srcport;
-    uint16_t ip_destip_lsb;
-    uint16_t udp_checksum;
-    uint16_t udp_destport;
-} udp_header;
-
-#define IP_HEADER_SIZE             (20)
-#define UDP_IP_HEADER_LENGTH_BYTES (28)
-
-/* Enums */
-enum ADCINDEX { TEMP_FPGA, TEMP_ADC };
-enum DACINDEX {
-    J_VB_COMP,
-    J_VDD_PROT,
-    J_VIN_COM,
-    J_VREF_PRECH,
-    J_VB_PIXBUF,
-    J_VB_DS,
-    J_VREF_DS,
-    J_VREF_COMP
-};
-#define DAC_NAMES                                                              \
-    "vb_comp", "vdd_prot", "vin_com", "vref_prech", "vb_pixbuf", "vb_ds",      \
-        "vref_ds", "vref_comp"
-
-#define DEFAULT_DAC_VALS                                                       \
-    {                                                                          \
-        1220, /* J_VB_COMP */                                                  \
-        3000, /* J_VDD_PROT */                                                 \
-        1053, /* J_VIN_COM */                                                  \
-        1450, /* J_VREF_PRECH */                                               \
-        750,  /* J_VB_PIXBUF */                                                \
-        1000, /* J_VB_DS */                                                    \
-        480,  /* J_VREF_DS */                                                  \
-        420   /* J_VREF_COMP */                                                \
-    };
-
-#define NUMSETTINGS     (2)
-#define NSPECIALDACS    (3)
-#define SPECIALDACINDEX {J_VREF_PRECH, J_VREF_DS, J_VREF_COMP};
-#define SPECIAL_DEFAULT_DYNAMIC_GAIN_VALS                                      \
-    { 1450, 480, 420 }
-#define SPECIAL_DEFAULT_DYNAMICHG0_GAIN_VALS                                   \
-    { 1550, 450, 620 }
-
-enum NETWORKINDEX { TXN_FRAME, FLOWCTRL_10G };
-enum CLKINDEX { RUN_CLK, ADC_CLK, DBIT_CLK, NUM_CLOCKS };
-#define CLK_NAMES "run", "adc", "dbit"
 
 /* Hardware Definitions */
 #define NCHAN               (256 * 256)
@@ -134,6 +74,9 @@ enum CLKINDEX { RUN_CLK, ADC_CLK, DBIT_CLK, NUM_CLOCKS };
 
 #define MAX_PHASE_SHIFTS (240)
 #define BIT16_MASK       (0xFFFF)
+
+#define GAIN_VAL_OFST (14)
+#define GAIN_VAL_MSK  (0x3 << GAIN_VAL_OFST)
 
 // pipeline
 #define ADC_PORT_INVERT_VAL        (0x5A5A5A5A)
@@ -201,3 +144,73 @@ enum CLKINDEX { RUN_CLK, ADC_CLK, DBIT_CLK, NUM_CLOCKS };
 
 #define ADC_OFST_HALF_SPEED_BOARD2_VAL    (0x10)
 #define ADC_OFST_QUARTER_SPEED_BOARD2_VAL (0x08)
+
+/* Struct Definitions */
+typedef struct udp_header_struct {
+    uint32_t udp_destmac_msb;
+    uint16_t udp_srcmac_msb;
+    uint16_t udp_destmac_lsb;
+    uint32_t udp_srcmac_lsb;
+    uint8_t ip_tos;
+    uint8_t ip_ihl : 4, ip_ver : 4;
+    uint16_t udp_ethertype;
+    uint16_t ip_identification;
+    uint16_t ip_totallength;
+    uint8_t ip_protocol;
+    uint8_t ip_ttl;
+    uint16_t ip_fragmentoffset : 13, ip_flags : 3;
+    uint16_t ip_srcip_msb;
+    uint16_t ip_checksum;
+    uint16_t ip_destip_msb;
+    uint16_t ip_srcip_lsb;
+    uint16_t udp_srcport;
+    uint16_t ip_destip_lsb;
+    uint16_t udp_checksum;
+    uint16_t udp_destport;
+} udp_header;
+
+#define IP_HEADER_SIZE             (20)
+#define UDP_IP_HEADER_LENGTH_BYTES (28)
+
+/* Enums */
+enum ADCINDEX { TEMP_FPGA, TEMP_ADC };
+enum DACINDEX {
+    J_VB_COMP,
+    J_VDD_PROT,
+    J_VIN_COM,
+    J_VREF_PRECH,
+    J_VB_PIXBUF,
+    J_VB_DS,
+    J_VREF_DS,
+    J_VREF_COMP
+};
+#define DAC_NAMES                                                              \
+    "vb_comp", "vdd_prot", "vin_com", "vref_prech", "vb_pixbuf", "vb_ds",      \
+        "vref_ds", "vref_comp"
+
+#define DEFAULT_DAC_VALS                                                       \
+    {                                                                          \
+        1220, /* J_VB_COMP */                                                  \
+        3000, /* J_VDD_PROT */                                                 \
+        1053, /* J_VIN_COM */                                                  \
+        1450, /* J_VREF_PRECH */                                               \
+        750,  /* J_VB_PIXBUF */                                                \
+        1000, /* J_VB_DS */                                                    \
+        480,  /* J_VREF_DS */                                                  \
+        420   /* J_VREF_COMP */                                                \
+    };
+
+enum MASTERINDEX { MASTER_HARDWARE, OW_MASTER, OW_SLAVE };
+#define MASTER_NAMES "hardware", "master", "slave"
+
+#define NUMSETTINGS     (2)
+#define NSPECIALDACS    (3)
+#define SPECIALDACINDEX {J_VREF_PRECH, J_VREF_DS, J_VREF_COMP};
+#define SPECIAL_DEFAULT_DYNAMIC_GAIN_VALS                                      \
+    { 1450, 480, 420 }
+#define SPECIAL_DEFAULT_DYNAMICHG0_GAIN_VALS                                   \
+    { 1550, 450, 620 }
+
+enum NETWORKINDEX { TXN_FRAME, FLOWCTRL_10G };
+enum CLKINDEX { RUN_CLK, ADC_CLK, DBIT_CLK, NUM_CLOCKS };
+#define CLK_NAMES "run", "adc", "dbit"

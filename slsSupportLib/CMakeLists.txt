@@ -16,6 +16,7 @@ set(SOURCES
     src/FrameAssembler.cpp
     src/sls_detector_exceptions.cpp
     src/md5_helper.cpp
+    src/Version.cpp
 )
 
 # Header files to install as a part of the library
@@ -37,6 +38,8 @@ set(PUBLICHEADERS
 if(SLS_DEVEL_HEADERS)
     set(PUBLICHEADERS
         ${PUBLICHEADERS}
+        include/sls/ansi.h
+        include/sls/logger.h
         include/sls/file_utils.h
         include/sls/sls_detector_funcs.h
         include/sls/ClientSocket.h
@@ -49,8 +52,9 @@ if(SLS_DEVEL_HEADERS)
         include/sls/versionAPI.h
         include/sls/ZmqSocket.h
         include/sls/bit_utils.h
-        include/sls/mdf5.h
+        include/sls/md5.h
         include/sls/md5_helper.h
+        include/sls/Version.h
     )
 endif()
 
@@ -80,15 +84,16 @@ target_include_directories(slsSupportObject
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
     ${NUMA_INCLUDE_DIR}
   PRIVATE
-    ${ZeroMQ_INCLUDE_DIR}
+    ${SLS_INTERNAL_RAPIDJSON_DIR}
 )
+
+message(STATUS "RAPID: ${SLS_INTERNAL_RAPIDJSON_DIR}")
 
 target_link_libraries(slsSupportObject 
   PUBLIC
     slsProjectOptions 
-    ${ZeroMQ_LIBRARY}
-    rapidjson
     ${NUMA_LIBRARY}
+    libzmq
   PRIVATE
     slsProjectWarnings
     md5sls     

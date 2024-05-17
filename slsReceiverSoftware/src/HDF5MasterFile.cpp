@@ -18,7 +18,7 @@ void HDF5MasterFile::CloseFile() {
             fd_ = nullptr;
         }
     } catch (const Exception &error) {
-        LOG(logERROR) << "Could not close master HDF5 handles";
+        LOG(sls::logERROR) << "Could not close master HDF5 handles";
         error.printErrorStack();
     }
 }
@@ -73,7 +73,7 @@ void HDF5MasterFile::LinkDataFile(std::string dataFilename,
         throw sls::RuntimeError("Could not link in master hdf5 file");
     }
     if (!silentMode) {
-        LOG(logINFO) << "Linked in Master File: " << dataFilename;
+        LOG(sls::logINFO) << "Linked in Master File: " << dataFilename;
     }
 }
 
@@ -132,7 +132,7 @@ void HDF5MasterFile::CreateMasterFile(const std::string filePath,
             "Could not create/overwrite master HDF5 handles");
     }
     if (!silentMode) {
-        LOG(logINFO) << "Master File: " << fileName_;
+        LOG(sls::logINFO) << "Master File: " << fileName_;
     }
 }
 
@@ -157,6 +157,6 @@ void HDF5MasterFile::UpdateMasterFile(MasterAttributes *attr, bool silentMode) {
             "Could not create/overwrite master HDF5 handles");
     }
     if (!silentMode) {
-        LOG(logINFO) << "Updated Master File";
+        LOG(sls::logINFO) << "Updated Master File";
     }
 }

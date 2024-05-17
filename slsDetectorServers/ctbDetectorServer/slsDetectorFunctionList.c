@@ -45,7 +45,6 @@ char initErrorMessage[MAX_STR_LENGTH];
 
 #ifdef VIRTUAL
 pthread_t pthread_virtual_tid;
-int64_t virtual_currentFrameNumber = 2;
 #endif
 
 // 1g readout
@@ -86,68 +85,71 @@ void basictests() {
     initCheckDone = 0;
     memset(initErrorMessage, 0, MAX_STR_LENGTH);
 #ifdef VIRTUAL
-    LOG(logINFOBLUE,
-        ("******** Chip Test Board Virtual Server *****************\n"));
-    if (mapCSP0() == FAIL) {
-        strcpy(initErrorMessage,
-               "Could not map to memory. Dangerous to continue.\n");
-        LOG(logERROR, (initErrorMessage));
-        initError = FAIL;
-    }
-    return;
+    LOG(logINFOBLUE, ("********* Chip Test Board Virtual Server *********\n"));
 #else
-
-    defineGPIOpins();
-    resetFPGA();
+    LOG(logINFOBLUE, ("************* Chip Test Board Server *************\n"));
+    initError = defineGPIOpins(initErrorMessage);
+    if (initError == FAIL) {
+        return;
+    }
+    initError = resetFPGA(initErrorMessage);
+    if (initError == FAIL) {
+        return;
+    }
+#endif
     if (mapCSP0() == FAIL) {
         strcpy(initErrorMessage,
-               "Could not map to memory. Dangerous to continue.\n");
-        LOG(logERROR, ("%s\n\n", initErrorMessage));
+               "Could not map to memory. Cannot proceed. Check Firmware.\n");
+        LOG(logERROR, (initErrorMessage));
         initError = FAIL;
         return;
     }
-
+#ifndef VIRTUAL
     // does check only if flag is 0 (by default), set by command line
     if ((!debugflag) && (!updateFlag) &&
         ((checkType() == FAIL) || (testFpga() == FAIL) ||
          (testBus() == FAIL))) {
-        strcpy(initErrorMessage, "Could not pass basic tests of FPGA and bus. "
-                                 "Dangerous to continue.\n");
+        sprintf(initErrorMessage,
+                "Could not pass basic tests of FPGA and bus. Cannot proceed. "
+                "Check Firmware. (Firmware version:0x%llx) \n",
+                getFirmwareVersion());
         LOG(logERROR, ("%s\n\n", initErrorMessage));
         initError = FAIL;
         return;
     }
-
-    uint16_t hversion = getHardwareVersionNumber();
+#endif
+    char hversion[MAX_STR_LENGTH] = {0};
+    memset(hversion, 0, MAX_STR_LENGTH);
+    getHardwareVersion(hversion);
     uint16_t hsnumber = getHardwareSerialNumber();
     uint32_t ipadd = getDetectorIP();
     uint64_t macadd = getDetectorMAC();
     int64_t fwversion = getFirmwareVersion();
-    int64_t swversion = getServerVersion();
+    char swversion[MAX_STR_LENGTH] = {0};
+    memset(swversion, 0, MAX_STR_LENGTH);
+    getServerVersion(swversion);
     int64_t sw_fw_apiversion = 0;
-    int64_t client_sw_apiversion = getClientServerAPIVersion();
 
     if (fwversion >= MIN_REQRD_VRSN_T_RD_API)
         sw_fw_apiversion = getFirmwareAPIVersion();
     LOG(logINFOBLUE,
-        ("************ Chip Test Board Server *********************\n"
-         "Hardware Version:\t\t 0x%x\n"
+        ("**************************************************\n"
+         "Hardware Version:\t\t %s\n"
          "Hardware Serial Nr:\t\t 0x%x\n"
 
          "Detector IP Addr:\t\t 0x%x\n"
          "Detector MAC Addr:\t\t 0x%llx\n\n"
 
          "Firmware Version:\t\t 0x%llx\n"
-         "Software Version:\t\t 0x%llx\n"
+         "Software Version:\t\t %s\n"
          "F/w-S/w API Version:\t\t 0x%llx\n"
          "Required Firmware Version:\t 0x%x\n"
-         "Client-Software API Version:\t 0x%llx\n"
          "********************************************************\n",
          hversion, hsnumber, ipadd, (long long unsigned int)macadd,
-         (long long int)fwversion, (long long int)swversion,
-         (long long int)sw_fw_apiversion, REQRD_FRMWR_VRSN,
-         (long long int)client_sw_apiversion));
+         (long long int)fwversion, swversion, (long long int)sw_fw_apiversion,
+         REQRD_FRMWR_VRSN));
 
+#ifndef VIRTUAL
     // return if flag is not zero, debug mode
     if (debugflag || updateFlag) {
         return;
@@ -326,9 +328,7 @@ int testBus() {
 
 /* Ids */
 
-uint64_t getServerVersion() { return APICTB; }
-
-uint64_t getClientServerAPIVersion() { return APICTB; }
+void getServerVersion(char *version) { strcpy(version, APICTB); }
 
 uint64_t getFirmwareVersion() {
 #ifdef VIRTUAL
@@ -345,9 +345,24 @@ uint64_t getFirmwareAPIVersion() {
     return ((bus_r(API_VERSION_REG) & API_VERSION_MSK) >> API_VERSION_OFST);
 }
 
+void getHardwareVersion(char *version) {
+    strcpy(version, "unknown");
+    int hwversion = getHardwareVersionNumber();
+    const int hwNumberList[] = HARDWARE_VERSION_NUMBERS;
+    const char *hwNamesList[] = HARDWARE_VERSION_NAMES;
+    for (int i = 0; i != NUM_HARDWARE_VERSIONS; ++i) {
+        LOG(logDEBUG, ("0x%x %d 0x%x %s\n", hwversion, i, hwNumberList[i],
+                       hwNamesList[i]));
+        if (hwNumberList[i] == hwversion) {
+            strcpy(version, hwNamesList[i]);
+            return;
+        }
+    }
+}
+
 uint16_t getHardwareVersionNumber() {
 #ifdef VIRTUAL
-    return 0;
+    return 0x3f;
 #endif
     return ((bus_r(MOD_SERIAL_NUMBER_REG) & MOD_SERIAL_NUMBER_VRSN_MSK) >>
             MOD_SERIAL_NUMBER_VRSN_OFST);
@@ -428,16 +443,21 @@ void initControlServer() {
 }
 
 void initStopServer() {
-
-    usleep(CTRL_SRVR_INIT_TIME_US);
-    if (mapCSP0() == FAIL) {
-        LOG(logERROR,
-            ("Stop Server: Map Fail. Dangerous to continue. Goodbye!\n"));
-        exit(EXIT_FAILURE);
-    }
+    if (!updateFlag && initError == OK) {
+        usleep(CTRL_SRVR_INIT_TIME_US);
+        if (mapCSP0() == FAIL) {
+            initError = FAIL;
+            strcpy(initErrorMessage,
+                   "Stop Server: Map Fail. Cannot proceed. Check Firmware.\n");
+            LOG(logERROR, (initErrorMessage));
+            initCheckDone = 1;
+            return;
+        }
 #ifdef VIRTUAL
-    sharedMemory_setStop(0);
+        sharedMemory_setStop(0);
 #endif
+    }
+    initCheckDone = 1;
 }
 
 /* set up detector */
@@ -484,10 +504,18 @@ void setupDetector() {
 #endif
     setupUDPCommParameters();
 
+    // altera pll
+    ALTERA_PLL_SetDefines(PLL_CNTRL_REG, PLL_PARAM_REG,
+                          PLL_CNTRL_RCNFG_PRMTR_RST_MSK, PLL_CNTRL_WR_PRMTR_MSK,
+                          PLL_CNTRL_PLL_RST_MSK, PLL_CNTRL_ADDR_MSK,
+                          PLL_CNTRL_ADDR_OFST);
     ALTERA_PLL_ResetPLLAndReconfiguration();
+
     resetCore();
     resetPeripheral();
     cleanFifos();
+
+    initializePatternAddresses();
 
     // hv
     MAX1932_SetDefines(SPI_REG, SPI_HV_SRL_CS_OTPT_MSK, SPI_HV_SRL_CLK_OTPT_MSK,
@@ -542,12 +570,6 @@ void setupDetector() {
     INA226_CalibrateCurrentRegister(I2C_POWER_VD_DEVICE_ID);
     setVchip(VCHIP_MIN_MV);
 
-    // altera pll
-    ALTERA_PLL_SetDefines(PLL_CNTRL_REG, PLL_PARAM_REG,
-                          PLL_CNTRL_RCNFG_PRMTR_RST_MSK, PLL_CNTRL_WR_PRMTR_MSK,
-                          PLL_CNTRL_PLL_RST_MSK, PLL_CNTRL_ADDR_MSK,
-                          PLL_CNTRL_ADDR_OFST);
-
     setADCInvertRegister(0); // depends on chip
 
     LOG(logINFOBLUE, ("Setting Default parameters\n"));
@@ -575,6 +597,7 @@ void setupDetector() {
         LOG(logERROR, ("%s\n\n", initErrorMessage));
         initError = FAIL;
     }
+    setNextFrameNumber(DEFAULT_STARTING_FRAME_NUMBER);
 }
 
 int updateDatabytesandAllocateRAM() {
@@ -696,8 +719,16 @@ void resetPeripheral() {
 }
 
 /* set parameters -  dr, adcenablemask */
+int setDynamicRange(int dr) {
+    if (dr == 16)
+        return OK;
+    return FAIL;
+}
 
-int setDynamicRange(int dr) { return DYNAMIC_RANGE; }
+int getDynamicRange(int *retval) {
+    *retval = DYNAMIC_RANGE;
+    return OK;
+}
 
 int setADCEnableMask(uint32_t mask) {
     if (mask == 0u) {
@@ -892,6 +923,24 @@ int getReadoutMode() {
 }
 
 /* parameters - timer */
+int setNextFrameNumber(uint64_t value) {
+    LOG(logINFO,
+        ("Setting next frame number: %llu\n", (long long unsigned int)value));
+    setU64BitReg(value, NEXT_FRAME_NUMB_LOCAL_LSB_REG,
+                 NEXT_FRAME_NUMB_LOCAL_MSB_REG);
+#ifndef VIRTUAL
+    // for 1g udp interface
+    setUDPFrameNumber(value);
+#endif
+    return OK;
+}
+
+int getNextFrameNumber(uint64_t *retval) {
+    *retval = getU64BitReg(NEXT_FRAME_NUMB_LOCAL_LSB_REG,
+                           NEXT_FRAME_NUMB_LOCAL_MSB_REG);
+    return OK;
+}
+
 void setNumFrames(int64_t val) {
     if (val > 0) {
         LOG(logINFO, ("Setting number of frames %lld\n", (long long int)val));
@@ -1486,6 +1535,8 @@ enum timingMode getTiming() {
 
 /* configure mac */
 
+int getNumberofUDPInterfaces() { return 1; }
+
 void calcChecksum(udp_header *udp) {
     int count = IP_HEADER_SIZE;
     long int sum = 0;
@@ -1992,11 +2043,14 @@ void *start_timer(void *arg) {
     }
 
     // Send data
+    uint64_t frameNr = 0;
+    getNextFrameNumber(&frameNr);
     // loop over number of frames
-    for (int frameNr = 0; frameNr != numFrames; ++frameNr) {
+    for (int iframes = 0; iframes != numFrames; ++iframes) {
 
         // check if manual stop
         if (sharedMemory_getStop() == 1) {
+            setNextFrameNumber(frameNr + iframes + 1);
             break;
         }
 
@@ -2014,12 +2068,12 @@ void *start_timer(void *arg) {
             // set header
             sls_detector_header *header = (sls_detector_header *)(packetData);
             header->detType = (uint16_t)myDetectorType;
-            header->version = SLS_DETECTOR_HEADER_VERSION - 1;
-            header->frameNumber = virtual_currentFrameNumber;
+            header->version = SLS_DETECTOR_HEADER_VERSION;
+            header->frameNumber = frameNr + iframes;
             header->packetNumber = i;
             header->modId = 0;
-            header->row = detPos[X];
-            header->column = detPos[Y];
+            header->row = detPos[Y];
+            header->column = detPos[X];
 
             // fill data
             memcpy(packetData + sizeof(sls_detector_header),
@@ -2028,25 +2082,24 @@ void *start_timer(void *arg) {
 
             sendUDPPacket(0, 0, packetData, packetSize);
         }
-        LOG(logINFO, ("Sent frame: %d [%lld]\n", frameNr,
-                      (long long unsigned int)virtual_currentFrameNumber));
+        LOG(logINFO, ("Sent frame: %d [%lld]\n", iframes, frameNr + iframes));
         clock_gettime(CLOCK_REALTIME, &end);
         int64_t timeNs =
             ((end.tv_sec - begin.tv_sec) * 1E9 + (end.tv_nsec - begin.tv_nsec));
 
         // sleep for (period - exptime)
-        if (frameNr < numFrames) { // if there is a next frame
+        if (iframes < numFrames) { // if there is a next frame
             if (periodNs > timeNs) {
                 usleep((periodNs - timeNs) / 1000);
             }
         }
-        ++virtual_currentFrameNumber;
+        setNextFrameNumber(frameNr + numFrames);
     }
 
     closeUDPSocket(0);
 
     sharedMemory_setStatus(IDLE);
-    LOG(logINFOBLUE, ("Finished Acquiring\n"));
+    LOG(logINFOBLUE, ("Transmitting frames done\n"));
     return NULL;
 }
 #endif
@@ -2166,40 +2219,31 @@ void readandSendUDPFrames(int *ret, char *mess) {
     closeUDPSocket(0);
 }
 
-void readFrame(int *ret, char *mess) {
-#ifdef VIRTUAL
-    // wait for acquisition to be done
+void waitForAcquisitionEnd() {
     while (runBusy()) {
-        usleep(500); // random
+        usleep(500);
     }
-    LOG(logINFOGREEN, ("acquisition successfully finished\n"));
-    return;
+#ifndef VIRTUAL
+    int64_t retval = getNumFramesLeft() + 1;
+    if (retval > 0) {
+        LOG(logINFORED, ("%lld frames left\n", (long long int)retval));
+    }
 #endif
-    // 1G
+    LOG(logINFOGREEN, ("Blocking Acquisition done\n"));
+}
+
+void readFrames(int *ret, char *mess) {
+#ifdef VIRTUAL
+    while (runBusy()) {
+        usleep(500);
+    }
+#else
+    // 1G force reading of frames
     if (!enableTenGigabitEthernet(-1)) {
         readandSendUDPFrames(ret, mess);
+        LOG(logINFOBLUE, ("Transmitting frames done\n"));
     }
-    // 10G
-    else {
-        // wait for acquisition to be done
-        while (runBusy()) {
-            usleep(500); // random
-        }
-    }
-
-    // ret could be fail in 1gudp for not creating udp sockets
-    if (*ret != FAIL) {
-        // frames left to give status
-        int64_t retval = getNumFramesLeft() + 2;
-        if (retval > 1) {
-            sprintf(mess, "No data and run stopped: %lld frames left\n",
-                    (long long int)retval);
-            LOG(logERROR, (mess));
-        } else {
-            LOG(logINFOGREEN, ("Acquisition successfully finished\n"));
-        }
-    }
-    *ret = (int)OK;
+#endif
 }
 
 void unsetFifoReadStrobes() {
@@ -2377,7 +2421,7 @@ int calculateDataBytes() { return dataBytes; }
 
 int getTotalNumberOfChannels() {
     int nchanx = 0, nchany = 0;
-    getTotalNumberOfChannels(&nchanx, &nchany);
+    getNumberOfChannels(&nchanx, &nchany);
     return nchanx * nchany;
 }
 

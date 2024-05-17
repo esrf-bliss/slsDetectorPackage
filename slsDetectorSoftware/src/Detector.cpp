@@ -5,10 +5,13 @@
 
 #include "CmdParser.h"
 #include "CmdProxy.h"
+#include "CtbConfig.h"
 #include "DetectorImpl.h"
 #include "Module.h"
 #include "sls/Pattern.h"
+#include "sls/Version.h"
 #include "sls/container_utils.h"
+#include "sls/file_utils.h"
 #include "sls/logger.h"
 #include "sls/sls_detector_defs.h"
 #include "sls/versionAPI.h"
@@ -20,11 +23,12 @@
 namespace sls {
 
 void freeSharedMemory(int detectorIndex, int moduleIndex) {
+
     // single module
     if (moduleIndex >= 0) {
         SharedMemory<sharedModule> moduleShm(detectorIndex, moduleIndex);
-        if (moduleShm.IsExisting()) {
-            moduleShm.RemoveSharedMemory();
+        if (moduleShm.exists()) {
+            moduleShm.removeSharedMemory();
         }
         return;
     }
@@ -33,22 +37,26 @@ void freeSharedMemory(int detectorIndex, int moduleIndex) {
     SharedMemory<sharedDetector> detectorShm(detectorIndex, -1);
     int numDetectors = 0;
 
-    if (detectorShm.IsExisting()) {
-        detectorShm.OpenSharedMemory();
-        numDetectors = detectorShm()->numberOfModules;
-        detectorShm.RemoveSharedMemory();
+    if (detectorShm.exists()) {
+        detectorShm.openSharedMemory(false);
+        numDetectors = detectorShm()->totalNumberOfModules;
+        detectorShm.removeSharedMemory();
     }
 
     for (int i = 0; i < numDetectors; ++i) {
         SharedMemory<sharedModule> moduleShm(detectorIndex, i);
-        moduleShm.RemoveSharedMemory();
+        moduleShm.removeSharedMemory();
     }
+
+    // Ctb configuration
+    SharedMemory<CtbConfig> ctbShm(detectorIndex, -1, CtbConfig::shm_tag());
+    if (ctbShm.exists())
+        ctbShm.removeSharedMemory();
 }
 
 using defs = slsDetectorDefs;
 
-Detector::Detector(int shm_id)
-    : pimpl(sls::make_unique<DetectorImpl>(shm_id)) {}
+Detector::Detector(int shm_id) : pimpl(make_unique<DetectorImpl>(shm_id)) {}
 
 Detector::~Detector() = default;
 
@@ -58,7 +66,7 @@ void Detector::freeSharedMemory() { pimpl->freeSharedMemory(); }
 void Detector::loadConfig(const std::string &fname) {
     int shm_id = getShmId();
     freeSharedMemory();
-    pimpl = sls::make_unique<DetectorImpl>(shm_id);
+    pimpl = make_unique<DetectorImpl>(shm_id);
     LOG(logINFO) << "Loading configuration file: " << fname;
     loadParameters(fname);
 }
@@ -105,16 +113,27 @@ void Detector::setVirtualDetectorServers(int numServers, int startingPort) {
 
 int Detector::getShmId() const { return pimpl->getDetectorIndex(); }
 
-std::string Detector::getPackageVersion() const { return GITBRANCH; }
+std::string Detector::getPackageVersion() const { return RELEASE; }
 
-int64_t Detector::getClientVersion() const { return APILIB; }
+std::string Detector::getClientVersion() const {
+    Version v(APILIB);
+    return v.concise();
+}
 
 Result<int64_t> Detector::getFirmwareVersion(Positions pos) const {
     return pimpl->Parallel(&Module::getFirmwareVersion, pos);
 }
 
-Result<int64_t> Detector::getDetectorServerVersion(Positions pos) const {
+Result<std::string> Detector::getDetectorServerVersion(Positions pos) const {
     return pimpl->Parallel(&Module::getDetectorServerVersion, pos);
+}
+
+Result<std::string> Detector::getHardwareVersion(Positions pos) const {
+    return pimpl->Parallel(&Module::getHardwareVersion, pos);
+}
+
+Result<std::string> Detector::getKernelVersion(Positions pos) const {
+    return pimpl->Parallel(&Module::getKernelVersion, pos);
 }
 
 Result<int64_t> Detector::getSerialNumber(Positions pos) const {
@@ -125,7 +144,7 @@ Result<int> Detector::getModuleId(Positions pos) const {
     return pimpl->Parallel(&Module::getModuleId, pos);
 }
 
-Result<int64_t> Detector::getReceiverVersion(Positions pos) const {
+Result<std::string> Detector::getReceiverVersion(Positions pos) const {
     return pimpl->Parallel(&Module::getReceiverSoftwareVersion, pos);
 }
 
@@ -261,6 +280,10 @@ void Detector::loadTrimbits(const std::string &fname, Positions pos) {
     pimpl->Parallel(&Module::loadTrimbits, pos, fname);
 }
 
+void Detector::saveTrimbits(const std::string &fname, Positions pos) {
+    pimpl->Parallel(&Module::saveTrimbits, pos, fname);
+}
+
 Result<int> Detector::getAllTrimbits(Positions pos) const {
     return pimpl->Parallel(&Module::getAllTrimbits, pos);
 }
@@ -291,6 +314,62 @@ Result<bool> Detector::getFlipRows(Positions pos) const {
 
 void Detector::setFlipRows(bool value, Positions pos) {
     pimpl->Parallel(&Module::setFlipRows, pos, value);
+}
+
+Result<bool> Detector::getMaster(Positions pos) const {
+    return pimpl->Parallel(&Module::isMaster, pos);
+}
+
+void Detector::setMaster(bool master, int pos) {
+    // multi mod, set slaves first
+    if (master && size() > 1) {
+        if (pos == -1) {
+            throw RuntimeError("Master can be set only to a single module");
+        }
+        pimpl->Parallel(&Module::setMaster, {}, false);
+        pimpl->Parallel(&Module::setMaster, {pos}, master);
+    } else {
+        pimpl->Parallel(&Module::setMaster, {pos}, master);
+    }
+}
+
+Result<bool> Detector::getSynchronization(Positions pos) const {
+    return pimpl->Parallel(&Module::getSynchronization, pos);
+}
+
+void Detector::setSynchronization(bool value) {
+    pimpl->Parallel(&Module::setSynchronization, {}, value);
+}
+
+void Detector::getBadChannels(const std::string &fname, Positions pos) const {
+    pimpl->getBadChannels(fname, pos);
+}
+
+void Detector::setBadChannels(const std::string &fname, Positions pos) {
+    pimpl->setBadChannels(fname, pos);
+}
+
+Result<std::vector<int>> Detector::getBadChannels(Positions pos) const {
+    return pimpl->Parallel(&Module::getBadChannels, pos);
+}
+
+void Detector::setBadChannels(const std::vector<std::vector<int>> list) {
+
+    if (list.size() != static_cast<size_t>(size())) {
+        std::stringstream ss;
+        ss << "Number of bad channel sets (" << list.size()
+           << ") needs to match the number of modules (" << size() << ")";
+        throw RuntimeError(ss.str());
+    }
+
+    for (int idet = 0; idet < size(); ++idet) {
+        // TODO! Call in parallel since loading trimbits is slow?
+        pimpl->Parallel(&Module::setBadChannels, {idet}, list[idet]);
+    }
+}
+
+void Detector::setBadChannels(const std::vector<int> list, Positions pos) {
+    pimpl->setBadChannels(list, pos);
 }
 
 Result<bool> Detector::isVirtualDetectorServer(Positions pos) const {
@@ -382,7 +461,7 @@ void Detector::setDynamicRange(int value) {
 std::vector<int> Detector::getDynamicRangeList() const {
     switch (getDetectorType().squash()) {
     case defs::EIGER:
-        return std::vector<int>{4, 8, 16, 32};
+        return std::vector<int>{4, 8, 12, 16, 32};
     case defs::MYTHEN3:
         return std::vector<int>{8, 16, 32};
     default:
@@ -557,6 +636,9 @@ std::vector<defs::dacIndex> Detector::getTemperatureList() const {
             defs::TEMPERATURE_10GE,  defs::TEMPERATURE_DCDC,
             defs::TEMPERATURE_SODL,  defs::TEMPERATURE_SODR,
             defs::TEMPERATURE_FPGA2, defs::TEMPERATURE_FPGA3};
+    case defs::MYTHEN3:
+    case defs::GOTTHARD2:
+        return std::vector<defs::dacIndex>{defs::TEMPERATURE_FPGA};
     default:
         return std::vector<defs::dacIndex>{};
     }
@@ -583,6 +665,8 @@ Result<int> Detector::getTemperature(defs::dacIndex index,
     switch (getDetectorType().squash()) {
     case defs::EIGER:
     case defs::JUNGFRAU:
+    case defs::MYTHEN3:
+    case defs::GOTTHARD2:
         for (auto &it : res) {
             it /= 1000;
         }
@@ -751,23 +835,8 @@ void Detector::startReceiver() { pimpl->Parallel(&Module::startReceiver, {}); }
 
 void Detector::stopReceiver() { pimpl->Parallel(&Module::stopReceiver, {}); }
 
-void Detector::startDetector() {
-    auto detector_type = getDetectorType().squash();
-    if (detector_type == defs::MYTHEN3 && size() > 1) {
-        auto is_master = getMaster();
-        int masterPosition = 0;
-        std::vector<int> slaves;
-        for (int i = 0; i < size(); ++i) {
-            if (is_master[i])
-                masterPosition = i;
-            else
-                slaves.push_back(i);
-        }
-        pimpl->Parallel(&Module::startAcquisition, slaves);
-        pimpl->Parallel(&Module::startAcquisition, {masterPosition});
-    } else {
-        pimpl->Parallel(&Module::startAcquisition, {});
-    }
+void Detector::startDetector(Positions pos) {
+    pimpl->startAcquisition(false, pos);
 }
 
 void Detector::startDetectorReadout() {
@@ -775,7 +844,43 @@ void Detector::startDetectorReadout() {
 }
 
 void Detector::stopDetector(Positions pos) {
-    pimpl->Parallel(&Module::stopAcquisition, pos);
+
+    // stop and check status X times
+    int retries{0};
+    // avoid default construction of runStatus::IDLE on squash
+    auto status = getDetectorStatus().squash(defs::runStatus::RUNNING);
+    while (status != defs::runStatus::IDLE &&
+           status != defs::runStatus::STOPPED) {
+        if (status == defs::runStatus::ERROR) {
+            throw RuntimeError(
+                "Could not stop detector. Returned error status.");
+        }
+        pimpl->stopDetector(pos);
+        status = getDetectorStatus().squash(defs::runStatus::RUNNING);
+        ++retries;
+
+        if (retries == 10)
+            throw RuntimeError("Could not stop detector");
+    }
+
+    // validate consistent frame numbers
+    switch (getDetectorType().squash()) {
+    case defs::EIGER:
+    case defs::JUNGFRAU:
+    case defs::MOENCH:
+    case defs::CHIPTESTBOARD: {
+        auto res = getNextFrameNumber(pos);
+        if (!res.equal()) {
+            uint64_t maxVal = 0;
+            for (auto it : res) {
+                maxVal = std::max(maxVal, it);
+            }
+            setNextFrameNumber(maxVal + 1);
+        }
+    } break;
+    default:
+        break;
+    }
 }
 
 Result<defs::runStatus> Detector::getDetectorStatus(Positions pos) const {
@@ -786,13 +891,18 @@ Result<defs::runStatus> Detector::getReceiverStatus(Positions pos) const {
     return pimpl->Parallel(&Module::getReceiverStatus, pos);
 }
 
-Result<int64_t> Detector::getFramesCaught(Positions pos) const {
+Result<std::vector<int64_t>> Detector::getFramesCaught(Positions pos) const {
     return pimpl->Parallel(&Module::getFramesCaughtByReceiver, pos);
 }
 
-Result<std::vector<uint64_t>>
+Result<std::vector<int64_t>>
 Detector::getNumMissingPackets(Positions pos) const {
     return pimpl->Parallel(&Module::getNumMissingPackets, pos);
+}
+
+Result<std::vector<int64_t>>
+Detector::getRxCurrentFrameIndex(Positions pos) const {
+    return pimpl->Parallel(&Module::getReceiverCurrentFrameIndex, pos);
 }
 
 Result<uint64_t> Detector::getNextFrameNumber(Positions pos) const {
@@ -804,7 +914,7 @@ void Detector::setNextFrameNumber(uint64_t value, Positions pos) {
 }
 
 void Detector::sendSoftwareTrigger(const bool block, Positions pos) {
-    pimpl->Parallel(&Module::sendSoftwareTrigger, pos, block);
+    pimpl->sendSoftwareTrigger(block, pos);
 }
 
 Result<defs::scanParameters> Detector::getScan(Positions pos) const {
@@ -828,12 +938,12 @@ Result<std::string> Detector::getScanErrorMessage(Positions pos) const {
 
 Result<int> Detector::getNumberofUDPInterfaces(Positions pos) const {
     // also called by vetostream (for gotthard2)
-    return pimpl->getNumberofUDPInterfaces(pos);
+    return pimpl->Parallel(&Module::getNumberofUDPInterfacesFromShm, pos);
 }
 
 void Detector::setNumberofUDPInterfaces(int n, Positions pos) {
     if (getDetectorType().squash() != defs::JUNGFRAU) {
-        throw sls::RuntimeError(
+        throw RuntimeError(
             "Cannot set number of udp interfaces for this detector.");
     }
     // also called by vetostream (for gotthard2)
@@ -841,18 +951,23 @@ void Detector::setNumberofUDPInterfaces(int n, Positions pos) {
 }
 
 void Detector::setNumberofUDPInterfaces_(int n, Positions pos) {
+    if (!size()) {
+        throw RuntimeError("No modules added.");
+    }
     bool previouslyClientStreaming = pimpl->getDataStreamingToClient();
+    int clientStartingPort = getClientZmqPort({0}).squash(0);
     bool useReceiver = getUseReceiverFlag().squash(false);
     bool previouslyReceiverStreaming = false;
-    int startingPort = 0;
+    int rxStartingPort = 0;
     if (useReceiver) {
         previouslyReceiverStreaming = getRxZmqDataStream(pos).squash(true);
-        startingPort = getRxZmqPort({0}).squash(0);
+        rxStartingPort = getRxZmqPort({0}).squash(0);
     }
     pimpl->Parallel(&Module::setNumberofUDPInterfaces, pos, n);
     // ensure receiver zmq socket ports are multiplied by 2 (2 interfaces)
-    if (getUseReceiverFlag().squash(false) && size()) {
-        setRxZmqPort(startingPort, -1);
+    setClientZmqPort(clientStartingPort, -1);
+    if (getUseReceiverFlag().squash(false)) {
+        setRxZmqPort(rxStartingPort, -1);
     }
     // redo the zmq sockets if enabled
     if (previouslyClientStreaming) {
@@ -913,7 +1028,7 @@ Result<UdpDestination> Detector::getDestinationUDPList(const uint32_t entry,
 void Detector::setDestinationUDPList(const UdpDestination dest,
                                      const int module_id) {
     if (module_id == -1 && size() > 1) {
-        throw sls::RuntimeError("Cannot set this parameter at detector level.");
+        throw RuntimeError("Cannot set this parameter at detector level.");
     }
     pimpl->Parallel(&Module::setDestinationUDPList, {module_id}, dest);
 }
@@ -1050,6 +1165,14 @@ void Detector::setTransmissionDelayRight(int value, Positions pos) {
     pimpl->Parallel(&Module::setTransmissionDelayRight, pos, value);
 }
 
+int Detector::getTransmissionDelay() const {
+    return pimpl->getTransmissionDelay();
+}
+
+void Detector::setTransmissionDelay(int step) {
+    pimpl->setTransmissionDelay(step);
+}
+
 // Receiver
 
 Result<bool> Detector::getUseReceiverFlag(Positions pos) const {
@@ -1061,14 +1184,16 @@ Result<std::string> Detector::getRxHostname(Positions pos) const {
 }
 
 void Detector::setRxHostname(const std::string &receiver, Positions pos) {
-    pimpl->Parallel(&Module::setReceiverHostname, pos, receiver);
+    pimpl->Parallel(&Module::setReceiverHostname, pos, receiver,
+                    pimpl->getInitialChecks());
     updateRxRateCorrections();
 }
 
 void Detector::setRxHostname(const std::vector<std::string> &name) {
     // set all to same rx_hostname
     if (name.size() == 1) {
-        pimpl->Parallel(&Module::setReceiverHostname, {}, name[0]);
+        pimpl->Parallel(&Module::setReceiverHostname, {}, name[0],
+                        pimpl->getInitialChecks());
     } else {
         if ((int)name.size() != size()) {
             throw RuntimeError(
@@ -1077,7 +1202,8 @@ void Detector::setRxHostname(const std::vector<std::string> &name) {
         }
         // set each rx_hostname
         for (int idet = 0; idet < size(); ++idet) {
-            pimpl->Parallel(&Module::setReceiverHostname, {idet}, name[idet]);
+            pimpl->Parallel(&Module::setReceiverHostname, {idet}, name[idet],
+                            pimpl->getInitialChecks());
         }
     }
     updateRxRateCorrections();
@@ -1156,7 +1282,7 @@ void Detector::setRxLock(bool value, Positions pos) {
     pimpl->Parallel(&Module::setReceiverLock, pos, value);
 }
 
-Result<sls::IpAddr> Detector::getRxLastClientIP(Positions pos) const {
+Result<IpAddr> Detector::getRxLastClientIP(Positions pos) const {
     return pimpl->Parallel(&Module::getReceiverLastClientIP, pos);
 }
 
@@ -1164,6 +1290,24 @@ Result<std::array<pid_t, NUM_RX_THREAD_IDS>>
 Detector::getRxThreadIds(Positions pos) const {
     return pimpl->Parallel(&Module::getReceiverThreadIds, pos);
 }
+
+Result<bool> Detector::getRxArping(Positions pos) const {
+    return pimpl->Parallel(&Module::getRxArping, pos);
+}
+
+void Detector::setRxArping(bool value, Positions pos) {
+    pimpl->Parallel(&Module::setRxArping, pos, value);
+}
+
+Result<defs::ROI> Detector::getIndividualRxROIs(Positions pos) const {
+    return pimpl->Parallel(&Module::getRxROI, pos);
+}
+
+defs::ROI Detector::getRxROI() const { return pimpl->getRxROI(); }
+
+void Detector::setRxROI(const defs::ROI value) { pimpl->setRxROI(value); }
+
+void Detector::clearRxROI() { pimpl->clearRxROI(); }
 
 // File
 
@@ -1188,6 +1332,9 @@ Result<std::string> Detector::getFileNamePrefix(Positions pos) const {
 }
 
 void Detector::setFileNamePrefix(const std::string &fname, Positions pos) {
+    if (fname.find_first_of("/ ") != std::string::npos) {
+        throw RuntimeError("Cannot set file name prefix with '/' or ' '");
+    }
     pimpl->Parallel(&Module::setFileName, pos, fname);
 }
 
@@ -1473,6 +1620,14 @@ void Detector::setDataStream(const defs::portPosition port, const bool enable,
     pimpl->Parallel(&Module::setDataStream, pos, port, enable);
 }
 
+Result<bool> Detector::getTop(Positions pos) const {
+    return pimpl->Parallel(&Module::getTop, pos);
+}
+
+void Detector::setTop(bool value, Positions pos) {
+    pimpl->Parallel(&Module::setTop, pos, value);
+}
+
 // Jungfrau Specific
 Result<double> Detector::getChipVersion(Positions pos) const {
     return pimpl->Parallel(&Module::getChipVersion, pos);
@@ -1548,7 +1703,6 @@ std::vector<defs::gainMode> Detector::getGainModeList() const {
         return std::vector<defs::gainMode>{
             defs::DYNAMIC, defs::FORCE_SWITCH_G1, defs::FORCE_SWITCH_G2,
             defs::FIX_G1,  defs::FIX_G2,          defs::FIX_G0};
-        break;
     default:
         throw RuntimeError("Gain mode is not implemented for this detector.");
     }
@@ -1681,7 +1835,7 @@ Result<defs::streamingInterface> Detector::getVetoStream(Positions pos) const {
     // 3gbe
     auto r3 = pimpl->Parallel(&Module::getVetoStream, pos);
     // 10gbe (debugging interface) opens 2nd udp interface in receiver
-    auto r10 = pimpl->getNumberofUDPInterfaces(pos);
+    auto r10 = getNumberofUDPInterfaces(pos);
 
     Result<defs::streamingInterface> res(r3.size());
     for (unsigned int i = 0; i < res.size(); ++i) {
@@ -1703,7 +1857,7 @@ void Detector::setVetoStream(defs::streamingInterface interface,
     pimpl->Parallel(&Module::setVetoStream, pos, LOW_LATENCY_LINK);
 
     // 10gbe (debugging interface) opens 2nd udp interface in receiver
-    int old_numinterfaces = pimpl->getNumberofUDPInterfaces(pos).tsquash(
+    int old_numinterfaces = getNumberofUDPInterfaces(pos).tsquash(
         "retrieved inconsistent number of udp interfaces");
     int numinterfaces =
         (((interface & defs::streamingInterface::ETHERNET_10GB) ==
@@ -1724,8 +1878,8 @@ Detector::getVetoAlgorithm(const defs::streamingInterface interface,
 void Detector::setVetoAlgorithm(const defs::vetoAlgorithm alg,
                                 defs::streamingInterface interface,
                                 Positions pos) {
-    LOG(logINFOBLUE) << "alg:" << ToString(alg)
-                     << " interface:" << ToString(interface);
+    LOG(logDEBUG) << "alg:" << ToString(alg)
+                  << " interface:" << ToString(interface);
     pimpl->Parallel(&Module::setVetoAlgorithm, pos, alg, interface);
 }
 
@@ -1740,14 +1894,6 @@ void Detector::setADCConfiguration(const int chipIndex, const int adcIndex,
                                    const int value, Positions pos) {
     pimpl->Parallel(&Module::setADCConfiguration, pos, chipIndex, adcIndex,
                     value);
-}
-
-void Detector::getBadChannels(const std::string &fname, Positions pos) const {
-    pimpl->Parallel(&Module::getBadChannels, pos, fname);
-}
-
-void Detector::setBadChannels(const std::string &fname, Positions pos) {
-    pimpl->Parallel(&Module::setBadChannels, pos, fname);
 }
 
 // Mythen3 Specific
@@ -1793,10 +1939,6 @@ Detector::getGateDelayForAllGates(Positions pos) const {
     return pimpl->Parallel(&Module::getGateDelayForAllGates, pos);
 }
 
-Result<bool> Detector::getMaster(Positions pos) const {
-    return pimpl->Parallel(&Module::isMaster, pos);
-}
-
 Result<int> Detector::getChipStatusRegister(Positions pos) const {
     return pimpl->Parallel(&Module::getChipStatusRegister, pos);
 }
@@ -1807,6 +1949,46 @@ void Detector::setGainCaps(int caps, Positions pos) {
 
 Result<int> Detector::getGainCaps(Positions pos) {
     return pimpl->Parallel(&Module::getGainCaps, pos);
+}
+
+Result<defs::polarity> Detector::getPolarity(Positions pos) const {
+    return pimpl->Parallel(&Module::getPolarity, pos);
+}
+
+void Detector::setPolarity(defs::polarity value, Positions pos) {
+    pimpl->Parallel(&Module::setPolarity, pos, value);
+}
+
+Result<bool> Detector::getInterpolation(Positions pos) const {
+    return pimpl->Parallel(&Module::getInterpolation, pos);
+}
+
+void Detector::setInterpolation(bool value, Positions pos) {
+    pimpl->Parallel(&Module::setInterpolation, pos, value);
+}
+
+Result<bool> Detector::getPumpProbe(Positions pos) const {
+    return pimpl->Parallel(&Module::getPumpProbe, pos);
+}
+
+void Detector::setPumpProbe(bool value, Positions pos) {
+    pimpl->Parallel(&Module::setPumpProbe, pos, value);
+}
+
+Result<bool> Detector::getAnalogPulsing(Positions pos) const {
+    return pimpl->Parallel(&Module::getAnalogPulsing, pos);
+}
+
+void Detector::setAnalogPulsing(bool value, Positions pos) {
+    pimpl->Parallel(&Module::setAnalogPulsing, pos, value);
+}
+
+Result<bool> Detector::getDigitalPulsing(Positions pos) const {
+    return pimpl->Parallel(&Module::getDigitalPulsing, pos);
+}
+
+void Detector::setDigitalPulsing(bool value, Positions pos) {
+    pimpl->Parallel(&Module::setDigitalPulsing, pos, value);
 }
 
 // CTB/ Moench Specific
@@ -1879,6 +2061,14 @@ void Detector::setVoltage(defs::dacIndex index, int value, Positions pos) {
         throw RuntimeError("Unknown Voltage Index");
     }
     pimpl->Parallel(&Module::setDAC, pos, value, index, true);
+}
+
+Result<int> Detector::getADCVpp(bool mV, Positions pos) const {
+    return pimpl->Parallel(&Module::getDAC, pos, defs::ADC_VPP, mV);
+}
+
+void Detector::setADCVpp(int value, bool mV, Positions pos) {
+    pimpl->Parallel(&Module::setDAC, pos, value, defs::ADC_VPP, mV);
 }
 
 Result<uint32_t> Detector::getADCEnableMask(Positions pos) const {
@@ -2008,6 +2198,42 @@ void Detector::setLEDEnable(bool enable, Positions pos) {
     pimpl->Parallel(&Module::setLEDEnable, pos, enable);
 }
 
+void Detector::setDacNames(const std::vector<std::string> names) {
+    if (getDetectorType().squash() != defs::CHIPTESTBOARD)
+        throw RuntimeError("Named dacs only for CTB");
+    pimpl->setCtbDacNames(names);
+}
+
+std::vector<std::string> Detector::getDacNames() const {
+    std::vector<std::string> names;
+    auto type = getDetectorType().squash();
+    if (type == defs::CHIPTESTBOARD)
+        return pimpl->getCtbDacNames();
+
+    for (const auto &index : getDacList())
+        names.push_back(ToString(index));
+    return names;
+}
+
+defs::dacIndex Detector::getDacIndex(const std::string &name) {
+    auto type = getDetectorType().squash();
+    if (type == defs::CHIPTESTBOARD) {
+        auto names = getDacNames();
+        auto it = std::find(names.begin(), names.end(), name);
+        if (it == names.end())
+            throw RuntimeError("Dacname not found");
+        return static_cast<defs::dacIndex>(it - names.begin());
+    }
+    return StringTo<defs::dacIndex>(name);
+}
+
+std::string Detector::getDacName(defs::dacIndex i) {
+    auto type = getDetectorType().squash();
+    if (type == defs::CHIPTESTBOARD)
+        return pimpl->getCtbDacName(i);
+    return ToString(i);
+}
+
 // Pattern
 
 void Detector::setPattern(const std::string &fname, Positions pos) {
@@ -2128,9 +2354,12 @@ void Detector::setAdditionalJsonParameter(const std::string &key,
 
 // Advanced
 
-void Detector::programFPGA(const std::string &fname, Positions pos) {
+void Detector::programFPGA(const std::string &fname,
+                           const bool forceDeleteNormalFile, Positions pos) {
+    LOG(logINFO) << "Updating Firmware...";
+    LOG(logINFO) << "Hardware Version: " << getHardwareVersion();
     std::vector<char> buffer = pimpl->readProgrammingFile(fname);
-    pimpl->Parallel(&Module::programFPGA, pos, buffer);
+    pimpl->Parallel(&Module::programFPGA, pos, buffer, forceDeleteNormalFile);
     rebootController(pos);
 }
 
@@ -2138,12 +2367,21 @@ void Detector::resetFPGA(Positions pos) {
     pimpl->Parallel(&Module::resetFPGA, pos);
 }
 
-void Detector::copyDetectorServer(const std::string &fname,
-                                  const std::string &hostname, Positions pos) {
-    pimpl->Parallel(&Module::copyDetectorServer, pos, fname, hostname);
+void Detector::updateDetectorServer(const std::string &fname, Positions pos) {
+    LOG(logINFO) << "Updating Detector Server (no tftp)...";
+    std::vector<char> buffer = readBinaryFile(fname, "Update Detector Server");
+    std::string filename = getFileNameFromFilePath(fname);
+    pimpl->Parallel(&Module::updateDetectorServer, pos, buffer, filename);
     if (getDetectorType().squash() != defs::EIGER) {
         rebootController(pos);
     }
+}
+
+void Detector::updateKernel(const std::string &fname, Positions pos) {
+    LOG(logINFO) << "Updating Kernel...";
+    std::vector<char> buffer = readBinaryFile(fname, "Update Kernel");
+    pimpl->Parallel(&Module::updateKernel, pos, buffer);
+    rebootController(pos);
 }
 
 void Detector::rebootController(Positions pos) {
@@ -2151,11 +2389,25 @@ void Detector::rebootController(Positions pos) {
 }
 
 void Detector::updateFirmwareAndServer(const std::string &sname,
-                                       const std::string &hostname,
                                        const std::string &fname,
                                        Positions pos) {
-    pimpl->Parallel(&Module::copyDetectorServer, pos, sname, hostname);
-    programFPGA(fname, pos);
+    LOG(logINFO) << "Updating Firmware and Detector Server (no tftp)...";
+    LOG(logINFO) << "Updating Detector Server (no tftp)...";
+    std::vector<char> buffer = readBinaryFile(sname, "Update Detector Server");
+    std::string filename = getFileNameFromFilePath(sname);
+    pimpl->Parallel(&Module::updateDetectorServer, pos, buffer, filename);
+    programFPGA(fname, false, pos);
+}
+
+Result<bool> Detector::getUpdateMode(Positions pos) const {
+    return pimpl->Parallel(&Module::getUpdateMode, pos);
+}
+
+void Detector::setUpdateMode(const bool updatemode, Positions pos) {
+    pimpl->Parallel(&Module::setUpdateMode, pos, updatemode);
+    if (getDetectorType().squash() != defs::EIGER) {
+        rebootController(pos);
+    }
 }
 
 Result<uint32_t> Detector::readRegister(uint32_t addr, Positions pos) const {
@@ -2230,13 +2482,13 @@ void Detector::setDetectorLock(bool lock, Positions pos) {
     pimpl->Parallel(&Module::setLockDetector, pos, lock);
 }
 
-Result<sls::IpAddr> Detector::getLastClientIP(Positions pos) const {
+Result<IpAddr> Detector::getLastClientIP(Positions pos) const {
     return pimpl->Parallel(&Module::getLastClientIP, pos);
 }
 
 Result<std::string> Detector::executeCommand(const std::string &value,
                                              Positions pos) {
-    return pimpl->Parallel(&Module::execCommand, pos, value);
+    return pimpl->Parallel(&Module::executeCommand, pos, value);
 }
 
 Result<int64_t> Detector::getNumberOfFramesFromStart(Positions pos) const {
@@ -2253,22 +2505,9 @@ Result<ns> Detector::getMeasurementTime(Positions pos) const {
 
 std::string Detector::getUserDetails() const { return pimpl->getUserDetails(); }
 
-Result<uint64_t> Detector::getRxCurrentFrameIndex(Positions pos) const {
-    return pimpl->Parallel(&Module::getReceiverCurrentFrameIndex, pos);
-}
-
 std::vector<int> Detector::getPortNumbers(int start_port) {
-    int num_sockets_per_detector = 1;
-    switch (getDetectorType().squash()) {
-    case defs::EIGER:
-    case defs::JUNGFRAU:
-    case defs::GOTTHARD2:
-        num_sockets_per_detector *=
-            pimpl->getNumberofUDPInterfaces({}).squash();
-        break;
-    default:
-        break;
-    }
+    int num_sockets_per_detector = getNumberofUDPInterfaces({}).tsquash(
+        "Number of UDP Interfaces is not consistent among modules");
     std::vector<int> res;
     res.reserve(size());
     for (int idet = 0; idet < size(); ++idet) {

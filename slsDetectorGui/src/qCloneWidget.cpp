@@ -11,6 +11,8 @@
 #include <QPainter>
 #include <qwt_text.h>
 
+namespace sls {
+
 int qCloneWidget::NumClones{0};
 
 qCloneWidget::qCloneWidget(QWidget *parent, SlsQt1DPlot *p1, SlsQt2DPlot *p2,
@@ -44,10 +46,9 @@ qCloneWidget::~qCloneWidget() {
 void qCloneWidget::SetupWidgetWindow(QString title) {
 
     std::string winTitle = std::string("Snapshot:") + std::to_string(id) +
-                           std::string("  -  ") + sls::Logger::Timestamp();
+                           std::string("  -  ") + Logger::Timestamp();
     setWindowTitle(QString(winTitle.c_str()));
 
-    boxPlot->setFont(QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
     boxPlot->setTitle(title);
 
     // 1d
@@ -106,7 +107,7 @@ void qCloneWidget::SavePlot() {
     QString fName = filePath + QString('/') + fileName + QString("_clone") +
                     QString("%1").arg(id) + QString("_acq") +
                     QString("%1").arg(acqIndex) + QString(".png");
-    LOG(logINFO) << "Saving Clone:" << fName.toAscii().constData();
+    LOG(logINFO) << "Saving Clone:" << fName.toLatin1().constData();
     // save
     QImage img(centralwidget->size().width(), centralwidget->size().height(),
                QImage::Format_RGB32);
@@ -147,3 +148,5 @@ void qCloneWidget::resizeEvent(QResizeEvent *event) {
     }
     event->accept();
 }
+
+} // namespace sls

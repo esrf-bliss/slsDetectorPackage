@@ -12,7 +12,7 @@ add_executable(jungfrauDetectorServer_virtual
     ../slsDetectorServer/src/ALTERA_PLL.c
     ../slsDetectorServer/src/LTC2620.c
     ../slsDetectorServer/src/MAX1932.c
-    ../slsDetectorServer/src/programFpgaBlackfin.c
+    ../slsDetectorServer/src/programViaBlackfin.c
     ../slsDetectorServer/src/communication_funcs_UDP.c    
     ../slsDetectorServer/src/sharedMemory.c
     ../../slsSupportLib/src/md5.c
@@ -25,7 +25,7 @@ target_include_directories(jungfrauDetectorServer_virtual
 )
 
 target_compile_definitions(jungfrauDetectorServer_virtual
-    PUBLIC JUNGFRAUD VIRTUAL STOP_SERVER
+    PUBLIC JUNGFRAUD VIRTUAL STOP_SERVER #TEST_MOD_GEOMETRY
 )
 
 target_link_libraries(jungfrauDetectorServer_virtual
@@ -42,3 +42,4 @@ install(TARGETS jungfrauDetectorServer_virtual
 )
 
 configure_file(config_jungfrau.txt ${CMAKE_BINARY_DIR}/bin/config_jungfrau.txt COPYONLY)
+configure_file(detid_jungfrau.txt ${CMAKE_BINARY_DIR}/bin/detid_jungfrau.txt COPYONLY)

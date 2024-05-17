@@ -9,6 +9,7 @@
 #define REBOOT  (-400)
 
 // initialization functions
+int updateModeAllowedFunction(int file_des);
 int printSocketReadError();
 void init_detector();
 int decode_function(int);
@@ -51,7 +52,6 @@ int start_acquisition(int);
 int stop_acquisition(int);
 int get_run_status(int);
 int start_and_read_all(int);
-int read_all(int);
 int get_num_frames(int);
 int set_num_frames(int);
 int get_num_triggers(int);
@@ -127,11 +127,10 @@ int temp_control(int);
 int temp_event(int);
 int auto_comp_disable(int);
 int storage_cell_start(int);
-int check_version(int);
+int initial_checks(int);
 int software_trigger(int);
 int led(int);
 int digital_io_delay(int);
-int copy_detector_server(int);
 int reboot_controller(int);
 int set_adc_enable_mask(int);
 int get_adc_enable_mask(int);
@@ -244,6 +243,7 @@ int get_pattern(int);
 int load_default_pattern(int);
 int get_all_threshold_energy(int);
 int get_master(int);
+int set_master(int);
 int get_csr();
 int set_gain_caps(int);
 int get_gain_caps(int);
@@ -277,3 +277,32 @@ int get_udp_first_dest(int);
 int set_udp_first_dest(int);
 int get_readout_speed(int);
 int set_readout_speed(int);
+int get_kernel_version(int);
+int update_kernel(int);
+int update_detector_server(int);
+int receive_program(int file_des, enum PROGRAM_INDEX index);
+void receive_program_via_blackfin(int file_des, enum PROGRAM_INDEX index,
+                                  char *functionType, uint64_t filesize,
+                                  char *checksum, char *serverName,
+                                  int forceDeleteNormalFile);
+void receive_program_default(int file_des, enum PROGRAM_INDEX index,
+                             char *functionType, uint64_t filesize,
+                             char *checksum, char *serverName);
+int get_update_mode(int);
+int set_update_mode(int);
+int get_top(int);
+int set_top(int);
+int get_polarity(int);
+int set_polarity(int);
+int get_interpolation(int);
+int set_interpolation(int);
+int get_pump_probe(int);
+int set_pump_probe(int);
+int get_analog_pulsing(int);
+int set_analog_pulsing(int);
+int get_digital_pulsing(int);
+int set_digital_pulsing(int);
+int get_module(int);
+int get_synchronization(int);
+int set_synchronization(int);
+int get_hardware_version(int);

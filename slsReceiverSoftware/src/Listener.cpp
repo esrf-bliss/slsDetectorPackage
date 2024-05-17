@@ -29,7 +29,7 @@ Listener::Listener(int ind, detectorType dtype, Fifo *f,
       udpPortNumber(portno), eth(e), udpSocketBufferSize(us),
       actualUDPSocketBufferSize(as), frameDiscardMode(fdp), silentMode(sm),
       rrNbRecvs(rrnb), rrRecvIdx(rridx) {
-    LOG(logDEBUG) << "Listener " << ind << " created";
+    LOG(sls::logDEBUG) << "Listener " << ind << " created";
 }
 
 Listener::~Listener() = default;
@@ -101,7 +101,7 @@ void Listener::CreateUDPSockets() {
         (*eth) = "";
     }
     if (!(*eth).length()) {
-        LOG(logWARNING) << "eth is empty. Listening to all";
+        LOG(sls::logWARNING) << "eth is empty. Listening to all";
     }
 
     ShutDownUDPSocket();
@@ -118,7 +118,7 @@ void Listener::CreateUDPSockets() {
             ((*eth).length() ? sls::InterfaceNameToIp(*eth).str().c_str()
                              : nullptr),
             *udpSocketBufferSize);
-        LOG(logINFO) << index << ": UDP port opened at port " << *udpPortNumber;
+        LOG(sls::logINFO) << index << ": UDP port opened at port " << *udpPortNumber;
     } catch (...) {
         throw sls::RuntimeError("Could not create UDP socket on port " +
                                 std::to_string(*udpPortNumber));
@@ -132,7 +132,7 @@ void Listener::CreateUDPSockets() {
             generalData->numUDPInterfaces, generalData->dynamicRange, index,
             rrNbRecvs, rrRecvIdx, cpuAffinity, *frameDiscardMode,
             packetContainer);
-        LOG(logINFO) << index << ": PacketStream for port " << *udpPortNumber;
+        LOG(sls::logINFO) << index << ": PacketStream for port " << *udpPortNumber;
     } catch (...) {
         throw sls::RuntimeError("Could not create PacketStream on port " +
                                 std::to_string(*udpPortNumber));
@@ -165,11 +165,11 @@ void Listener::ShutDownUDPSocket() {
     udpSocket->Shutdown();
     packetStream.reset();
     udpSocket.reset();
-    LOG(logINFO) << "Shut down of UDP port " << *udpPortNumber;
+    LOG(sls::logINFO) << "Shut down of UDP port " << *udpPortNumber;
 }
 
 void Listener::CreateDummySocketForUDPSocketBufferSize(int s) {
-    LOG(logINFO) << "Testing UDP Socket Buffer size " << s << " with test port "
+    LOG(sls::logINFO) << "Testing UDP Socket Buffer size " << s << " with test port "
                  << *udpPortNumber;
 
     int temp = *udpSocketBufferSize;
@@ -213,6 +213,6 @@ void Listener::ThreadExecution() {
     StopRunning();
 
     if (!(*silentMode) && !index) {
-        LOG(logINFOBLUE) << index << " First Index: " << GetFirstFrameCaught();
+        LOG(sls::logINFOBLUE) << index << " First Index: " << GetFirstFrameCaught();
     }
 }

@@ -12,6 +12,7 @@
 
 #include "sls/ToString.h"
 #include "sls/container_utils.h"
+#include "sls/file_utils.h"
 #include "sls/network_utils.h"
 #include "sls/string_utils.h"
 
@@ -31,7 +32,8 @@
 namespace sls {
 
 DetectorImpl::DetectorImpl(int detector_index, bool verify, bool update)
-    : detectorIndex(detector_index), shm(detector_index, -1) {
+    : detectorIndex(detector_index), shm(detector_index, -1),
+      ctb_shm(detector_index, -1, CtbConfig::shm_tag()) {
     setupDetector(verify, update);
 }
 
@@ -43,6 +45,14 @@ void DetectorImpl::setupDetector(bool verify, bool update) {
     if (update) {
         updateUserdetails();
     }
+
+    if (ctb_shm.exists())
+        ctb_shm.openSharedMemory(verify);
+}
+
+bool DetectorImpl::isAllPositions(Positions pos) const {
+    return (pos.empty() || (pos.size() == 1 && pos[0] == -1) ||
+            (pos.size() == modules.size()));
 }
 
 void DetectorImpl::setAcquiringFlag(bool flag) { shm()->acquiringFlag = flag; }
@@ -53,8 +63,8 @@ void DetectorImpl::freeSharedMemory(int detectorIndex, int detPos) {
     // single
     if (detPos >= 0) {
         SharedMemory<sharedModule> moduleShm(detectorIndex, detPos);
-        if (moduleShm.IsExisting()) {
-            moduleShm.RemoveSharedMemory();
+        if (moduleShm.exists()) {
+            moduleShm.removeSharedMemory();
         }
         return;
     }
@@ -63,16 +73,20 @@ void DetectorImpl::freeSharedMemory(int detectorIndex, int detPos) {
     SharedMemory<sharedDetector> detectorShm(detectorIndex, -1);
     int numModules = 0;
 
-    if (detectorShm.IsExisting()) {
-        detectorShm.OpenSharedMemory();
-        numModules = detectorShm()->numberOfModules;
-        detectorShm.RemoveSharedMemory();
+    if (detectorShm.exists()) {
+        detectorShm.openSharedMemory(false);
+        numModules = detectorShm()->totalNumberOfModules;
+        detectorShm.removeSharedMemory();
     }
 
     for (int i = 0; i < numModules; ++i) {
         SharedMemory<sharedModule> moduleShm(detectorIndex, i);
-        moduleShm.RemoveSharedMemory();
+        moduleShm.removeSharedMemory();
     }
+
+    SharedMemory<CtbConfig> ctbShm(detectorIndex, -1, CtbConfig::shm_tag());
+    if (ctbShm.exists())
+        ctbShm.removeSharedMemory();
 }
 
 void DetectorImpl::freeSharedMemory() {
@@ -83,8 +97,11 @@ void DetectorImpl::freeSharedMemory() {
     modules.clear();
 
     // clear detector shm
-    shm.RemoveSharedMemory();
+    shm.removeSharedMemory();
     client_downstream = false;
+
+    if (ctb_shm.exists())
+        ctb_shm.removeSharedMemory();
 }
 
 std::string DetectorImpl::getUserDetails() {
@@ -128,11 +145,11 @@ void DetectorImpl::setInitialChecks(const bool value) {
 }
 
 void DetectorImpl::initSharedMemory(bool verify) {
-    if (!shm.IsExisting()) {
-        shm.CreateSharedMemory();
+    if (!shm.exists()) {
+        shm.createSharedMemory();
         initializeDetectorStructure();
     } else {
-        shm.OpenSharedMemory();
+        shm.openSharedMemory(verify);
         if (verify && shm()->shmversion != DETECTOR_SHMVERSION) {
             LOG(logERROR) << "Detector shared memory (" << detectorIndex
                           << ") version mismatch "
@@ -143,14 +160,16 @@ void DetectorImpl::initSharedMemory(bool verify) {
             throw SharedMemoryError("Shared memory version mismatch!");
         }
     }
+
+    // std::cout <<
 }
 
 void DetectorImpl::initializeDetectorStructure() {
     shm()->shmversion = DETECTOR_SHMVERSION;
-    shm()->numberOfModules = 0;
+    shm()->totalNumberOfModules = 0;
     shm()->detType = GENERIC;
-    shm()->numberOfModule.x = 0;
-    shm()->numberOfModule.y = 0;
+    shm()->numberOfModules.x = 0;
+    shm()->numberOfModules.y = 0;
     shm()->numberOfChannels.x = 0;
     shm()->numberOfChannels.y = 0;
     shm()->acquiringFlag = false;
@@ -158,6 +177,10 @@ void DetectorImpl::initializeDetectorStructure() {
     shm()->gapPixels = false;
     // zmqlib default
     shm()->zmqHwm = -1;
+    shm()->rx_roi.xmin = -1;
+    shm()->rx_roi.xmax = -1;
+    shm()->rx_roi.ymin = -1;
+    shm()->rx_roi.ymax = -1;
 }
 
 void DetectorImpl::initializeMembers(bool verify) {
@@ -165,10 +188,9 @@ void DetectorImpl::initializeMembers(bool verify) {
     zmqSocket.clear();
 
     // get objects from single det shared memory (open)
-    for (int i = 0; i < shm()->numberOfModules; i++) {
+    for (int i = 0; i < shm()->totalNumberOfModules; i++) {
         try {
-            modules.push_back(
-                sls::make_unique<Module>(detectorIndex, i, verify));
+            modules.push_back(make_unique<Module>(detectorIndex, i, verify));
         } catch (...) {
             modules.clear();
             throw;
@@ -181,11 +203,11 @@ void DetectorImpl::updateUserdetails() {
     memset(shm()->lastUser, 0, sizeof(shm()->lastUser));
     memset(shm()->lastDate, 0, sizeof(shm()->lastDate));
     try {
-        sls::strcpy_safe(shm()->lastUser, exec("whoami").c_str());
-        sls::strcpy_safe(shm()->lastDate, exec("date").c_str());
+        strcpy_safe(shm()->lastUser, exec("whoami").c_str());
+        strcpy_safe(shm()->lastDate, exec("date").c_str());
     } catch (...) {
-        sls::strcpy_safe(shm()->lastUser, "errorreading");
-        sls::strcpy_safe(shm()->lastDate, "errorreading");
+        strcpy_safe(shm()->lastUser, "errorreading");
+        strcpy_safe(shm()->lastDate, "errorreading");
     }
 }
 
@@ -231,27 +253,38 @@ void DetectorImpl::setVirtualDetectorServers(const int numdet, const int port) {
 }
 
 void DetectorImpl::setHostname(const std::vector<std::string> &name) {
-    // this check is there only to allow the previous detsizechan command
-    if (shm()->numberOfModules != 0) {
+    // do not free always to allow the previous detsize/ initialchecks command
+    if (shm.exists() && shm()->totalNumberOfModules != 0) {
         LOG(logWARNING) << "There are already module(s) in shared memory."
                            "Freeing Shared memory now.";
-        bool initialChecks = shm()->initialChecks;
         freeSharedMemory();
+    }
+    // could be called after freeing shm from API
+    if (!shm.exists()) {
         setupDetector();
-        shm()->initialChecks = initialChecks;
     }
     for (const auto &hostname : name) {
         addModule(hostname);
     }
     updateDetectorSize();
+
+    // Here we know the detector type and can add ctb shared memory
+    // if needed, CTB dac names are only on detector level
+
+    if (shm()->detType == defs::CHIPTESTBOARD) {
+        if (ctb_shm.exists())
+            ctb_shm.openSharedMemory(true);
+        else
+            ctb_shm.createSharedMemory();
+    }
 }
 
 void DetectorImpl::addModule(const std::string &hostname) {
     LOG(logINFO) << "Adding module " << hostname;
 
-    int port = DEFAULT_PORTNO;
+    int port = DEFAULT_TCP_CNTRL_PORTNO;
     std::string host = hostname;
-    auto res = sls::split(hostname, ':');
+    auto res = split(hostname, ':');
     if (res.size() > 1) {
         host = res[0];
         port = StringTo<int>(res[1]);
@@ -271,80 +304,100 @@ void DetectorImpl::addModule(const std::string &hostname) {
 
     // get type by connecting
     detectorType type = Module::getTypeFromDetector(host, port);
+
+    // gotthard cannot have more than 2 modules (50um=1, 25um=2
+    if ((type == GOTTHARD || type == GOTTHARD2) && modules.size() > 2) {
+        freeSharedMemory();
+        throw RuntimeError("Gotthard cannot have more than 2 modules");
+    }
+
     auto pos = modules.size();
-    modules.emplace_back(
-        sls::make_unique<Module>(type, detectorIndex, pos, false));
-    shm()->numberOfModules = modules.size();
+    modules.emplace_back(make_unique<Module>(type, detectorIndex, pos, false));
+    shm()->totalNumberOfModules = modules.size();
     modules[pos]->setControlPort(port);
     modules[pos]->setStopPort(port + 1);
     modules[pos]->setHostname(host, shm()->initialChecks);
+
     // module type updated by now
     shm()->detType = Parallel(&Module::getDetectorType, {})
                          .tsquash("Inconsistent detector types.");
     // for moench and ctb
     modules[pos]->updateNumberOfChannels();
+
+    // for eiger, jungfrau, gotthard2
+    modules[pos]->updateNumberofUDPInterfaces();
+
+    // update zmq port in case numudpinterfaces changed
+    int numInterfaces = modules[pos]->getNumberofUDPInterfacesFromShm();
+    modules[pos]->setClientStreamingPort(DEFAULT_ZMQ_CL_PORTNO +
+                                         pos * numInterfaces);
 }
 
 void DetectorImpl::updateDetectorSize() {
     LOG(logDEBUG) << "Updating Detector Size: " << size();
 
-    const slsDetectorDefs::xy det_size = modules[0]->getNumberOfChannels();
-
-    if (det_size.x == 0 || det_size.y == 0) {
-        throw sls::RuntimeError(
+    const slsDetectorDefs::xy modSize = modules[0]->getNumberOfChannels();
+    if (modSize.x == 0 || modSize.y == 0) {
+        throw RuntimeError(
             "Module size for x or y dimensions is 0. Unable to proceed in "
             "updating detector size. ");
     }
 
-    int maxx = shm()->numberOfChannels.x;
-    int maxy = shm()->numberOfChannels.y;
-    int ndetx = 0, ndety = 0;
+    int nModx = 0, nMody = 0;
     // 1d, add modules along x axis
-    if (det_size.y == 1) {
-        if (maxx == 0) {
-            maxx = det_size.x * size();
+    if (modSize.y == 1) {
+        int detSizeX = shm()->numberOfChannels.x;
+        int maxChanX = modSize.x * size();
+        // user given detsizex used only within max value
+        if (detSizeX > 1 && detSizeX <= maxChanX) {
+            maxChanX = detSizeX;
         }
-        ndetx = maxx / det_size.x;
-        ndety = size() / ndetx;
-        if ((maxx % det_size.x) > 0) {
-            ++ndety;
+        nModx = maxChanX / modSize.x;
+        nMody = size() / nModx;
+        if ((maxChanX % modSize.x) > 0) {
+            ++nMody;
         }
     }
     // 2d, add modules along y axis (due to eiger top/bottom)
     else {
-        if (maxy == 0) {
-            maxy = det_size.y * size();
+        int detSizeY = shm()->numberOfChannels.y;
+        int maxChanY = modSize.y * size();
+        // user given detsizey used only within max value
+        if (detSizeY > 1 && detSizeY <= maxChanY) {
+            maxChanY = detSizeY;
         }
-        ndety = maxy / det_size.y;
-        ndetx = size() / ndety;
-        if ((maxy % det_size.y) > 0) {
-            ++ndetx;
+        nMody = maxChanY / modSize.y;
+        nModx = size() / nMody;
+        if ((maxChanY % modSize.y) > 0) {
+            ++nModx;
         }
     }
 
-    shm()->numberOfModule.x = ndetx;
-    shm()->numberOfModule.y = ndety;
-    shm()->numberOfChannels.x = det_size.x * ndetx;
-    shm()->numberOfChannels.y = det_size.y * ndety;
+    shm()->numberOfModules.x = nModx;
+    shm()->numberOfModules.y = nMody;
+    shm()->numberOfChannels.x = modSize.x * nModx;
+    shm()->numberOfChannels.y = modSize.y * nMody;
 
     LOG(logDEBUG) << "\n\tNumber of Modules in X direction:"
-                  << shm()->numberOfModule.x
+                  << shm()->numberOfModules.x
                   << "\n\tNumber of Modules in Y direction:"
-                  << shm()->numberOfModule.y
+                  << shm()->numberOfModules.y
                   << "\n\tNumber of Channels in X direction:"
                   << shm()->numberOfChannels.x
                   << "\n\tNumber of Channels in Y direction:"
                   << shm()->numberOfChannels.y;
 
     for (auto &module : modules) {
-        module->updateNumberOfModule(shm()->numberOfModule);
+        if (module->getUpdateMode() == 0) {
+            module->updateNumberOfModule(shm()->numberOfModules);
+        }
     }
 }
 
 int DetectorImpl::size() const { return modules.size(); }
 
 slsDetectorDefs::xy DetectorImpl::getNumberOfModules() const {
-    return shm()->numberOfModule;
+    return shm()->numberOfModules;
 }
 
 slsDetectorDefs::xy DetectorImpl::getNumberOfChannels() const {
@@ -370,7 +423,7 @@ void DetectorImpl::setGapPixelsinCallback(const bool enable) {
             if (size() && modules[0]->getQuad()) {
                 break;
             }
-            if (shm()->numberOfModule.y % 2 != 0) {
+            if (shm()->numberOfModules.y % 2 != 0) {
                 throw RuntimeError("Gap pixels can only be used "
                                    "for full modules.");
             }
@@ -383,63 +436,144 @@ void DetectorImpl::setGapPixelsinCallback(const bool enable) {
     shm()->gapPixels = enable;
 }
 
-int DetectorImpl::destroyReceivingDataSockets() {
+int DetectorImpl::getTransmissionDelay() const {
+    bool eiger = false;
+    switch (shm()->detType) {
+    case JUNGFRAU:
+    case MYTHEN3:
+        break;
+    case EIGER:
+        eiger = true;
+        break;
+    default:
+        throw RuntimeError(
+            "Transmission delay is not implemented for the this detector.");
+    }
+    if (!eiger && size() <= 1) {
+        throw RuntimeError(
+            "Cannot get intermodule transmission delays with just one module");
+    }
+    int step = 0;
+    if (eiger) {
+        // between left and right
+        step = modules[0]->getTransmissionDelayRight();
+    } else {
+        // between first and second
+        step = modules[1]->getTransmissionDelayFrame();
+    }
+    for (int i = 0; i != size(); ++i) {
+        if (eiger) {
+            if ((modules[i]->getTransmissionDelayLeft() != (2 * i * step)) ||
+                (modules[i]->getTransmissionDelayRight() !=
+                 ((2 * i + 1) * step)) ||
+                (modules[i]->getTransmissionDelayFrame() !=
+                 (2 * size() * step))) {
+                return -1;
+            }
+        } else {
+            if (modules[i]->getTransmissionDelayFrame() != (i * step)) {
+                return -1;
+            }
+        }
+    }
+    return step;
+}
+
+void DetectorImpl::setTransmissionDelay(int step) {
+    bool eiger = false;
+    switch (shm()->detType) {
+    case JUNGFRAU:
+    case MYTHEN3:
+        break;
+    case EIGER:
+        eiger = true;
+        break;
+    default:
+        throw RuntimeError(
+            "Transmission delay is not implemented for the this detector.");
+    }
+
+    // using a asyc+future directly (instead of Parallel) to pass different
+    // values
+    std::vector<std::future<void>> futures;
+    for (int i = 0; i != size(); ++i) {
+        if (eiger) {
+            futures.push_back(std::async(std::launch::async,
+                                         &Module::setTransmissionDelayLeft,
+                                         modules[i].get(), 2 * i * step));
+            futures.push_back(std::async(std::launch::async,
+                                         &Module::setTransmissionDelayRight,
+                                         modules[i].get(), (2 * i + 1) * step));
+            futures.push_back(std::async(std::launch::async,
+                                         &Module::setTransmissionDelayFrame,
+                                         modules[i].get(), 2 * size() * step));
+
+        } else {
+            futures.push_back(std::async(std::launch::async,
+                                         &Module::setTransmissionDelayFrame,
+                                         modules[i].get(), i * step));
+        }
+    }
+
+    // wait for calls to complete
+    for (auto &f : futures)
+        f.get();
+}
+
+void DetectorImpl::destroyReceivingDataSockets() {
     LOG(logINFO) << "Going to destroy data sockets";
     // close socket
     zmqSocket.clear();
 
     client_downstream = false;
     LOG(logINFO) << "Destroyed Receiving Data Socket(s)";
-    return OK;
 }
 
-int DetectorImpl::createReceivingDataSockets() {
+void DetectorImpl::createReceivingDataSockets() {
     if (client_downstream) {
-        return OK;
+        return;
     }
     LOG(logINFO) << "Going to create data sockets";
 
-    size_t numSockets = modules.size();
-    size_t numSocketsPerModule = 1;
-    // gotthard2 second interface is only for veto debugging
-    if (shm()->detType != GOTTHARD2)
-        numSocketsPerModule =
-            Parallel(&Module::getNumberofUDPInterfacesFromShm, {}).squash();
-    numSockets *= numSocketsPerModule;
+    size_t numUDPInterfaces =
+        Parallel(&Module::getNumberofUDPInterfacesFromShm, {}).squash(1);
+    // gotthard2 second interface is only for veto debugging (not in gui)
+    if (shm()->detType == GOTTHARD2) {
+        numUDPInterfaces = 1;
+    }
+    size_t numSockets = modules.size() * numUDPInterfaces;
 
     for (size_t iSocket = 0; iSocket < numSockets; ++iSocket) {
         uint32_t portnum =
-            (modules[iSocket / numSocketsPerModule]->getClientStreamingPort());
-        portnum += (iSocket % numSocketsPerModule);
+            (modules[iSocket / numUDPInterfaces]->getClientStreamingPort());
+        portnum += (iSocket % numUDPInterfaces);
         try {
-            zmqSocket.push_back(sls::make_unique<ZmqSocket>(
-                modules[iSocket / numSocketsPerModule]
-                    ->getClientStreamingIP()
-                    .str()
-                    .c_str(),
-                portnum));
+            zmqSocket.push_back(
+                make_unique<ZmqSocket>(modules[iSocket / numUDPInterfaces]
+                                           ->getClientStreamingIP()
+                                           .str()
+                                           .c_str(),
+                                       portnum));
             // set high water mark
             int hwm = shm()->zmqHwm;
             if (hwm >= 0) {
                 zmqSocket[iSocket]->SetReceiveHighWaterMark(hwm);
-                if (zmqSocket[iSocket]->GetReceiveHighWaterMark() != hwm) {
-                    throw sls::ZmqSocketError("Could not set zmq rcv hwm to " +
-                                              std::to_string(hwm));
-                }
+                // need not reconnect. cannot be connected (detector idle)
             }
             LOG(logINFO) << "Zmq Client[" << iSocket << "] at "
                          << zmqSocket.back()->GetZmqServerAddress() << "[hwm: "
                          << zmqSocket.back()->GetReceiveHighWaterMark() << "]";
-        } catch (...) {
-            LOG(logERROR) << "Could not create Zmq socket on port " << portnum;
+        } catch (std::exception &e) {
             destroyReceivingDataSockets();
-            return FAIL;
+            std::ostringstream oss;
+            oss << "Could not create zmq sub socket on port " << portnum;
+            oss << " [" << e.what() << ']';
+            throw RuntimeError(oss.str());
         }
     }
 
     client_downstream = true;
     LOG(logINFO) << "Receiving Data Socket(s) created";
-    return OK;
 }
 
 void DetectorImpl::readFrameFromReceiver() {
@@ -451,15 +585,10 @@ void DetectorImpl::readFrameFromReceiver() {
     int nDetPixelsX = 0;
     int nDetPixelsY = 0;
     bool quadEnable = false;
+    // to flip image
     bool eiger = false;
-    int module_ports[2] = {1, 1};
-    int numInterfaces;
-    numInterfaces = Parallel(&Module::getNumberofUDPInterfacesFromShm, {})
-                        .squash(); // cannot pick up from zmq
-    if (shm()->detType == EIGER)
-        module_ports[1] = numInterfaces; // horz
-    else if (shm()->detType == JUNGFRAU)
-        module_ports[0] = numInterfaces; // vert
+    std::array<int, 4> rxRoi = shm()->rx_roi.getIntArray();
+
     std::vector<bool> runningList(zmqSocket.size());
     std::vector<bool> connectList(zmqSocket.size());
     numZmqRunning = 0;
@@ -526,8 +655,8 @@ void DetectorImpl::readFrameFromReceiver() {
                         // allocate
                         size = zHeader.imageSize;
                         multisize = size * zmqSocket.size();
-                        image = sls::make_unique<char[]>(size);
-                        multiframe = sls::make_unique<char[]>(multisize);
+                        image = make_unique<char[]>(size);
+                        multiframe = make_unique<char[]>(multisize);
                         memset(multiframe.get(), 0xFF, multisize);
                         // dynamic range
                         dynamicRange = zHeader.dynamicRange;
@@ -535,9 +664,9 @@ void DetectorImpl::readFrameFromReceiver() {
                         // shape
                         nPixelsX = zHeader.npixelsx;
                         nPixelsY = zHeader.npixelsy;
-                        // module shape
-                        nX = zHeader.ndetx * module_ports[1];
-                        nY = zHeader.ndety * module_ports[0];
+                        // port geometry
+                        nX = zHeader.ndetx;
+                        nY = zHeader.ndety;
                         nDetPixelsX = nX * nPixelsX;
                         nDetPixelsY = nY * nPixelsY;
                         // det type
@@ -566,14 +695,12 @@ void DetectorImpl::readFrameFromReceiver() {
                     currentSubFrameIndex = zHeader.expLength;
                     coordY = zHeader.row;
                     coordX = zHeader.column;
-                    if (eiger) {
-                        coordY = (nY - 1) - coordY;
-                    }
                     flipRows = zHeader.flipRows;
                     if (zHeader.completeImage == 0) {
                         completeImage = false;
                     }
                     LOG(logDEBUG1)
+                        << zmqSocket[isocket]->GetPortNumber() << " "
                         << "Header Info:"
                            "\n\tcurrentFileName: "
                         << currentFileName << "\n\tcurrentAcquisitionIndex: "
@@ -642,7 +769,7 @@ void DetectorImpl::readFrameFromReceiver() {
             int nDetActualPixelsY = nDetPixelsY;
 
             if (gapPixels) {
-                int n = InsertGapPixels(multiframe.get(), multigappixels,
+                int n = insertGapPixels(multiframe.get(), multigappixels,
                                         quadEnable, dynamicRange,
                                         nDetActualPixelsX, nDetActualPixelsY);
                 callbackImage = multigappixels;
@@ -657,7 +784,7 @@ void DetectorImpl::readFrameFromReceiver() {
             thisData = new detectorData(currentProgress, currentFileName,
                                         nDetActualPixelsX, nDetActualPixelsY,
                                         callbackImage, imagesize, dynamicRange,
-                                        currentFileIndex, completeImage);
+                                        currentFileIndex, completeImage, rxRoi);
             try {
                 dataReady(
                     thisData, currentFrameIndex,
@@ -681,7 +808,7 @@ void DetectorImpl::readFrameFromReceiver() {
     delete[] multigappixels;
 }
 
-int DetectorImpl::InsertGapPixels(char *image, char *&gpImage, bool quadEnable,
+int DetectorImpl::insertGapPixels(char *image, char *&gpImage, bool quadEnable,
                                   int dr, int &nPixelsx, int &nPixelsy) {
 
     LOG(logDEBUG) << "Insert Gap pixels:"
@@ -986,9 +1113,7 @@ void DetectorImpl::setDataStreamingToClient(bool enable) {
         destroyReceivingDataSockets();
         // create data threads
     } else {
-        if (createReceivingDataSockets() == FAIL) {
-            throw RuntimeError("Could not create data threads in client.");
-        }
+        createReceivingDataSockets();
     }
 }
 
@@ -998,7 +1123,7 @@ int DetectorImpl::getClientStreamingHwm() const {
         return shm()->zmqHwm;
     }
     // enabled
-    sls::Result<int> result;
+    Result<int> result;
     result.reserve(zmqSocket.size());
     for (auto &it : zmqSocket) {
         result.push_back(it->GetReceiveHighWaterMark());
@@ -1009,7 +1134,7 @@ int DetectorImpl::getClientStreamingHwm() const {
 
 void DetectorImpl::setClientStreamingHwm(const int limit) {
     if (limit < -1) {
-        throw sls::RuntimeError(
+        throw RuntimeError(
             "Cannot set hwm to less than -1 (-1 is lib default).");
     }
     // update shm
@@ -1021,11 +1146,7 @@ void DetectorImpl::setClientStreamingHwm(const int limit) {
         if (limit >= 0) {
             for (auto &it : zmqSocket) {
                 it->SetReceiveHighWaterMark(limit);
-                if (it->GetReceiveHighWaterMark() != limit) {
-                    shm()->zmqHwm = -1;
-                    throw sls::ZmqSocketError("Could not set zmq rcv hwm to " +
-                                              std::to_string(limit));
-                }
+                // need not reconnect. cannot be connected (detector idle)
             }
             LOG(logINFO) << "Setting Client Zmq socket rcv hwm to " << limit;
         }
@@ -1060,9 +1181,6 @@ int DetectorImpl::acquire() {
         return FAIL;
     }
 
-    // We need this to handle Mythen3 synchronization
-    auto detector_type = Parallel(&Module::getDetectorType, {}).squash();
-
     try {
         struct timespec begin, end;
         clock_gettime(CLOCK_REALTIME, &begin);
@@ -1090,25 +1208,7 @@ int DetectorImpl::acquire() {
 
         // start and read all
         try {
-            if (detector_type == defs::MYTHEN3 && modules.size() > 1) {
-                // Multi module mythen
-                std::vector<int> master;
-                std::vector<int> slaves;
-                auto is_master = Parallel(&Module::isMaster, {});
-                slaves.reserve(modules.size() - 1); // check this one!!
-                for (size_t i = 0; i < modules.size(); ++i) {
-                    if (is_master[i])
-                        master.push_back(i);
-                    else
-                        slaves.push_back(i);
-                }
-                Parallel(&Module::startAcquisition, slaves);
-                Parallel(&Module::startAndReadAll, master);
-            } else {
-                // Normal acquire
-                Parallel(&Module::startAndReadAll, {});
-            }
-
+            startAcquisition(true, {});
         } catch (...) {
             if (receiver)
                 Parallel(&Module::stopReceiver, {});
@@ -1124,8 +1224,7 @@ int DetectorImpl::acquire() {
         // let the progress thread (no callback) know acquisition is done
         if (dataReady == nullptr) {
             setJoinThreadFlag(true);
-        }
-        if (receiver) {
+        } else if (receiver) {
             while (numZmqRunning != 0) {
                 Parallel(&Module::restreamStopFromReceiver, {});
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -1136,7 +1235,7 @@ int DetectorImpl::acquire() {
         if (acquisition_finished != nullptr) {
             int status = Parallel(&Module::getRunStatus, {}).squash(ERROR);
             auto a = Parallel(&Module::getReceiverProgress, {});
-            double progress = (*std::min_element(a.begin(), a.end()));
+            double progress = (*std::max_element(a.begin(), a.end()));
             acquisition_finished(progress, status, acqFinished_p);
         }
 
@@ -1155,6 +1254,106 @@ int DetectorImpl::acquire() {
     }
     setAcquiringFlag(false);
     return OK;
+}
+
+bool DetectorImpl::handleSynchronization(Positions pos) {
+    bool handleSync = false;
+    // multi module m3 or multi module sync enabled jungfrau
+    if (size() > 1) {
+        switch (shm()->detType) {
+        case defs::MYTHEN3:
+        case defs::GOTTHARD2:
+        case defs::GOTTHARD:
+            handleSync = true;
+            break;
+        case defs::JUNGFRAU:
+            if (Parallel(&Module::getSynchronizationFromStopServer, pos)
+                    .tsquash("Inconsistent synchronization among modules")) {
+                handleSync = true;
+            }
+            break;
+        default:
+            break;
+        }
+    }
+    return handleSync;
+}
+
+void DetectorImpl::getMasterSlaveList(std::vector<int> positions,
+                                      std::vector<int> &masters,
+                                      std::vector<int> &slaves) {
+    // expand positions list
+    if (positions.empty() || (positions.size() == 1 && positions[0] == -1)) {
+        positions.resize(modules.size());
+        std::iota(begin(positions), end(positions), 0);
+    }
+    // could be all slaves in positions
+    slaves.reserve(positions.size());
+    auto is_master = Parallel(&Module::isMaster, positions);
+    for (size_t i : positions) {
+        if (is_master[i])
+            masters.push_back(i);
+        else
+            slaves.push_back(i);
+    }
+}
+
+void DetectorImpl::startAcquisition(const bool blocking, Positions pos) {
+
+    // slaves first
+    if (handleSynchronization(pos)) {
+        std::vector<int> masters;
+        std::vector<int> slaves;
+        getMasterSlaveList(pos, masters, slaves);
+        if (!slaves.empty()) {
+            Parallel(&Module::startAcquisition, slaves);
+        }
+        if (!masters.empty()) {
+            Parallel((blocking ? &Module::startAndReadAll
+                               : &Module::startAcquisition),
+                     masters);
+        }
+    }
+    // all in parallel
+    else {
+        Parallel(
+            (blocking ? &Module::startAndReadAll : &Module::startAcquisition),
+            pos);
+    }
+}
+
+void DetectorImpl::sendSoftwareTrigger(const bool block, Positions pos) {
+    // slaves first
+    if (handleSynchronization(pos)) {
+        std::vector<int> masters;
+        std::vector<int> slaves;
+        getMasterSlaveList(pos, masters, slaves);
+        if (!slaves.empty())
+            Parallel(&Module::sendSoftwareTrigger, slaves, false);
+        if (!masters.empty())
+            Parallel(&Module::sendSoftwareTrigger, masters, block);
+    }
+    // all in parallel
+    else {
+        Parallel(&Module::sendSoftwareTrigger, pos, block);
+    }
+}
+
+void DetectorImpl::stopDetector(Positions pos) {
+    // masters first
+    if (handleSynchronization(pos)) {
+        std::vector<int> masters;
+        std::vector<int> slaves;
+        getMasterSlaveList(pos, masters, slaves);
+        if (!masters.empty())
+            Parallel(&Module::stopAcquisition, masters);
+        if (!slaves.empty())
+            Parallel(&Module::stopAcquisition, slaves);
+    }
+    // all in parallel
+    else {
+        Parallel(&Module::stopAcquisition, pos);
+    }
 }
 
 void DetectorImpl::printProgress(double progress) {
@@ -1176,6 +1375,7 @@ void DetectorImpl::processData(bool receiver) {
         }
         // only update progress
         else {
+            LOG(logINFO) << "Type 'q' and hit enter to stop acquisition";
             double progress = 0;
             printProgress(progress);
 
@@ -1185,7 +1385,7 @@ void DetectorImpl::processData(bool receiver) {
                     if (fgetc(stdin) == 'q') {
                         LOG(logINFO)
                             << "Caught the command to stop acquisition";
-                        Parallel(&Module::stopAcquisition, {});
+                        stopDetector({});
                     }
                 }
                 // get and print progress
@@ -1252,12 +1452,17 @@ std::vector<char> DetectorImpl::readProgrammingFile(const std::string &fname) {
             throw RuntimeError("Programming file must be an rbf file.");
         }
         break;
-    default:
+    case EIGER:
+    case GOTTHARD:
         throw RuntimeError("programfpga not implemented for this detector");
+    default:
+        throw RuntimeError(
+            "Unknown detector type. Did the 'hostname' command execute "
+            "successfully? Or use update mode in the detector server "
+            "side.");
     }
 
-    LOG(logINFO)
-        << "Updating Firmware. This can take awhile. Please be patient...";
+    LOG(logINFO) << "This can take awhile. Please be patient.";
     LOG(logDEBUG1) << "Programming FPGA with file name:" << fname;
 
     // check if it exists
@@ -1275,24 +1480,16 @@ std::vector<char> DetectorImpl::readProgrammingFile(const std::string &fname) {
     }
 
     // get srcSize to print progress
-    if (fseek(src, 0, SEEK_END) != 0) {
-        throw RuntimeError("Program FPGA: Seek error in src file");
-    }
-    size_t srcSize = ftell(src);
-    if (srcSize <= 0) {
-        throw RuntimeError("Program FPGA: Could not get length of source file");
-    }
-    rewind(src);
+    ssize_t srcSize = getFileSize(src, "Program FPGA");
 
     // create temp destination file
     char destfname[] = "/tmp/SLS_DET_MCB.XXXXXX";
     int dst = mkstemp(destfname); // create temporary file and open it in r/w
     if (dst == -1) {
         fclose(src);
-        throw RuntimeError(
-            std::string(
-                "Could not create destination file in /tmp for programming: ") +
-            destfname);
+        throw RuntimeError(std::string("Could not create destination file "
+                                       "in /tmp for programming: ") +
+                           destfname);
     }
 
     // convert src to dst rawbin
@@ -1344,8 +1541,8 @@ std::vector<char> DetectorImpl::readProgrammingFile(const std::string &fname) {
         }
         // validate pof: read less than footer offset
         if (isPof && dstFilePos < pofFooterOfst) {
-            throw RuntimeError(
-                "Could not convert programming file. EOF before end of flash");
+            throw RuntimeError("Could not convert programming file. EOF "
+                               "before end of flash");
         }
     }
     if (fclose(src) != 0) {
@@ -1354,52 +1551,343 @@ std::vector<char> DetectorImpl::readProgrammingFile(const std::string &fname) {
     if (close(dst) != 0) {
         throw RuntimeError("Program FPGA: Could not close destination file");
     }
-    LOG(logINFOBLUE) << "File has been converted to " << destfname;
+    LOG(logINFO) << "File has been converted to " << destfname;
 
-    // loading dst file to memory
-    // FILE *fp = fopen("/tmp/SLS_DET_MCB.tzgmUT", "r");
-    FILE *fp = fopen(destfname, "r");
-    if (fp == nullptr) {
-        throw RuntimeError("Program FPGA: Could not open rawbin file");
-    }
-    if (fseek(fp, 0, SEEK_END) != 0) {
-        throw RuntimeError("Program FPGA: Seek error in rawbin file");
-    }
-    size_t filesize = ftell(fp);
-    if (filesize <= 0) {
-        throw RuntimeError("Program FPGA: Could not get length of rawbin file");
-    }
-    rewind(fp);
-
-    std::vector<char> buffer(filesize, 0);
-    if (fread(buffer.data(), sizeof(char), filesize, fp) != filesize) {
-        throw RuntimeError("Program FPGA: Could not read rawbin file");
-    }
-
-    if (fclose(fp) != 0) {
-        throw RuntimeError(
-            "Program FPGA: Could not close destination file after converting");
-    }
-
-    // unlink(destfname); // delete temporary file
-    LOG(logDEBUG1) << "Successfully loaded the rawbin file to program memory";
-    LOG(logDEBUG1) << "Read file into memory";
+    // load converted file to memory
+    std::vector<char> buffer = readBinaryFile(destfname, "Program FPGA");
+    // delete temporary
+    unlink(destfname);
     return buffer;
 }
 
-sls::Result<int> DetectorImpl::getNumberofUDPInterfaces(Positions pos) const {
-    return Parallel(&Module::getNumberofUDPInterfaces, pos);
-}
-
-sls::Result<int> DetectorImpl::getDefaultDac(defs::dacIndex index,
-                                             defs::detectorSettings sett,
-                                             Positions pos) {
+Result<int> DetectorImpl::getDefaultDac(defs::dacIndex index,
+                                        defs::detectorSettings sett,
+                                        Positions pos) {
     return Parallel(&Module::getDefaultDac, pos, index, sett);
 }
 
 void DetectorImpl::setDefaultDac(defs::dacIndex index, int defaultValue,
                                  defs::detectorSettings sett, Positions pos) {
     Parallel(&Module::setDefaultDac, pos, index, defaultValue, sett);
+}
+
+defs::xy DetectorImpl::getPortGeometry() const {
+    defs::xy portGeometry(1, 1);
+    switch (shm()->detType) {
+    case EIGER:
+        portGeometry.x = modules[0]->getNumberofUDPInterfacesFromShm();
+        break;
+    case JUNGFRAU:
+        portGeometry.y = modules[0]->getNumberofUDPInterfacesFromShm();
+        break;
+    default:
+        break;
+    }
+    return portGeometry;
+}
+
+defs::xy DetectorImpl::calculatePosition(int moduleIndex,
+                                         defs::xy geometry) const {
+    defs::xy pos{};
+    int maxYMods = shm()->numberOfModules.y;
+    pos.y = (moduleIndex % maxYMods) * geometry.y;
+    pos.x = (moduleIndex / maxYMods) * geometry.x;
+    return pos;
+}
+
+defs::ROI DetectorImpl::getRxROI() const {
+    if (shm()->detType == CHIPTESTBOARD || shm()->detType == MOENCH) {
+        throw RuntimeError("RxRoi not implemented for this Detector");
+    }
+    if (modules.size() == 0) {
+        throw RuntimeError("No Modules added");
+    }
+    // complete detector in roi
+    auto t = Parallel(&Module::getRxROI, {});
+    if (t.equal() && t.front().completeRoi()) {
+        LOG(logDEBUG) << "no roi";
+        return defs::ROI(0, shm()->numberOfChannels.x - 1, 0,
+                         shm()->numberOfChannels.y - 1);
+    }
+
+    defs::xy numChansPerMod = modules[0]->getNumberOfChannels();
+    bool is2D = (numChansPerMod.y > 1 ? true : false);
+    defs::xy geometry = getPortGeometry();
+
+    defs::ROI retval{};
+    for (size_t iModule = 0; iModule != modules.size(); ++iModule) {
+
+        defs::ROI moduleRoi = modules[iModule]->getRxROI();
+        if (moduleRoi.noRoi()) {
+            LOG(logDEBUG) << iModule << ": no roi";
+        } else {
+            // expand complete roi
+            if (moduleRoi.completeRoi()) {
+                moduleRoi.xmin = 0;
+                moduleRoi.xmax = numChansPerMod.x;
+                if (is2D) {
+                    moduleRoi.ymin = 0;
+                    moduleRoi.ymax = numChansPerMod.y;
+                }
+            }
+            LOG(logDEBUG) << iModule << ": " << moduleRoi;
+
+            // get roi at detector level
+            defs::xy pos = calculatePosition(iModule, geometry);
+            defs::ROI moduleFullRoi{};
+            moduleFullRoi.xmin = numChansPerMod.x * pos.x + moduleRoi.xmin;
+            moduleFullRoi.xmax = numChansPerMod.x * pos.x + moduleRoi.xmax;
+            if (is2D) {
+                moduleFullRoi.ymin = numChansPerMod.y * pos.y + moduleRoi.ymin;
+                moduleFullRoi.ymax = numChansPerMod.y * pos.y + moduleRoi.ymax;
+            }
+            LOG(logDEBUG) << iModule << ": (full roi)" << moduleFullRoi;
+
+            // get min and max
+            if (retval.xmin == -1 || moduleFullRoi.xmin < retval.xmin) {
+                LOG(logDEBUG) << iModule << ": xmin updated";
+                retval.xmin = moduleFullRoi.xmin;
+            }
+            if (retval.xmax == -1 || moduleFullRoi.xmax > retval.xmax) {
+                LOG(logDEBUG) << iModule << ": xmax updated";
+                retval.xmax = moduleFullRoi.xmax;
+            }
+            if (retval.ymin == -1 || moduleFullRoi.ymin < retval.ymin) {
+                LOG(logDEBUG) << iModule << ": ymin updated";
+                retval.ymin = moduleFullRoi.ymin;
+            }
+            if (retval.ymax == -1 || moduleFullRoi.ymax > retval.ymax) {
+                LOG(logDEBUG) << iModule << ": ymax updated";
+                retval.ymax = moduleFullRoi.ymax;
+            }
+        }
+        LOG(logDEBUG) << iModule << ": (retval): " << retval;
+    }
+    if (retval.ymin == -1) {
+        retval.ymin = 0;
+        retval.ymax = 0;
+    }
+    return retval;
+}
+
+void DetectorImpl::setRxROI(const defs::ROI arg) {
+    if (shm()->detType == CHIPTESTBOARD || shm()->detType == MOENCH) {
+        throw RuntimeError("RxRoi not implemented for this Detector");
+    }
+    if (modules.size() == 0) {
+        throw RuntimeError("No Modules added");
+    }
+    if (arg.noRoi()) {
+        throw RuntimeError("Invalid Roi of size 0.");
+    }
+    if (arg.completeRoi()) {
+        throw RuntimeError("Did you mean the clear roi command (API: "
+                           "clearRxROI, cmd: rx_clearroi)?");
+    }
+    if (arg.xmin > arg.xmax || arg.ymin > arg.ymax) {
+        throw RuntimeError(
+            "Invalid Receiver Roi. xmin/ymin exceeds xmax/ymax.");
+    }
+
+    defs::xy numChansPerMod = modules[0]->getNumberOfChannels();
+    bool is2D = (numChansPerMod.y > 1 ? true : false);
+    defs::xy geometry = getPortGeometry();
+
+    if (!is2D && ((arg.ymin != -1 && arg.ymin != 0) ||
+                  (arg.ymax != -1 && arg.ymax != 0))) {
+        throw RuntimeError(
+            "Invalid Receiver roi. Cannot set 2d roi for a 1d detector.");
+    }
+
+    if (arg.xmin < 0 || arg.xmax >= shm()->numberOfChannels.x ||
+        (is2D && (arg.ymin < 0 || arg.ymax >= shm()->numberOfChannels.y))) {
+        throw RuntimeError("Invalid Receiver Roi. Outside detector range.");
+    }
+
+    for (size_t iModule = 0; iModule != modules.size(); ++iModule) {
+        // default init = complete roi
+        defs::ROI moduleRoi{};
+
+        // incomplete roi
+        if (!arg.completeRoi()) {
+            // multi module Gotthard2
+            if (shm()->detType == GOTTHARD2 && size() > 1) {
+                moduleRoi.xmin = arg.xmin / 2;
+                moduleRoi.xmax = arg.xmax / 2;
+                if (iModule == 0) {
+                    // all should be even
+                    if (arg.xmin % 2 != 0) {
+                        ++moduleRoi.xmin;
+                    }
+                } else if (iModule == 1) {
+                    // all should be odd
+                    if (arg.xmax % 2 == 0) {
+                        --moduleRoi.xmax;
+                    }
+                } else {
+                    throw RuntimeError("Cannot have more than 2 modules for a "
+                                       "Gotthard2 detector");
+                }
+            } else {
+                // get module limits
+                defs::xy pos = calculatePosition(iModule, geometry);
+                defs::ROI moduleFullRoi{};
+                moduleFullRoi.xmin = numChansPerMod.x * pos.x;
+                moduleFullRoi.xmax = numChansPerMod.x * (pos.x + 1) - 1;
+                if (is2D) {
+                    moduleFullRoi.ymin = numChansPerMod.y * pos.y;
+                    moduleFullRoi.ymax = numChansPerMod.y * (pos.y + 1) - 1;
+                }
+
+                // no roi
+                if (arg.xmin > moduleFullRoi.xmax ||
+                    arg.xmax < moduleFullRoi.xmin ||
+                    (is2D && (arg.ymin > moduleFullRoi.ymax ||
+                              arg.ymax < moduleFullRoi.ymin))) {
+                    moduleRoi.setNoRoi();
+                }
+                // incomplete module roi
+                else if (arg.xmin > moduleFullRoi.xmin ||
+                         arg.xmax < moduleFullRoi.xmax ||
+                         (is2D && (arg.ymin > moduleFullRoi.ymin ||
+                                   arg.ymax < moduleFullRoi.ymax))) {
+                    moduleRoi.xmin = (arg.xmin <= moduleFullRoi.xmin)
+                                         ? 0
+                                         : (arg.xmin % numChansPerMod.x);
+                    moduleRoi.xmax = (arg.xmax >= moduleFullRoi.xmax)
+                                         ? numChansPerMod.x - 1
+                                         : (arg.xmax % numChansPerMod.x);
+                    if (is2D) {
+                        moduleRoi.ymin = (arg.ymin <= moduleFullRoi.ymin)
+                                             ? 0
+                                             : (arg.ymin % numChansPerMod.y);
+                        moduleRoi.ymax = (arg.ymax >= moduleFullRoi.ymax)
+                                             ? numChansPerMod.y - 1
+                                             : (arg.ymax % numChansPerMod.y);
+                    }
+                }
+            }
+        }
+        modules[iModule]->setRxROI(moduleRoi);
+    }
+    // updating shm rx_roi for gui purposes
+    shm()->rx_roi = arg;
+
+    // metadata
+    if (arg.completeRoi()) {
+        modules[0]->setRxROIMetadata(defs::ROI(0, shm()->numberOfChannels.x - 1,
+                                               0,
+                                               shm()->numberOfChannels.y - 1));
+    } else {
+        modules[0]->setRxROIMetadata(arg);
+    }
+}
+
+void DetectorImpl::clearRxROI() {
+    Parallel(&Module::setRxROI, {}, defs::ROI{});
+    shm()->rx_roi.xmin = -1;
+    shm()->rx_roi.ymin = -1;
+    shm()->rx_roi.xmax = -1;
+    shm()->rx_roi.ymax = -1;
+}
+
+void DetectorImpl::getBadChannels(const std::string &fname,
+                                  Positions pos) const {
+    auto res = Parallel(&Module::getBadChannels, pos);
+    std::vector<int> badchannels(res[0]);
+
+    // update to multi values if multi modules
+    if (isAllPositions(pos)) {
+        badchannels.clear();
+        int nchan = modules[0]->getNumberOfChannels().x;
+        if (shm()->detType == MYTHEN3) {
+            // assuming single counter
+            nchan /= MAX_NUM_COUNTERS;
+        }
+        int imod = 0;
+        for (auto vec : res) {
+            for (auto badch : vec) {
+                badchannels.push_back(imod * nchan + badch);
+            }
+            ++imod;
+        }
+    } else if (pos.size() != 1) {
+        throw RuntimeError("Can get bad channels only for 1 or all modules.\n");
+    }
+
+    // save to file
+    LOG(logDEBUG1) << "Getting bad channels to " << fname;
+    std::ofstream outfile(fname);
+    if (!outfile) {
+        throw RuntimeError("Could not create file to save bad channels");
+    }
+    for (auto ch : badchannels)
+        outfile << ch << '\n';
+    LOG(logDEBUG1) << badchannels.size() << " bad channels saved to file";
+}
+
+void DetectorImpl::setBadChannels(const std::string &fname, Positions pos) {
+    std::vector<int> list = sls::getChannelsFromFile(fname);
+    if (list.empty()) {
+        throw RuntimeError("Bad channel file is empty.");
+    }
+    setBadChannels(list, pos);
+}
+
+void DetectorImpl::setBadChannels(const std::vector<int> list, Positions pos) {
+
+    // update to multi values if multi modules
+    if (isAllPositions(pos)) {
+        std::vector<std::vector<int>> badchannels;
+        int nchan = modules[0]->getNumberOfChannels().x;
+        if (shm()->detType == MYTHEN3) {
+            // assuming single counter
+            nchan /= MAX_NUM_COUNTERS;
+        }
+        for (auto badchannel : list) {
+            if (badchannel < 0) {
+                throw RuntimeError("Invalid bad channel list. " +
+                                   std::to_string(badchannel) +
+                                   " out of bounds.");
+            }
+            int ch = badchannel % nchan;
+            size_t imod = badchannel / nchan;
+            if (imod >= modules.size()) {
+                throw RuntimeError("Invalid bad channel list. " +
+                                   std::to_string(badchannel) +
+                                   " out of bounds.");
+            }
+            if (badchannels.size() != imod + 1) {
+                badchannels.push_back(std::vector<int>{});
+            }
+            badchannels[imod].push_back(ch);
+        }
+        for (size_t imod = 0; imod != modules.size(); ++imod) {
+            // add empty vector if no bad channels in this module
+            if (badchannels.size() != imod + 1) {
+                badchannels.push_back(std::vector<int>{});
+            }
+            Parallel(&Module::setBadChannels, {static_cast<int>(imod)},
+                     badchannels[imod]);
+        }
+
+    } else if (pos.size() != 1) {
+        throw RuntimeError("Can set bad channels only for 1 or all modules.\n");
+    } else {
+        Parallel(&Module::setBadChannels, pos, list);
+    }
+}
+
+std::vector<std::string> DetectorImpl::getCtbDacNames() const {
+    return ctb_shm()->getDacNames();
+}
+
+void DetectorImpl::setCtbDacNames(const std::vector<std::string> &names) {
+    ctb_shm()->setDacNames(names);
+}
+
+std::string DetectorImpl::getCtbDacName(defs::dacIndex i) const {
+    return ctb_shm()->getDacName(static_cast<int>(i));
 }
 
 } // namespace sls

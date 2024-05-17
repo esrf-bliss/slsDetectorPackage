@@ -79,7 +79,7 @@ def element_if_equal(mylist):
 
 def reduce_time(mylist):
     res = element_if_equal(element_if_equal(mylist))
-    if isinstance(res, dt.timedelta):
+    if isinstance(res, (dt.timedelta, _slsdet.DurationWrapper)):
         return res.total_seconds()
     elif isinstance(res[0], list):
         return [[item.total_seconds() for item in subl] for subl in res]
@@ -261,3 +261,20 @@ def merge_args(*args):
 
     else:
         raise ValueError("Multiple dictionaries passes cannot merge args")
+
+
+def hostname_list(args):
+    """
+    Generates a list from a hostname string
+    * Lists are passed through
+    * as are tuples (conversion in pybind11 to vector)
+    * if + is found it splits the string
+    """
+    if isinstance(args, (list, tuple)):
+        return args
+    elif(isinstance(args, str)):
+        hosts = args.split('+')
+        hosts = [it for it in hosts if len(it)]
+        return hosts
+    else:
+        raise ValueError("hostname needs to be string or list of strings")

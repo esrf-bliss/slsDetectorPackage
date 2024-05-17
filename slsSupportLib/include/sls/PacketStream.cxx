@@ -36,7 +36,7 @@ void PacketStream<PC, SD, FP>::printStats() {
     msg << "[" << socket->getPortNumber() << "] "
         << "packet_delay_stat=" << packet_delay_stat.calcLinRegress() << ", "
         << "packet_push_stat=" << packet_push_stat.calcStats();
-    LOG(logINFO) << msg.str();
+    LOG(sls::logINFO) << msg.str();
 }
 
 template <class PC, class SD, class FP> void PacketStream<PC, SD, FP>::stop() {
@@ -154,7 +154,7 @@ class PacketStream<PC, SD, FP>::WriterThread {
                 try {
                     cpu_mask.apply_to_this_thread();
                 } catch (sls::RuntimeError &e) {
-                    LOG(logERROR) << "Could not set writer thread "
+                    LOG(sls::logERROR) << "Could not set writer thread "
                                   << "cpu affinity mask: " << e.what();
                 }
             }
@@ -233,7 +233,7 @@ class PacketStream<PC, SD, FP>::WriterThread {
         auto trace_unexpected = [&](auto msg) {
             if (skip_trace_unexpected)
                 return;
-            LOG(logERROR) << "[" << ps.socket->getPortNumber() << "] "
+            LOG(sls::logERROR) << "[" << ps.socket->getPortNumber() << "] "
                           << "unexpected " << msg << ": "
                           << "packet_frame=" << packet_frame << ", "
                           << "packet_number=" << packet_number << ", "

@@ -10,8 +10,8 @@
 #include "test-CmdProxy-global.h"
 #include "tests/globals.h"
 
-using sls::CmdProxy;
-using sls::Detector;
+namespace sls {
+
 using test::GET;
 using test::PUT;
 
@@ -97,39 +97,6 @@ TEST_CASE("Setting and reading back Jungfrau dacs", "[.cmd][.dacs]") {
 }
 
 /* Network Configuration (Detector<->Receiver) */
-
-TEST_CASE("numinterfaces", "[.cmd]") {
-    Detector det;
-    CmdProxy proxy(&det);
-    auto det_type = det.getDetectorType().squash();
-    if (det_type == defs::JUNGFRAU) {
-        auto prev_val = det.getNumberofUDPInterfaces().tsquash(
-            "inconsistent numinterfaces to test");
-        {
-            std::ostringstream oss;
-            proxy.Call("numinterfaces", {"2"}, -1, PUT, oss);
-            REQUIRE(oss.str() == "numinterfaces 2\n");
-        }
-        {
-            std::ostringstream oss;
-            proxy.Call("numinterfaces", {"1"}, -1, PUT, oss);
-            REQUIRE(oss.str() == "numinterfaces 1\n");
-        }
-        {
-            std::ostringstream oss;
-            proxy.Call("numinterfaces", {}, -1, GET, oss);
-            REQUIRE(oss.str() == "numinterfaces 1\n");
-        }
-        det.setNumberofUDPInterfaces(prev_val);
-    } else {
-        std::ostringstream oss;
-        proxy.Call("numinterfaces", {}, -1, GET, oss);
-        REQUIRE(oss.str() == "numinterfaces 1\n");
-        REQUIRE_THROWS(proxy.Call("numinterfaces", {"1"}, -1, PUT));
-    }
-    REQUIRE_THROWS(proxy.Call("numinterfaces", {"3"}, -1, PUT));
-    REQUIRE_THROWS(proxy.Call("numinterfaces", {"0"}, -1, PUT));
-}
 
 TEST_CASE("selinterface", "[.cmd]") {
     Detector det;
@@ -538,3 +505,56 @@ TEST_CASE("filtercells", "[.cmd]") {
         REQUIRE_THROWS(proxy.Call("filtercells", {"0"}, -1, PUT));
     }
 }
+
+TEST_CASE("sync", "[.cmd]") {
+    Detector det;
+    CmdProxy proxy(&det);
+    auto det_type = det.getDetectorType().squash();
+    if (det_type == defs::JUNGFRAU) {
+        auto prev_val = det.getSynchronization().tsquash(
+            "inconsistent synchronization to test");
+        {
+            std::ostringstream oss;
+            proxy.Call("sync", {"0"}, -1, PUT, oss);
+            REQUIRE(oss.str() == "sync 0\n");
+        }
+        {
+            std::ostringstream oss;
+            proxy.Call("sync", {"1"}, -1, PUT, oss);
+            REQUIRE(oss.str() == "sync 1\n");
+        }
+        // setting to master or slave when synced
+        {
+            // get previous master
+            int prevMaster = 0;
+            auto previous = det.getMaster();
+            for (int i = 0; i != det.size(); ++i) {
+                if (previous[i] == 1) {
+                    prevMaster = i;
+                    break;
+                }
+            }
+            proxy.Call("master", {"1"}, 0, PUT);
+            proxy.Call("master", {"0"}, 0, PUT);
+            std::ostringstream oss;
+            proxy.Call("status", {}, -1, GET, oss);
+            REQUIRE(oss.str() != "status running\n");
+            // set all to slaves, and then master
+            for (int i = 0; i != det.size(); ++i) {
+                det.setMaster(0, {i});
+            }
+            det.setMaster(1, prevMaster);
+        }
+        {
+            std::ostringstream oss;
+            proxy.Call("sync", {}, -1, GET, oss);
+            REQUIRE(oss.str() == "sync 1\n");
+        }
+        det.setSynchronization(prev_val);
+    } else {
+        REQUIRE_THROWS(proxy.Call("sync", {}, -1, GET));
+        REQUIRE_THROWS(proxy.Call("sync", {"0"}, -1, PUT));
+    }
+}
+
+} // namespace sls

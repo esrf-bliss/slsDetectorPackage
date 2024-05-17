@@ -15,7 +15,7 @@ DESTDIR		?= 	bin
 INSTMODE	= 	0777
 
 SRCS	=	slsDetectorFunctionList.c 
-SRCS	+=	$(main_src)slsDetectorServer.c $(main_src)slsDetectorServer_funcs.c $(main_src)communication_funcs.c $(main_src)nios.c $(main_src)common.c $(main_src)DAC6571.c $(main_src)LTC2620_Driver.c $(main_src)ALTERA_PLL_CYCLONE10.c $(main_src)ASIC_Driver.c $(main_src)/programFpgaNios.c $(main_src)/sharedMemory.c $(md5_dir)md5.c
+SRCS	+=	$(main_src)slsDetectorServer.c $(main_src)slsDetectorServer_funcs.c $(main_src)communication_funcs.c $(main_src)nios.c $(main_src)common.c $(main_src)DAC6571.c $(main_src)LTC2620_Driver.c $(main_src)ALTERA_PLL_CYCLONE10.c $(main_src)ASIC_Driver.c $(main_src)/programViaNios.c $(main_src)/sharedMemory.c $(md5_dir)md5.c
 
 OBJS 	= 	$(SRCS:.c=.o) 
  
@@ -24,10 +24,11 @@ version: clean versioning $(PROGS)
 
 boot: $(OBJS) 
 
+version_branch=$(API_BRANCH)
 version_name=APIGOTTHARD2
 version_path=slsDetectorServers/gotthard2DetectorServer
 versioning: 
-	cd ../../ && echo $(PWD) && echo `tput setaf 6; ./updateAPIVersion.sh $(version_name) $(version_path);  tput sgr0;`
+	cd ../../ && echo $(PWD) && echo `tput setaf 6; ./updateAPIVersion.sh $(version_name) $(version_path) $(version_branch);  tput sgr0;`
 
 
 $(PROGS): $(OBJS)

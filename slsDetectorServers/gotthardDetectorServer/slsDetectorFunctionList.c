@@ -25,9 +25,11 @@ extern int debugflag;
 extern int updateFlag;
 extern udpStruct udpDetails[MAX_UDP_DESTINATION];
 extern const enum detectorType myDetectorType;
+extern int ignoreConfigFileFlag;
 
 // Variables that will be exported
 int phaseShift = DEFAULT_PHASE_SHIFT;
+int masterCommandLine = -1;
 
 // Global variable from communication_funcs.c
 extern int isControlServer;
@@ -80,58 +82,54 @@ void basictests() {
     memset(initErrorMessage, 0, MAX_STR_LENGTH);
 #ifdef VIRTUAL
     LOG(logINFOBLUE, ("******** Gotthard Virtual Server *****************\n"));
+#else
+    LOG(logINFOBLUE, ("**************** Gotthard Server *****************\n"));
+#endif
     if (mapCSP0() == FAIL) {
         strcpy(initErrorMessage,
-               "Could not map to memory. Dangerous to continue.\n");
+               "Could not map to memory. Cannot proceed. Check Firmware.\n");
         LOG(logERROR, (initErrorMessage));
         initError = FAIL;
     }
-    return;
-#else
-    if (mapCSP0() == FAIL) {
-        strcpy(initErrorMessage,
-               "Could not map to memory. Dangerous to continue.\n");
-        LOG(logERROR, ("%s\n\n", initErrorMessage));
-        initError = FAIL;
-        return;
-    }
-
+#ifndef VIRTUAL
     // does check only if flag is 0 (by default), set by command line
     if ((!debugflag) && (!updateFlag) &&
         ((checkType() == FAIL) || (testFpga() == FAIL) ||
          (testBus() == FAIL))) {
         strcpy(initErrorMessage, "Could not pass basic tests of FPGA and bus. "
-                                 "Dangerous to continue.\n");
+                                 "Cannot proceed. Check Firmware.\n");
         LOG(logERROR, ("%s\n\n", initErrorMessage));
         initError = FAIL;
         return;
     }
-
-    uint32_t boardrev = getBoardRevision();
+#endif
+    char hversion[MAX_STR_LENGTH] = {0};
+    memset(hversion, 0, MAX_STR_LENGTH);
+    getHardwareVersion(hversion);
     uint32_t ipadd = getDetectorIP();
     uint64_t macadd = getDetectorMAC();
     int64_t fwversion = getFirmwareVersion();
-    int64_t swversion = getServerVersion();
-    int64_t client_sw_apiversion = getClientServerAPIVersion();
+    char swversion[MAX_STR_LENGTH] = {0};
+    memset(swversion, 0, MAX_STR_LENGTH);
+    getServerVersion(swversion);
 
     LOG(logINFOBLUE,
-        ("************ Gotthard Server *********************\n"
-         "Board Revision         : 0x%x\n"
+        ("**************************************************\n"
+         "Hardware Revision      : %s\n"
 
          "Detector IP Addr       : 0x%x\n"
          "Detector MAC Addr      : 0x%llx\n\n"
 
          "Firmware Version       : 0x%llx\n"
-         "Software Version       : 0x%llx\n"
-         "Client-S/w API Version : 0x%llx\n"
+         "Software Version       : %s\n"
          "********************************************************\n",
-         boardrev,
+         hversion,
 
          ipadd, (long long unsigned int)macadd,
 
-         (long long int)fwversion, (long long int)swversion,
-         (long long int)client_sw_apiversion));
+         (long long int)fwversion, swversion));
 
+#ifndef VIRTUAL
     if (!debugflag || updateFlag) {
         LOG(logINFO, ("Basic Tests - success\n"));
     }
@@ -273,9 +271,7 @@ int getTestImageMode() {
 
 /* Ids */
 
-uint64_t getServerVersion() { return APIGOTTHARD; }
-
-uint64_t getClientServerAPIVersion() { return APIGOTTHARD; }
+void getServerVersion(char *version) { strcpy(version, APIGOTTHARD); }
 
 u_int64_t getFirmwareVersion() {
 #ifdef VIRTUAL
@@ -341,12 +337,32 @@ u_int32_t getDetectorIP() {
     return res;
 }
 
-u_int32_t getBoardRevision() {
+void getHardwareVersion(char *version) {
+    strcpy(version, "unknown");
+    int hwversion = getHardwareVersionNumber();
+    const int hwNumberList[] = HARDWARE_VERSION_NUMBERS;
+    const char *hwNamesList[] = HARDWARE_VERSION_NAMES;
+    for (int i = 0; i != NUM_HARDWARE_VERSIONS; ++i) {
+        LOG(logDEBUG, ("0x%x %d 0x%x %s\n", hwversion, i, hwNumberList[i],
+                       hwNamesList[i]));
+        if (hwNumberList[i] == hwversion) {
+            strcpy(version, hwNamesList[i]);
+            return;
+        }
+    }
+}
+
+u_int16_t getHardwareVersionNumber() {
 #ifdef VIRTUAL
-    return 0;
+    return 0x2;
 #endif
     return ((bus_r(BOARD_REVISION_REG) & BOARD_REVISION_MSK) >>
             BOARD_REVISION_OFST);
+}
+
+int isHardwareVersion_1_0() {
+    const int hwNumberList[] = HARDWARE_VERSION_NUMBERS;
+    return ((getHardwareVersionNumber() == hwNumberList[0]) ? 1 : 0);
 }
 
 /* initialization */
@@ -359,16 +375,28 @@ void initControlServer() {
 }
 
 void initStopServer() {
-    if (mapCSP0() == FAIL) {
-        LOG(logERROR,
-            ("Stop Server: Map Fail. Dangerous to continue. Goodbye!\n"));
-        exit(EXIT_FAILURE);
-    }
+    if (!updateFlag && initError == OK) {
+        usleep(CTRL_SRVR_INIT_TIME_US);
+        LOG(logINFOBLUE, ("Configuring Stop server\n"));
+        if (mapCSP0() == FAIL) {
+            initError = FAIL;
+            strcpy(initErrorMessage,
+                   "Stop Server: Map Fail. Cannot proceed. Check Firmware.\n");
+            LOG(logERROR, (initErrorMessage));
+            initCheckDone = 1;
+            return;
+        }
 #ifdef VIRTUAL
-    sharedMemory_setStop(0);
+        sharedMemory_setStop(0);
 #endif
-    // to get master from file
-    readConfigFile();
+        // to get master from file
+        if (readConfigFile() == FAIL ||
+            checkCommandLineConfiguration() == FAIL) {
+            initCheckDone = 1;
+            return;
+        }
+    }
+    initCheckDone = 1;
 }
 
 /* set up detector */
@@ -388,7 +416,7 @@ void setupDetector() {
     setHighVoltage(DEFAULT_HIGH_VOLTAGE);
 
     // adc
-    if (getBoardRevision() == 1) {
+    if (isHardwareVersion_1_0()) {
         AD9252_SetDefines(ADC_SPI_REG, ADC_SPI_SRL_CS_OTPT_MSK,
                           ADC_SPI_SRL_CLK_OTPT_MSK, ADC_SPI_SRL_DT_OTPT_MSK,
                           ADC_SPI_SRL_DT_OTPT_OFST);
@@ -418,8 +446,17 @@ void setupDetector() {
     // roi, gbit readout
     rois.xmin = -1;
     rois.xmax = -1;
+    rois.ymin = -1;
+    rois.ymax = -1;
     setROI(rois); // set adcsyncreg, daqreg, chipofinterestreg, cleanfifos,
     setGbitReadout();
+
+    // no config file or not first time server
+    if (readConfigFile() == FAIL)
+        return;
+
+    if (checkCommandLineConfiguration() == FAIL)
+        return;
 
     // master, slave (25um)
     setMasterSlaveConfiguration();
@@ -564,7 +601,7 @@ void setDAQRegister() {
 
     // 0x1f16(board rev 1) 0x1f0f(board rev 2)
     u_int32_t tokenTiming =
-        ((getBoardRevision() == 1) ? DAQ_TKN_TMNG_BRD_RVSN_1_VAL
+        ((isHardwareVersion_1_0()) ? DAQ_TKN_TMNG_BRD_RVSN_1_VAL
                                    : DAQ_TKN_TMNG_BRD_RVSN_2_VAL);
 
     // 0x13f(no roi), 0x7f(roi)
@@ -624,6 +661,16 @@ void setGbitReadout() {
 }
 
 int readConfigFile() {
+
+    if (initError == FAIL) {
+        return initError;
+    }
+
+    if (ignoreConfigFileFlag) {
+        LOG(logWARNING, ("Ignoring Config file\n"));
+        return OK;
+    }
+
     const int fileNameSize = 128;
     char fname[fileNameSize];
     if (getAbsPath(fname, fileNameSize, CONFIG_FILE) == FAIL) {
@@ -647,7 +694,6 @@ int readConfigFile() {
     memset(key, 0, keySize);
     char value[keySize];
     memset(value, 0, keySize);
-    int scan = OK;
 
     // keep reading a line
     while (fgets(line, lineSize, fd)) {
@@ -667,19 +713,22 @@ int readConfigFile() {
                 master = 0;
                 LOG(logINFOBLUE, ("\tSlave or No Master\n"));
             } else {
-                LOG(logERROR,
-                    ("\tCould not scan masterflags %s value from config file\n",
-                     value));
-                scan = FAIL;
-                break;
+                initError = FAIL;
+                sprintf(
+                    initErrorMessage,
+                    "Could not scan masterflags %s value from config file\n",
+                    value);
+                LOG(logERROR, (initErrorMessage))
+                fclose(fd);
+                return FAIL;
             }
 
             // not first server since detector power on
             if (!detectorFirstServer) {
-                LOG(logINFOBLUE, ("\tServer has been started up before. "
-                                  "Ignoring rest of config file\n"));
+                LOG(logWARNING, ("\tServer has been started up before. "
+                                 "Ignoring rest of config file\n"));
                 fclose(fd);
-                return FAIL;
+                return OK;
             }
         }
 
@@ -688,11 +737,14 @@ int readConfigFile() {
             // convert value to int
             int ival = 0;
             if (sscanf(value, "%d", &ival) <= 0) {
-                LOG(logERROR, ("\tCould not scan parameter %s value %s from "
-                               "config file\n",
-                               key, value));
-                scan = FAIL;
-                break;
+                initError = FAIL;
+                sprintf(initErrorMessage,
+                        "Could not scan parameter %s value %s from "
+                        "config file\n",
+                        key, value);
+                LOG(logERROR, (initErrorMessage))
+                fclose(fd);
+                return FAIL;
             }
             // set value
             if (!strcasecmp(key, "masterdefaultdelay"))
@@ -710,16 +762,16 @@ int readConfigFile() {
             else if (!strcasecmp(key, "startacqdelay"))
                 startacqdelay = ival;
             else {
-                LOG(logERROR,
-                    ("\tCould not scan parameter %s from config file\n", key));
-                scan = FAIL;
-                break;
+                initError = FAIL;
+                sprintf(initErrorMessage,
+                        "Could not scan parameter %s from config file\n", key);
+                LOG(logERROR, (initErrorMessage))
+                fclose(fd);
+                return FAIL;
             }
         }
     }
     fclose(fd);
-    if (scan == FAIL)
-        exit(EXIT_FAILURE);
 
     LOG(logINFOBLUE,
         ("\tmasterdefaultdelay:%d\n"
@@ -734,13 +786,28 @@ int readConfigFile() {
     return OK;
 }
 
+int checkCommandLineConfiguration() {
+    if (masterCommandLine != -1) {
+#ifdef VIRTUAL
+        master = masterCommandLine;
+#else
+        initError = FAIL;
+        strcpy(initErrorMessage,
+               "Cannot set Master from command line for this detector. "
+               "Should have been caught before!\n");
+        return FAIL;
+#endif
+    }
+    return OK;
+}
+
 void setMasterSlaveConfiguration() {
-    LOG(logINFO, ("Reading Master Slave Configuration\n"));
-
-    // no config file or not first time server
-    if (readConfigFile() == FAIL)
+    // not the first time its being read
+    if (!detectorFirstServer) {
         return;
+    }
 
+    LOG(logINFO, ("Reading Master Slave Configuration\n"));
     // master configuration
     if (master) {
         // master default delay set, so reset delay
@@ -788,7 +855,16 @@ void setMasterSlaveConfiguration() {
 
 /* set parameters -  dr, roi */
 
-int setDynamicRange(int dr) { return DYNAMIC_RANGE; }
+int setDynamicRange(int dr) {
+    if (dr == 16)
+        return OK;
+    return FAIL;
+}
+
+int getDynamicRange(int *retval) {
+    *retval = DYNAMIC_RANGE;
+    return OK;
+}
 
 int setROI(ROI arg) {
 
@@ -797,8 +873,11 @@ int setROI(ROI arg) {
         LOG(logINFO, ("Clearing ROI\n"));
         rois.xmin = -1;
         rois.xmax = -1;
+        rois.ymin = -1;
+        rois.ymax = -1;
     } else {
-        LOG(logINFO, ("Setting ROI:(%d, %d)\n", arg.xmin, arg.xmax));
+        LOG(logINFO, ("Setting ROI:(%d, %d, %d, %d)\n", arg.xmin, arg.xmax,
+                      arg.ymin, arg.ymax));
         // validation
         // xmin divisible by 256 and less than 1280
         if (((arg.xmin % NCHAN_PER_ADC) != 0) ||
@@ -832,7 +911,8 @@ ROI getROI() {
     if (rois.xmin == -1) {
         LOG(logINFO, ("\tROI: None\n"));
     } else {
-        LOG(logINFO, ("ROI: (%d,%d)\n", rois.xmin, rois.xmax));
+        LOG(logINFO, ("ROI: (%d,%d,%d,%d)\n", rois.xmin, rois.xmax, rois.ymin,
+                      rois.ymax));
     }
     return rois;
 }
@@ -927,7 +1007,9 @@ int setDelayAfterTrigger(int64_t val) {
     // validate for tolerance
     int64_t retval = getDelayAfterTrigger();
     val /= (1E-9 * CLK_FREQ);
-    val -= masterdefaultdelay;
+    if (master) {
+        val -= masterdefaultdelay;
+    }
     if (val != retval) {
         return FAIL;
     }
@@ -1238,7 +1320,10 @@ int setHighVoltage(int val) {
 
 /* parameters - timing, extsig */
 
-int isMaster() { return master; }
+int isMaster(int *retval) {
+    *retval = master;
+    return OK;
+}
 
 void setTiming(enum timingMode arg) {
     u_int32_t addr = EXT_SIGNAL_REG;
@@ -1298,6 +1383,8 @@ int getExtSignal(int signalIndex) {
 }
 
 /* configure mac */
+
+int getNumberofUDPInterfaces() { return 1; }
 
 void calcChecksum(mac_conf *mac, int sourceip, int destip) {
     mac->ip.ip_ver = 0x4;
@@ -1610,7 +1697,9 @@ void *start_timer(void *arg) {
     char imageData[imageSize];
     memset(imageData, 0, imageSize);
     if (adcConfigured == -1) {
-        *((uint32_t *)(imageData)) = 0xCACACACA;
+        // split dereferencing for rhel7 warnings
+        uint32_t *start = (uint32_t *)imageData;
+        *start = 0xCACACACA;
     }
     for (int i = sizeof(uint32_t); i < imageSize; i += sizeof(uint16_t)) {
         *((uint16_t *)(imageData + i)) = (uint16_t)i;
@@ -1637,7 +1726,9 @@ void *start_timer(void *arg) {
             char packetData[packetSize];
             memset(packetData, 0, packetSize);
             // set header
-            *((uint16_t *)(packetData)) = virtual_currentFrameNumber;
+            // split dereferencing for rhel7 warnings
+            uint16_t *fnum = (uint16_t *)packetData;
+            *fnum = virtual_currentFrameNumber;
             ++virtual_currentFrameNumber;
 
             // fill data
@@ -1663,7 +1754,7 @@ void *start_timer(void *arg) {
     closeUDPSocket(0);
 
     sharedMemory_setStatus(IDLE);
-    LOG(logINFOBLUE, ("Finished Acquiring\n"));
+    LOG(logINFOBLUE, ("Transmitting frames done\n"));
     return NULL;
 }
 #endif
@@ -1788,28 +1879,17 @@ enum runStatus getRunStatus() {
     return s;
 }
 
-void readFrame(int *ret, char *mess) {
-#ifdef VIRTUAL
-    while (sharedMemory_getStatus() == RUNNING) {
-        // LOG(logERROR, ("Waiting for finished flag\n");
-        usleep(5000);
-    }
-    return;
-#endif
-    // wait for status to be done
+void waitForAcquisitionEnd() {
     while (runBusy()) {
         usleep(500);
     }
-
-    // frames left to give status
-    *ret = (int)OK;
+#ifndef VIRTUAL
     int64_t retval = getNumFramesLeft() + 1;
     if (retval > -1) {
-        LOG(logERROR, ("No data and run stopped: %lld frames left\n",
-                       (long long int)retval));
-    } else {
-        LOG(logINFOGREEN, ("Acquisition successfully finished\n"));
+        LOG(logINFORED, ("%lld frames left\n", (long long int)retval));
     }
+#endif
+    LOG(logINFOGREEN, ("Blocking Acquisition done\n"));
 }
 
 u_int32_t runBusy() {

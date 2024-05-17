@@ -18,13 +18,11 @@ namespace sls {
 UdpRxSocket::UdpRxSocket(int port, ssize_t packet_size, const char *hostname,
                          int kernel_buffer_size)
     : packet_size_(packet_size), portno(port) {
-    struct addrinfo hints;
-    memset(&hints, 0, sizeof(hints));
+    struct addrinfo hints {};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_DGRAM;
-    hints.ai_protocol = 0;
     hints.ai_flags = AI_PASSIVE | AI_ADDRCONFIG;
-    struct addrinfo *res = nullptr;
+    struct addrinfo *res{nullptr};
 
     const std::string portname = std::to_string(port);
     if (getaddrinfo(hostname, portname.c_str(), &hints, &res)) {

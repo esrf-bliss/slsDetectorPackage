@@ -6,18 +6,21 @@
 #include "ui_form_plot.h"
 #include <mutex>
 
+class QResizeEvent;
+
+namespace sls {
+
 class SlsQt1DPlot;
 class SlsQtH1D;
 class SlsQt2DPlot;
 class qCloneWidget;
 class detectorData;
-class QResizeEvent;
 
 class qDrawPlot : public QWidget, private Ui::PlotObject {
     Q_OBJECT
 
   public:
-    qDrawPlot(QWidget *parent, sls::Detector *detector);
+    qDrawPlot(QWidget *parent, Detector *detector);
     ~qDrawPlot();
     bool GetIsRunning();
     void SetRunning(bool enable);
@@ -55,13 +58,16 @@ class qDrawPlot : public QWidget, private Ui::PlotObject {
     void EnableGainPlot(bool enable);
     void ClonePlot();
     void SavePlot();
+    void SetGapPixels(bool enable);
+    void UpdatePlot();
 
   protected:
     void resizeEvent(QResizeEvent *event);
 
   private slots:
+    void Zoom1DGainPlot(const QRectF &rect);
+    void Zoom2DGainPlot(const QRectF &rect);
     void SetSaveFileName(QString val);
-    void UpdatePlot();
 
   signals:
     void AcquireFinishedSignal();
@@ -91,9 +97,11 @@ class qDrawPlot : public QWidget, private Ui::PlotObject {
     void Update2dPlot();
     void Update1dXYRange();
     void Update2dXYRange();
+    void rearrangeGotthard25data(double *data);
 
     static const int NUM_PEDESTAL_FRAMES = 20;
-    sls::Detector *det;
+    static const int NUM_GOTTHARD25_CHANS = 1280;
+    Detector *det;
     slsDetectorDefs::detectorType detType;
 
     SlsQt1DPlot *plot1d{nullptr};
@@ -158,10 +166,16 @@ class qDrawPlot : public QWidget, private Ui::PlotObject {
     int64_t currentFrame{0};
     mutable std::mutex mPlots;
     int64_t currentAcqIndex{0};
+    slsDetectorDefs::ROI rxRoi{};
+    bool isRxRoiDisplayed{false};
+    bool isGapPixels{false};
 
     unsigned int nPixelsX{0};
     unsigned int nPixelsY{0};
     uint32_t pixelMask{0};
     uint32_t gainMask{0};
     int gainOffset{0};
+    bool gotthard25;
 };
+
+} // namespace sls

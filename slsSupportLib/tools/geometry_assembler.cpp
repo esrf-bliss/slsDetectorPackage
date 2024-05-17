@@ -267,7 +267,7 @@ void geometry_assembler(DT det_type, std::string gen_type, const SDG &src_geom,
                         std::size_t nb_frames, std::ifstream *ifile,
                         std::ofstream *ofile, int gap_pixel_val) {
     using T = typename TD::type;
-    LOG(logINFO) << "det_type.name=" << det_type.name << ", "
+    LOG(sls::logINFO) << "det_type.name=" << det_type.name << ", "
                  << "src_geom.size=" << src_geom.size << ", "
                  << "tgt_geom.size=" << tgt_geom.size << ", "
                  << "sizeof(T)=" << sizeof(T) << ", "
@@ -286,7 +286,7 @@ void geometry_assembler(DT det_type, std::string gen_type, const SDG &src_geom,
                 if (ifile) {
                     char *sp = reinterpret_cast<char *>(src.get());
                     size_t isize = src_pixels * sizeof(T);
-                    LOG(logINFO) << "Reading " << isize << " bytes";
+                    LOG(sls::logINFO) << "Reading " << isize << " bytes";
                     ifile->read(sp, isize);
                 }
                 generate_map(gen, src_geom, src.get(), tgt_geom, tgt.get(),
@@ -294,7 +294,7 @@ void geometry_assembler(DT det_type, std::string gen_type, const SDG &src_geom,
                 if (ofile) {
                     char *tp = reinterpret_cast<char *>(tgt.get());
                     size_t osize = tgt_pixels * sizeof(T);
-                    LOG(logINFO) << "Writing " << osize << " bytes";
+                    LOG(sls::logINFO) << "Writing " << osize << " bytes";
                     ofile->write(tp, osize);
                 }
             }
@@ -343,7 +343,7 @@ void usage(std::string prog_name) {
        << "      Source/target file name, empty if unused" << std::endl;
     os << "   gap_pixel_val:" << std::endl
        << "      Output gap pixel value (target_format=AsmWG)" << std::endl;
-    LOG(logERROR) << "Bad command line arguments" << std::endl
+    LOG(sls::logERROR) << "Bad command line arguments" << std::endl
                   << std::endl
                   << os.str();
     exit(1);
@@ -366,7 +366,7 @@ void main_funct(int argc, char *argv[]) {
     std::string tgt_fname = argv[++argi];
     std::string gap_pixel_val_str = argv[++argi];
 
-    LOG(logINFO) << "det_type=" << det_type << ", "
+    LOG(sls::logINFO) << "det_type=" << det_type << ", "
                  << "size_str=" << size_str << ", "
                  << "nb_frames_str=" << nb_frames_str << ", "
                  << "gen_type=" << gen_type << ", "
@@ -447,9 +447,9 @@ int main(int argc, char *argv[]) {
     try {
         main_funct(argc, argv);
     } catch (std::exception &e) {
-        LOG(logERROR) << "Exeption: " << e.what();
+        LOG(sls::logERROR) << "Exeption: " << e.what();
     } catch (...) {
-        LOG(logERROR) << "Unknown exception";
+        LOG(sls::logERROR) << "Unknown exception";
     }
     return 0;
 };

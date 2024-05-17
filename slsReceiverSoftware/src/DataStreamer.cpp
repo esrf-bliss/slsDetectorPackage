@@ -23,7 +23,7 @@ DataStreamer::DataStreamer(int ind, Fifo *f, uint32_t *dr, ROI *r, uint64_t *fi,
     numMods[0] = nm[0];
     numMods[1] = nm[1];
 
-    LOG(logDEBUG) << "DataStreamer " << ind << " created";
+    LOG(sls::logDEBUG) << "DataStreamer " << ind << " created";
 }
 
 DataStreamer::~DataStreamer() {
@@ -54,7 +54,7 @@ void DataStreamer::RecordFirstIndex(uint64_t fnum, FifoFrame *frame) {
     startedFlag = true;
     // streamer first index needn't be
     firstIndex = fnum - frame->firstStreamerFrame;
-    LOG(logDEBUG1) << index << " First Index: " << firstIndex
+    LOG(sls::logDEBUG1) << index << " First Index: " << firstIndex
                    << ", First Streamer Index:" << fnum;
 }
 
@@ -79,7 +79,7 @@ void DataStreamer::CreateZmqSockets(int *nunits, uint32_t port,
     uint32_t portnum = port + index;
     std::string sip = ip.str();
     try {
-        zmqSocket = new ZmqSocket(portnum, (ip != 0 ? sip.c_str() : nullptr));
+        zmqSocket = new sls::ZmqSocket(portnum, (ip != 0 ? sip.c_str() : nullptr));
         // set if custom
         if (hwm >= 0) {
             zmqSocket->SetSendHighWaterMark(hwm);
@@ -90,11 +90,11 @@ void DataStreamer::CreateZmqSockets(int *nunits, uint32_t port,
             }
         }
     } catch (...) {
-        LOG(logERROR) << "Could not create Zmq socket on port " << portnum
+        LOG(sls::logERROR) << "Could not create Zmq socket on port " << portnum
                       << " for Streamer " << index;
         throw;
     }
-    LOG(logINFO) << index << " Streamer: Zmq Server started at "
+    LOG(sls::logINFO) << index << " Streamer: Zmq Server started at "
                  << zmqSocket->GetZmqServerAddress()
                  << "[hwm: " << zmqSocket->GetSendHighWaterMark() << "]";
 }
@@ -109,14 +109,14 @@ void DataStreamer::CloseZmqSocket() {
 void DataStreamer::ThreadExecution() {
     FifoFrame *frame;
     fifo->PopFrameToStream(frame);
-    LOG(logDEBUG5) << "DataStreamer " << index << ", " << std::hex << "pop 0x"
+    LOG(sls::logDEBUG5) << "DataStreamer " << index << ", " << std::hex << "pop 0x"
                    << (void *)frame << " "
                    << "[data: 0x" << (void *)frame->recvFrame.data << "]"
                    << std::dec;
 
     // check dummy
     auto &numBytes = frame->recvFrame.numBytes;
-    LOG(logDEBUG1) << "DataStreamer " << index << ", Numbytes:" << numBytes;
+    LOG(sls::logDEBUG1) << "DataStreamer " << index << ", Numbytes:" << numBytes;
     if (frame->end) {
         StopProcessing(frame);
         return;
@@ -129,18 +129,18 @@ void DataStreamer::ThreadExecution() {
 }
 
 void DataStreamer::StopProcessing(FifoFrame *frame) {
-    LOG(logDEBUG1) << "DataStreamer " << index << ": Dummy";
+    LOG(sls::logDEBUG1) << "DataStreamer " << index << ": Dummy";
 
     sls_receiver_header *header = &frame->recvFrame.header;
     // send dummy header and data
     if (!SendHeader(header, 0, 0, 0, true)) {
-        LOG(logERROR) << "Could not send zmq dummy header for streamer "
+        LOG(sls::logERROR) << "Could not send zmq dummy header for streamer "
                       << index;
     }
 
     fifo->FreeFrame(frame);
     StopRunning();
-    LOG(logDEBUG1) << index << ": Streaming Completed";
+    LOG(sls::logDEBUG1) << index << ": Streaming Completed";
 }
 
 /** buf includes only the standard header */
@@ -148,7 +148,7 @@ void DataStreamer::ProcessAnImage(FifoFrame *frame) {
 
     sls_receiver_header *header = &frame->recvFrame.header;
     uint64_t fnum = header->detHeader.frameNumber;
-    LOG(logDEBUG1) << "DataStreamer " << index << ": fnum:" << fnum;
+    LOG(sls::logDEBUG1) << "DataStreamer " << index << ": fnum:" << fnum;
 
     if (!startedFlag)
         RecordFirstIndex(fnum, frame);
@@ -166,7 +166,7 @@ void DataStreamer::ProcessAnImage(FifoFrame *frame) {
         if (!SendHeader(header, generalData->imageSizeComplete,
                         generalData->nPixelsXComplete,
                         generalData->nPixelsYComplete, false)) {
-            LOG(logERROR) << "Could not send zmq header for fnum " << fnum
+            LOG(sls::logERROR) << "Could not send zmq header for fnum " << fnum
                           << " and streamer " << index;
         }
         memcpy(completeBuffer + ((generalData->imageSize) * adcConfigured), buf,
@@ -174,19 +174,19 @@ void DataStreamer::ProcessAnImage(FifoFrame *frame) {
 
         if (!zmqSocket->SendData(completeBuffer,
                                  generalData->imageSizeComplete)) {
-            LOG(logERROR) << "Could not send zmq data for fnum " << fnum
+            LOG(sls::logERROR) << "Could not send zmq data for fnum " << fnum
                           << " and streamer " << index;
         }
     } else { // normal
              // new size possibly from callback
         if (!SendHeader(header, numBytes, generalData->nPixelsX,
                         generalData->nPixelsY, false)) {
-            LOG(logERROR) << "Could not send zmq header for fnum " << fnum
+            LOG(sls::logERROR) << "Could not send zmq header for fnum " << fnum
                           << " and streamer " << index;
         }
         // new size possibly from callback
         if (!zmqSocket->SendData(buf, numBytes)) {
-            LOG(logERROR) << "Could not send zmq data for fnum " << fnum
+            LOG(sls::logERROR) << "Could not send zmq data for fnum " << fnum
                           << " and streamer " << index;
         }
     }
@@ -195,7 +195,7 @@ void DataStreamer::ProcessAnImage(FifoFrame *frame) {
 int DataStreamer::SendHeader(sls_receiver_header *rheader, uint32_t size,
                              uint32_t nx, uint32_t ny, bool dummy) {
 
-    zmqHeader zHeader;
+    sls::zmqHeader zHeader;
     zHeader.data = !dummy;
     zHeader.jsonversion = SLS_DETECTOR_JSON_HEADER_VERSION;
 
@@ -223,14 +223,14 @@ int DataStreamer::SendHeader(sls_receiver_header *rheader, uint32_t size,
     zHeader.frameNumber = header.frameNumber;
     zHeader.expLength = header.expLength;
     zHeader.packetNumber = header.packetNumber;
-    zHeader.bunchId = header.bunchId;
+    zHeader.detSpec1 = header.detSpec1;
     zHeader.timestamp = header.timestamp;
     zHeader.modId = header.modId;
     zHeader.row = header.row;
     zHeader.column = header.column;
-    zHeader.reserved = header.reserved;
-    zHeader.debug = header.debug;
-    zHeader.roundRNumber = header.roundRNumber;
+    zHeader.detSpec2 = header.detSpec2;
+    zHeader.detSpec3 = header.detSpec3;
+    zHeader.detSpec4 = header.detSpec4;
     zHeader.detType = header.detType;
     zHeader.version = header.version;
     zHeader.flipRows = static_cast<int>(flipRows);
@@ -251,7 +251,7 @@ int DataStreamer::SendHeader(sls_receiver_header *rheader, uint32_t size,
 
 void DataStreamer::RestreamStop() {
     // send dummy header
-    zmqHeader zHeader;
+    sls::zmqHeader zHeader;
     zHeader.data = false;
     zHeader.jsonversion = SLS_DETECTOR_JSON_HEADER_VERSION;
     int ret = zmqSocket->SendHeader(index, zHeader);

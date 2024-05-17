@@ -3,6 +3,10 @@
 
 /* TODO! short description */
 #include "SlsQt1DPlot.h"
+#include "qDefs.h"
+#include "qVersionResolve.h"
+#include "sls/logger.h"
+
 #include <iostream>
 #include <qwt_legend.h>
 #include <qwt_math.h>
@@ -14,6 +18,8 @@
 #include <qwt_scale_widget.h>
 #include <qwt_symbol.h>
 #include <stdlib.h>
+
+namespace sls {
 
 #define QwtLog10ScaleEngine QwtLogScaleEngine // hmm
 
@@ -330,7 +336,8 @@ void SlsQtH1DList::Remove(SlsQtH1D *hist) {
 }
 
 // 1d plot stuff
-SlsQt1DPlot::SlsQt1DPlot(QWidget *parent) : QwtPlot(parent) {
+SlsQt1DPlot::SlsQt1DPlot(QWidget *parent, bool gain)
+    : QwtPlot(parent), gainPlot(gain) {
     //  n_histograms_attached=0;
     hline = vline = nullptr;
     hist_list = new SlsQtH1DList();
@@ -348,6 +355,19 @@ SlsQt1DPlot::SlsQt1DPlot(QWidget *parent) : QwtPlot(parent) {
 
     axisScaleEngine(QwtPlot::yLeft)->setAttribute(QwtScaleEngine::Floating);
     axisScaleEngine(QwtPlot::xBottom)->setAttribute(QwtScaleEngine::Floating);
+    setFont(qDefs::GetDefaultFont());
+    SetTitleFont(qDefs::GetDefaultFont());
+    SetXFont(qDefs::GetDefaultFont());
+    SetYFont(qDefs::GetDefaultFont());
+
+    if (gainPlot) {
+        SetTitle("");
+        SetYTitle("Gain");
+        DisableZoom(true);
+        // set only major ticks from 0 to 3
+        auto div = axisScaleEngine(QwtPlot::yLeft)->divideScale(0, 3, 3, 0, 1);
+        setAxisScaleDiv(QwtPlot::yLeft, div);
+    }
 }
 
 SlsQt1DPlot::~SlsQt1DPlot() {
@@ -442,6 +462,36 @@ void SlsQt1DPlot::SetLog(int axisId, bool yes) {
     Update();
 }
 
+void SlsQt1DPlot::EnableRoiBox(std::array<int, 4> roi) {
+    if (roiBox == nullptr) {
+        roiBox = new QwtPlotShapeItem();
+        roiBox->attach(this);
+        roiBox->setPen(QColor(Qt::yellow), 2.0, Qt::SolidLine);
+    }
+
+    // TopLeft - BottomRight (max points are +1 on graph)
+    QRect myRect(QPoint(roi[0], roi[2]), QPoint(roi[1] - 1, roi[3] - 1));
+    roiBox->setRect(QRectF(myRect));
+    replot();
+}
+
+void SlsQt1DPlot::DisableRoiBox() {
+    if (roiBox != nullptr) {
+        roiBox->detach();
+        replot();
+    }
+}
+
+void SlsQt1DPlot::SetZoomX(const QRectF &rect) {
+    double xmin = 0, xmax = 0, ymin = 0, ymax = 0;
+    rect.getCoords(&xmin, &ymin, &xmax, &ymax);
+    LOG(logDEBUG1) << "Zoomed in at " << xmin << "\t" << xmax << "\t" << ymin
+                   << "\t" << ymax;
+    SetXMinMax(xmin, xmax);
+    // SetYMinMax(ymin, ymax);
+    replot();
+}
+
 void SlsQt1DPlot::UnZoom() {
     setAxisScale(QwtPlot::xBottom, zoomer->x(), zoomer->x() + zoomer->w());
     setAxisScale(QwtPlot::yLeft, zoomer->y(), zoomer->y() + zoomer->h());
@@ -456,6 +506,22 @@ void SlsQt1DPlot::SetZoom(double xmin, double ymin, double x_width,
     setAxisScale(QwtPlot::xBottom, xmin, xmin + x_width);
     setAxisScale(QwtPlot::yLeft, ymin, ymin + y_width);
     Update();
+}
+
+void SlsQt1DPlot::GetPannedCoord(int, int) {
+    double xmin = invTransform(QwtPlot::xBottom, 0);
+    double xmax = invTransform(QwtPlot::xBottom, canvas()->rect().width());
+    double ymax = invTransform(QwtPlot::yLeft, 0);
+    double ymin = invTransform(QwtPlot::yLeft, canvas()->rect().height());
+    LOG(logDEBUG1) << "Rect1  " << xmin << "\t" << xmax << "\t" << ymin << "\t"
+                   << ymax;
+    QPointF topLeft = QPointF(xmin, ymin);
+    QPointF bottomRight = QPointF(xmax, ymax);
+    const QRectF rectf = QRectF(topLeft, bottomRight);
+    rectf.getCoords(&xmin, &ymin, &xmax, &ymax);
+    LOG(logDEBUG1) << "RectF  " << xmin << "\t" << xmax << "\t" << ymin << "\t"
+                   << ymax;
+    emit PlotZoomedSignal(rectf);
 }
 
 void SlsQt1DPlot::RemoveHLine() {
@@ -494,7 +560,7 @@ void SlsQt1DPlot::InsertVLine(double x) {
 
 void SlsQt1DPlot::SetupZoom() {
     // LeftButton for the zooming
-    // MidButton for the panning
+    // MiddleButton for the panning
     // RightButton: zoom out by 1
     // Ctrl+RighButton: zoom out to full size
 
@@ -506,18 +572,22 @@ void SlsQt1DPlot::SetupZoom() {
 
     panner = new QwtPlotPanner((QwtPlotCanvas *)canvas());
     panner->setAxisEnabled(QwtPlot::yRight, false);
-    panner->setMouseButton(Qt::MidButton);
+    panner->setMouseButton(Qt::MiddleButton);
 
     // Avoid jumping when labels with more/less digits
     // appear/disappear when scrolling vertically
 
     const QFontMetrics fm(axisWidget(QwtPlot::yLeft)->font());
     QwtScaleDraw *sd = axisScaleDraw(QwtPlot::yLeft);
-    sd->setMinimumExtent(fm.width("100.00"));
-
+    sd->setMinimumExtent(qResolve_GetQFontWidth(fm, "100.00"));
     const QColor c(Qt::darkBlue);
     zoomer->setRubberBandPen(c);
     zoomer->setTrackerPen(c);
+
+    connect(zoomer, SIGNAL(zoomed(const QRectF &)), this,
+            SIGNAL(PlotZoomedSignal(const QRectF &)));
+    connect(panner, SIGNAL(panned(int, int)), this,
+            SLOT(GetPannedCoord(int, int)));
 }
 
 //  Set a plain canvas frame and align the scales to it
@@ -576,7 +646,9 @@ void SlsQt1DPlot::DisableZoom(bool disable) {
                                         Qt::RightButton);
             }
             if (panner)
-                panner->setMouseButton(Qt::MidButton);
+                panner->setMouseButton(Qt::MiddleButton);
         }
     }
 }
+
+} // namespace sls

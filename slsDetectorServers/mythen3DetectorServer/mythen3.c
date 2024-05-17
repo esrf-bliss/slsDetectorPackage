@@ -10,20 +10,6 @@
 
 #include <string.h>
 
-/*
-// Common C/C++ structure to handle pattern data
-typedef struct __attribute__((packed)) {
-    uint64_t word[MAX_PATTERN_LENGTH];
-    uint64_t ioctrl;
-    uint32_t limits[2];
-    // loop0 start, loop0 stop .. loop2 start, loop2 stop
-    uint32_t loop[6];
-    uint32_t nloop[3];
-    uint32_t wait[3];
-    uint64_t waittime[3];
-} patternParameters;
-*/
-
 int chipStatusRegister = 0;
 
 int setBit(int ibit, int patword) { return patword |= (1 << ibit); }
@@ -31,44 +17,6 @@ int setBit(int ibit, int patword) { return patword |= (1 << ibit); }
 int clearBit(int ibit, int patword) { return patword &= ~(1 << ibit); }
 
 int getChipStatusRegister() { return chipStatusRegister; }
-
-int gainCapsToCsr(int caps) {
-    // Translates bit representation
-    int csr = 0;
-    if (!(caps & M3_C10pre))
-        csr |= 1 << _CSR_C10pre;
-    if (caps & M3_C15sh)
-        csr |= 1 << CSR_C15sh;
-    if (caps & M3_C30sh)
-        csr |= 1 << CSR_C30sh;
-    if (caps & M3_C50sh)
-        csr |= 1 << CSR_C50sh;
-    if (caps & M3_C225ACsh)
-        csr |= 1 << CSR_C225ACsh;
-    if (!(caps & M3_C15pre))
-        csr |= 1 << _CSR_C15pre;
-
-    return csr;
-}
-
-int csrToGainCaps(int csr) {
-    // Translates bit representation
-    int caps = 0;
-    if (!(csr & (1 << _CSR_C10pre)))
-        caps |= M3_C10pre;
-    if (csr & (1 << CSR_C15sh))
-        caps |= M3_C15sh;
-    if (csr & (1 << CSR_C30sh))
-        caps |= M3_C30sh;
-    if (csr & (1 << CSR_C50sh))
-        caps |= M3_C50sh;
-    if (csr & (1 << CSR_C225ACsh))
-        caps |= M3_C225ACsh;
-    if (!(csr & (1 << _CSR_C15pre)))
-        caps |= M3_C15pre;
-
-    return caps;
-}
 
 patternParameters *setChipStatusRegisterPattern(int csr) {
     int iaddr = 0;
@@ -125,13 +73,13 @@ patternParameters *setChipStatusRegisterPattern(int csr) {
         error = 1;
     }
     // set pattern wait address
-    for (int i = 0; i <= 2; i++)
+    for (int i = 0; i < M3_MAX_PATTERN_LEVELS; i++)
         pat->wait[i] = MAX_PATTERN_LENGTH - 1;
     // pattern loop
-    for (int i = 0; i <= 2; i++) {
+    for (int i = 0; i < M3_MAX_PATTERN_LEVELS; i++) {
         // int stop = MAX_PATTERN_LENGTH - 1, nloop = 0;
-        pat->loop[i * 2 + 0] = MAX_PATTERN_LENGTH - 1;
-        pat->loop[i * 2 + 1] = MAX_PATTERN_LENGTH - 1;
+        pat->startloop[i] = MAX_PATTERN_LENGTH - 1;
+        pat->stoploop[i] = MAX_PATTERN_LENGTH - 1;
         pat->nloop[i] = 0;
     }
 
@@ -149,57 +97,124 @@ patternParameters *setChipStatusRegisterPattern(int csr) {
     return pat;
 }
 
-patternParameters *setInterpolation(int mask) {
-    int csr;
-    if (mask)
-        csr = chipStatusRegister | (1 << CSR_interp);
-    else
-        csr = chipStatusRegister & ~(1 << CSR_interp);
-
-    return setChipStatusRegisterPattern(csr);
+void flipNegativePolarityBits(int *csr) {
+    (*csr) ^= ((1 << _CSR_C10pre) | (1 << _CSR_C15pre));
 }
 
-patternParameters *setPumpProbe(int mask) {
-    int csr;
-    if (mask)
-        csr = chipStatusRegister | (1 << CSR_pumprobe);
-    else
-        csr = chipStatusRegister & ~(1 << CSR_pumprobe);
+int getGainCaps() {
+    int csr = chipStatusRegister;
+    // Translates bit representation
+    int caps = 0;
+    if (!(csr & (1 << _CSR_C10pre)))
+        caps |= M3_C10pre;
+    if (csr & (1 << CSR_C15sh))
+        caps |= M3_C15sh;
+    if (csr & (1 << CSR_C30sh))
+        caps |= M3_C30sh;
+    if (csr & (1 << CSR_C50sh))
+        caps |= M3_C50sh;
+    if (csr & (1 << CSR_C225ACsh))
+        caps |= M3_C225ACsh;
+    if (!(csr & (1 << _CSR_C15pre)))
+        caps |= M3_C15pre;
 
-    return setChipStatusRegisterPattern(csr);
-}
-patternParameters *setDigitalPulsing(int mask) {
-
-    int csr;
-    if (mask)
-        csr = chipStatusRegister | (1 << CSR_dpulse);
-    else
-        csr = chipStatusRegister & ~(1 << CSR_dpulse);
-
-    return setChipStatusRegisterPattern(csr);
-}
-patternParameters *setAnalogPulsing(int mask) {
-
-    int csr;
-    if (mask)
-        csr = chipStatusRegister | (1 << CSR_apulse);
-    else
-        csr = chipStatusRegister & ~(1 << CSR_apulse);
-
-    return setChipStatusRegisterPattern(csr);
-}
-patternParameters *setNegativePolarity(int mask) {
-
-    int csr;
-    if (mask)
-        csr = chipStatusRegister | (1 << CSR_invpol);
-    else
-        csr = chipStatusRegister & ~(1 << CSR_invpol);
-
-    return setChipStatusRegisterPattern(csr);
+    return caps;
 }
 
-patternParameters *setChannelRegisterChip(int ichip, int *mask, int *trimbits) {
+int M3SetGainCaps(int caps) {
+    int csr = chipStatusRegister & ~GAIN_MASK;
+
+    // Translates bit representation
+    if (!(caps & M3_C10pre))
+        csr |= 1 << _CSR_C10pre;
+    if (caps & M3_C15sh)
+        csr |= 1 << CSR_C15sh;
+    if (caps & M3_C30sh)
+        csr |= 1 << CSR_C30sh;
+    if (caps & M3_C50sh)
+        csr |= 1 << CSR_C50sh;
+    if (caps & M3_C225ACsh)
+        csr |= 1 << CSR_C225ACsh;
+    if (!(caps & M3_C15pre))
+        csr |= 1 << _CSR_C15pre;
+
+    return csr;
+}
+
+int getInterpolation() {
+    return ((chipStatusRegister & CSR_interp_MSK) >> CSR_interp);
+}
+
+int M3SetInterpolation(int enable) {
+    int csr = 0;
+    if (enable)
+        csr = chipStatusRegister | CSR_interp_MSK;
+    else
+        csr = chipStatusRegister & ~CSR_interp_MSK;
+    return csr;
+}
+
+int getPumpProbe() {
+    return ((chipStatusRegister & CSR_pumprobe_MSK) >> CSR_pumprobe);
+}
+
+int M3SetPumpProbe(int enable) {
+    LOG(logINFO, ("%s Pump Probe\n", enable == 0 ? "Disabling" : "Enabling"));
+    int csr = 0;
+    if (enable)
+        csr = chipStatusRegister | CSR_pumprobe_MSK;
+    else
+        csr = chipStatusRegister & ~CSR_pumprobe_MSK;
+    return csr;
+}
+
+int getDigitalPulsing() {
+    return ((chipStatusRegister & CSR_dpulse_MSK) >> CSR_dpulse);
+}
+
+int M3SetDigitalPulsing(int enable) {
+    LOG(logINFO,
+        ("%s Digital Pulsing\n", enable == 0 ? "Disabling" : "Enabling"));
+    int csr = 0;
+    if (enable)
+        csr = chipStatusRegister | CSR_dpulse_MSK;
+    else
+        csr = chipStatusRegister & ~CSR_dpulse_MSK;
+    return csr;
+}
+
+int getAnalogPulsing() {
+    return ((chipStatusRegister & CSR_apulse_MSK) >> CSR_apulse);
+}
+
+int M3SetAnalogPulsing(int enable) {
+    LOG(logINFO,
+        ("%s Analog Pulsing\n", enable == 0 ? "Disabling" : "Enabling"));
+    int csr = 0;
+    if (enable)
+        csr = chipStatusRegister | CSR_apulse_MSK;
+    else
+        csr = chipStatusRegister & ~CSR_apulse_MSK;
+    return csr;
+}
+
+int getNegativePolarity() {
+    return ((chipStatusRegister & CSR_invpol_MSK) >> CSR_invpol);
+}
+
+int M3SetNegativePolarity(int enable) {
+    LOG(logINFO,
+        ("%s Negative Polarity\n", enable == 0 ? "Disabling" : "Enabling"));
+    int csr = 0;
+    if (enable)
+        csr = chipStatusRegister | CSR_invpol_MSK;
+    else
+        csr = chipStatusRegister & ~CSR_invpol_MSK;
+    return csr;
+}
+
+patternParameters *setChannelRegisterChip(int ichip, char *mask,
+                                          int *trimbits) {
 
     patternParameters *pat = malloc(sizeof(patternParameters));
     memset(pat, 0, sizeof(patternParameters));
@@ -269,44 +284,44 @@ patternParameters *setChannelRegisterChip(int ichip, int *mask, int *trimbits) {
     // for each channel (all chips)
     for (int ich = 0; ich < NCHAN_1_COUNTER; ich++) {
         LOG(logDEBUG1, (" Chip %d, Channel %d\n", ichip, ich));
-        int val =
-            trimbits[ichip * NCHAN_1_COUNTER * NCOUNTERS + NCOUNTERS * ich] +
-            trimbits[ichip * NCHAN_1_COUNTER * NCOUNTERS + NCOUNTERS * ich +
-                     1] *
-                64 +
-            trimbits[ichip * NCHAN_1_COUNTER * NCOUNTERS + NCOUNTERS * ich +
-                     2] *
-                64 * 64;
+        int chanReg =
+            64 *
+            (trimbits[ichip * NCHAN_1_COUNTER * NCOUNTERS + NCOUNTERS * ich] +
+             trimbits[ichip * NCHAN_1_COUNTER * NCOUNTERS + NCOUNTERS * ich +
+                      1] *
+                 64 +
+             trimbits[ichip * NCHAN_1_COUNTER * NCOUNTERS + NCOUNTERS * ich +
+                      2] *
+                 64 * 64);
 
-        // push 6 0 bits
-        for (int i = 0; i < 3; i++) {
-            patword = clearBit(SIGNAL_serialIN, patword);
-            patword = clearBit(SIGNAL_clk, patword);
-            pat->word[iaddr++] = patword;
-            patword = setBit(SIGNAL_clk, patword);
-            pat->word[iaddr++] = patword;
-        }
-
-        for (int i = 0; i < 3; i++) {
-            if (mask[i])
-                patword = setBit(SIGNAL_serialIN, patword);
-            else
-                patword = clearBit(SIGNAL_serialIN, patword);
-            patword = clearBit(SIGNAL_clk, patword);
-            pat->word[iaddr++] = patword;
-            patword = setBit(SIGNAL_clk, patword);
-            pat->word[iaddr++] = patword;
+        for (int icounter = 0; icounter != 3; ++icounter) {
+            if (mask[ichip * NCHAN + ich * NCOUNTERS + icounter]) {
+                LOG(logDEBUG1,
+                    ("badchannel [modCounter:%d, modChan:%d, ichip:%d, ich:%d, "
+                     "icounter:%d]\n",
+                     ichip * NCHAN + ich * NCOUNTERS + icounter,
+                     ichip * NCHAN_1_COUNTER + ich, ichip, ich, icounter));
+                chanReg |= (0x1 << (3 + icounter));
+            }
         }
 
         // deserialize
-        for (int i = 0; i < 18; i++) {
-            if (val & (1 << i)) {
+        if (chanReg & CHAN_REG_BAD_CHANNEL_MSK) {
+            LOG(logINFOBLUE,
+                ("badchannel [chanReg:0x%x modCounter:%d, modChan:%d, "
+                 "ichip:%d, ich:%d]\n",
+                 chanReg, ichip * NCHAN + ich * NCOUNTERS,
+                 ichip * NCHAN_1_COUNTER + ich, ichip, ich));
+        }
+        for (int i = 0; i < 23; i++) {
+            patword = clearBit(SIGNAL_clk, patword);
+            pat->word[iaddr++] = patword;
+
+            if (chanReg & (1 << (i + 1))) {
                 patword = setBit(SIGNAL_serialIN, patword);
             } else {
                 patword = clearBit(SIGNAL_serialIN, patword);
             }
-            patword = clearBit(SIGNAL_clk, patword);
-            pat->word[iaddr++] = patword;
 
             patword = setBit(SIGNAL_clk, patword);
             pat->word[iaddr++] = patword;
@@ -339,13 +354,13 @@ patternParameters *setChannelRegisterChip(int ichip, int *mask, int *trimbits) {
         error = 1;
     }
     // set pattern wait address
-    for (int i = 0; i <= 2; i++)
+    for (int i = 0; i < M3_MAX_PATTERN_LEVELS; i++)
         pat->wait[i] = MAX_PATTERN_LENGTH - 1;
     // pattern loop
-    for (int i = 0; i <= 2; i++) {
+    for (int i = 0; i < M3_MAX_PATTERN_LEVELS; i++) {
         // int stop = MAX_PATTERN_LENGTH - 1, nloop = 0;
-        pat->loop[i * 2 + 0] = MAX_PATTERN_LENGTH - 1;
-        pat->loop[i * 2 + 1] = MAX_PATTERN_LENGTH - 1;
+        pat->startloop[i] = MAX_PATTERN_LENGTH - 1;
+        pat->stoploop[i] = MAX_PATTERN_LENGTH - 1;
         pat->nloop[i] = 0;
     }
 

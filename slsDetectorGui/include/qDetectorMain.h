@@ -4,7 +4,9 @@
 #include "qDefs.h"
 #include "sls/Detector.h"
 #include "ui_form_detectormain.h"
-#include <QTabWidget>
+class QResizeEvent;
+
+namespace sls {
 
 class qDrawPlot;
 class qTabMeasurement;
@@ -15,17 +17,6 @@ class qTabSettings;
 class qTabDebugging;
 class qTabDeveloper;
 class qTabMessages;
-class QScrollArea;
-class QResizeEvent;
-
-/** To Over-ride the QTabWidget class to get the tabBar protected
- * methodTabWidget */
-class MyTabWidget : public QTabWidget {
-  public:
-    MyTabWidget(QWidget *parent = 0) { setParent(parent); }
-    /** Overridden protected method from QTabWidget */
-    QTabBar *tabBar() { return QTabWidget::tabBar(); }
-};
 
 class qDetectorMain : public QMainWindow, private Ui::DetectorMainObject {
     Q_OBJECT
@@ -70,10 +61,8 @@ class qDetectorMain : public QMainWindow, private Ui::DetectorMainObject {
         NumberOfTabs
     };
     slsDetectorDefs::detectorType detType;
-    std::unique_ptr<sls::Detector> det;
+    std::unique_ptr<Detector> det;
     qDrawPlot *plot;
-    MyTabWidget *tabs;
-    QScrollArea *scroll[NumberOfTabs];
     qTabMeasurement *tabMeasurement;
     qTabDataOutput *tabDataOutput;
     qTabPlot *tabPlot;
@@ -82,9 +71,9 @@ class qDetectorMain : public QMainWindow, private Ui::DetectorMainObject {
     qTabDebugging *tabDebugging;
     qTabDeveloper *tabDeveloper;
     qTabMessages *tabMessages;
-    int isDeveloper;
-    int heightPlotWindow;
-    int heightCentralWidget;
+    int isDeveloper{false};
     QString zoomToolTip;
     QColor defaultTabColor;
 };
+
+} // namespace sls

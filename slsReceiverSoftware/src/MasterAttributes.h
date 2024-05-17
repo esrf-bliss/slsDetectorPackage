@@ -67,7 +67,7 @@ struct MasterAttributes {
     virtual ~MasterAttributes(){};
 
     virtual void WriteMasterBinaryAttributes(FILE *fd) {
-        LOG(logERROR) << "WriteMasterBinaryAttributes should have been called "
+        LOG(sls::logERROR) << "WriteMasterBinaryAttributes should have been called "
                          "by a child class";
     }
 
@@ -140,7 +140,7 @@ struct MasterAttributes {
 
 #ifdef HDF5C
     virtual void WriteMasterHDF5Attributes(H5File *fd, Group *group) {
-        LOG(logERROR) << "WriteMasterHdf5Attributes should have been called "
+        LOG(sls::logERROR) << "WriteMasterHdf5Attributes should have been called "
                          "by a child class";
     };
 

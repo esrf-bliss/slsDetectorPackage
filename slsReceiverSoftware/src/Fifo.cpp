@@ -19,17 +19,17 @@ Fifo::Fifo(int ind, GeneralDataPtr gd, uint32_t depth,
            PacketBlockAllocPtr alloc_ptr)
     : index(ind), memory(nullptr), fifoFree(nullptr), fifoStream(nullptr),
       fifoDepth(depth), status_fifoFree(depth) {
-    LOG(logDEBUG3) << __SHORT_AT__ << " called";
+    LOG(sls::logDEBUG3) << __SHORT_AT__ << " called";
     CreateFifos(gd, alloc_ptr);
 }
 
 Fifo::~Fifo() {
-    LOG(logDEBUG3) << __SHORT_AT__ << " called";
+    LOG(sls::logDEBUG3) << __SHORT_AT__ << " called";
     DestroyFifos();
 }
 
 void Fifo::CreateFifos(GeneralDataPtr gd, PacketBlockAllocPtr alloc_ptr) {
-    LOG(logDEBUG3) << __SHORT_AT__ << " called";
+    LOG(sls::logDEBUG3) << __SHORT_AT__ << " called";
 
     // destroy if not already
     DestroyFifos();
@@ -38,12 +38,12 @@ void Fifo::CreateFifos(GeneralDataPtr gd, PacketBlockAllocPtr alloc_ptr) {
         packetContainer = CreatePacketContainer(
             gd->myDetectorType, gd->tgEnable, gd->numUDPInterfaces,
             gd->dynamicRange, fifoDepth, alloc_ptr);
-        LOG(logINFO) << "Fifo " << index
+        LOG(sls::logINFO) << "Fifo " << index
                      << " packet Depth (rx_fifodepth): " << fifoDepth;
         long long mem_len;
         std::visit([&](auto &pc) { mem_len = pc.getMemorySize(); },
                    *packetContainer);
-        LOG(logDEBUG) << "Memory Allocated " << index << ": "
+        LOG(sls::logDEBUG) << "Memory Allocated " << index << ": "
                       << mem_len / (double)(1024 * 1024) << " MB";
     } catch (...) {
         throw sls::RuntimeError("Could not create PacketContainer");
@@ -72,7 +72,7 @@ void Fifo::CreateFifos(GeneralDataPtr gd, PacketBlockAllocPtr alloc_ptr) {
     const char *t = "memory";
     for (size_t i = 0; (i + strlen(t)) < mem_len; i += pagesize)
         strcpy(memory + i, t);
-    LOG(logDEBUG) << "Memory Allocated for Streamer " << index << ": "
+    LOG(sls::logDEBUG) << "Memory Allocated for Streamer " << index << ": "
                   << (double)mem_len / (double)(1024 * 1024) << " MB";
 
     { // push free addresses into fifoFree fifo
@@ -84,12 +84,12 @@ void Fifo::CreateFifos(GeneralDataPtr gd, PacketBlockAllocPtr alloc_ptr) {
             buffer += fifoFrameSize;
         }
     }
-    LOG(logINFO) << "Fifo " << index
+    LOG(sls::logINFO) << "Fifo " << index
                  << " frame-4-streamer Depth: " << fifoFree->getDataValue();
 }
 
 void Fifo::DestroyFifos() {
-    LOG(logDEBUG3) << __SHORT_AT__ << " called";
+    LOG(sls::logDEBUG3) << __SHORT_AT__ << " called";
 
     if (memory) {
         free(memory);

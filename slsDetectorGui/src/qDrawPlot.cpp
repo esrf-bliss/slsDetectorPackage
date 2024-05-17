@@ -12,9 +12,12 @@
 #include <QFileDialog>
 #include <QPainter>
 #include <QResizeEvent>
-#include <QtConcurrentRun>
+#include <QtConcurrent/QtConcurrentRun>
+#include <qwt_scale_engine.h>
 
-qDrawPlot::qDrawPlot(QWidget *parent, sls::Detector *detector)
+namespace sls {
+
+qDrawPlot::qDrawPlot(QWidget *parent, Detector *detector)
     : QWidget(parent), det(detector) {
     setupUi(this);
     SetupWidgetWindow();
@@ -80,6 +83,10 @@ void qDrawPlot::SetupWidgetWindow() {
         fileSaveName = "Image";
     }
 
+    gotthard25 = ((detType == slsDetectorDefs::GOTTHARD2 ||
+                   detType == slsDetectorDefs::GOTTHARD) &&
+                  det->size() == 2);
+
     SetupPlots();
     SetDataCallBack(true);
     det->registerAcquisitionFinishedCallback(&(GetAcquisitionFinishedCallBack),
@@ -92,8 +99,6 @@ void qDrawPlot::Initialization() {
 }
 
 void qDrawPlot::SetupPlots() {
-    setFont(QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-
     // default image size
     slsDetectorDefs::xy res = det->getDetectorSize();
     nPixelsX = res.x;
@@ -101,10 +106,10 @@ void qDrawPlot::SetupPlots() {
     LOG(logINFO) << "nPixelsX:" << nPixelsX;
     LOG(logINFO) << "nPixelsY:" << nPixelsY;
 
-    boxPlot->setFont(QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
     widgetStatistics->hide();
     lblCompleteImage->hide();
     lblInCompleteImage->hide();
+    lblRxRoiEnabled->hide();
 
     // setup 1d data
 
@@ -130,11 +135,6 @@ void qDrawPlot::SetupPlots() {
     hists1d.append(h);
     // setup 1d plot
     plot1d = new SlsQt1DPlot(boxPlot);
-    plot1d->setFont(QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-    plot1d->SetTitleFont(
-        QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-    plot1d->SetXFont(QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-    plot1d->SetYFont(QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
     plot1d->SetTitle("");
     plot1d->SetXTitle(xTitle1d);
     plot1d->SetYTitle(yTitle1d);
@@ -152,25 +152,13 @@ void qDrawPlot::SetupPlots() {
     gainhist1d->SetLineColor(0);
     gainhist1d->setStyleLinesorDots(isLines);
     gainhist1d->setSymbolMarkers(isMarkers);
-    // setup 1d gain plot
-    gainplot1d = new SlsQt1DPlot(boxPlot);
-    gainplot1d->SetTitleFont(
-        QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-    gainplot1d->SetYFont(
-        QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-    gainplot1d->SetTitle("");
-    gainplot1d->SetYTitle("Gain");
-    // set ticks to just 3
-    QList<double> majorTicks({0, 1, 2, 3});
-    QwtScaleDiv div(0, 3, QList<double>(), QList<double>(), majorTicks);
-    gainplot1d->setAxisScaleDiv(QwtPlot::yLeft, div);
-    // gainplot1d->axisScaleDraw(QwtPlot::xBottom)->enableComponent(QwtScaleDraw::Ticks,
-    // false);
-    // gainplot1d->axisScaleDraw(QwtPlot::yLeft)->enableComponent(QwtScaleDraw::Labels,
-    // false);
     gainhist1d->setItemAttribute(QwtPlotItem::Legend, false);
+    // setup 1d gain plot
+    gainplot1d = new SlsQt1DPlot(boxPlot, true);
     gainhist1d->Attach(gainplot1d);
     gainplot1d->hide();
+    connect(plot1d, SIGNAL(PlotZoomedSignal(const QRectF &)), this,
+            SLOT(Zoom1DGainPlot(const QRectF &)));
 
     // setup 2d data
 
@@ -197,30 +185,17 @@ void qDrawPlot::SetupPlots() {
     plot2d = new SlsQt2DPlot(boxPlot);
     plot2d->SetData(nPixelsX, -0.5, nPixelsX - 0.5, nPixelsY, -0.5,
                     nPixelsY - 0.5, data2d);
-    plot2d->setFont(QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-    plot2d->SetTitleFont(
-        QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-    plot2d->SetXFont(QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-    plot2d->SetYFont(QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-    plot2d->SetZFont(QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
     plot2d->setTitle("");
     plot2d->SetXTitle(xTitle2d);
     plot2d->SetYTitle(yTitle2d);
     plot2d->SetZTitle(zTitle2d);
 
-    gainplot2d = new SlsQt2DPlot(boxPlot);
+    gainplot2d = new SlsQt2DPlot(boxPlot, true);
     gainplot2d->SetData(nPixelsX, -0.5, nPixelsX - 0.5, nPixelsY, -0.5,
                         nPixelsY - 0.5, gainData);
-    gainplot2d->SetTitleFont(
-        QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-    gainplot2d->setTitle("Gain");
-    gainplot2d->SetZTitle("");
-    gainplot2d->enableAxis(QwtPlot::yLeft, false);
-    // gainplot2d->enableAxis(1, false);
-    gainplot2d->enableAxis(QwtPlot::xBottom, false);
-    // set ticks to just 3
-    gainplot2d->setAxisScaleDiv(QwtPlot::yRight, div);
     gainplot2d->hide();
+    connect(plot2d, SIGNAL(PlotZoomedSignal(const QRectF &)), this,
+            SLOT(Zoom2DGainPlot(const QRectF &)));
 
     // layout of plots
     int ratio = qDefs::DATA_GAIN_PLOT_RATIO - 1;
@@ -229,6 +204,16 @@ void qDrawPlot::SetupPlots() {
     plotLayout->addWidget(gainplot1d, ratio, 0, 1, ratio, Qt::AlignTop);
     plotLayout->addWidget(gainplot2d, 0, ratio, 1, 1,
                           Qt::AlignRight | Qt::AlignTop);
+}
+
+void qDrawPlot::Zoom1DGainPlot(const QRectF &rect) {
+    std::lock_guard<std::mutex> lock(mPlots);
+    gainplot1d->SetZoomX(rect);
+}
+
+void qDrawPlot::Zoom2DGainPlot(const QRectF &rect) {
+    std::lock_guard<std::mutex> lock(mPlots);
+    gainplot2d->SetZoom(rect);
 }
 
 void qDrawPlot::resizeEvent(QResizeEvent *event) {
@@ -248,13 +233,17 @@ void qDrawPlot::resizeEvent(QResizeEvent *event) {
 
 bool qDrawPlot::GetIsRunning() { return isRunning; }
 
-void qDrawPlot::SetRunning(bool enable) { isRunning = enable; }
+void qDrawPlot::SetRunning(bool enable) {
+    std::lock_guard<std::mutex> lock(mPlots);
+    isRunning = enable;
+}
 
 double qDrawPlot::GetProgress() { return progress; }
 
 int64_t qDrawPlot::GetCurrentFrameIndex() { return currentFrame; }
 
 void qDrawPlot::Select1dPlot(bool enable) {
+    std::lock_guard<std::mutex> lock(mPlots);
     if (enable) {
         is1d = true;
         // DetachHists(); it clears the last measurement
@@ -274,12 +263,14 @@ void qDrawPlot::Select1dPlot(bool enable) {
 }
 
 void qDrawPlot::SetPlotTitlePrefix(QString title) {
-    LOG(logINFO) << "Setting Title to " << title.toAscii().constData();
+    std::lock_guard<std::mutex> lock(mPlots);
+    LOG(logINFO) << "Setting Title to " << title.toLatin1().constData();
     plotTitlePrefix = title;
 }
 
 void qDrawPlot::SetXAxisTitle(QString title) {
-    LOG(logINFO) << "Setting X Axis Title to " << title.toAscii().constData();
+    std::lock_guard<std::mutex> lock(mPlots);
+    LOG(logINFO) << "Setting X Axis Title to " << title.toLatin1().constData();
     if (is1d) {
         xTitle1d = title;
     } else {
@@ -288,7 +279,8 @@ void qDrawPlot::SetXAxisTitle(QString title) {
 }
 
 void qDrawPlot::SetYAxisTitle(QString title) {
-    LOG(logINFO) << "Setting Y Axis Title to " << title.toAscii().constData();
+    std::lock_guard<std::mutex> lock(mPlots);
+    LOG(logINFO) << "Setting Y Axis Title to " << title.toLatin1().constData();
     if (is1d) {
         yTitle1d = title;
     } else {
@@ -297,7 +289,8 @@ void qDrawPlot::SetYAxisTitle(QString title) {
 }
 
 void qDrawPlot::SetZAxisTitle(QString title) {
-    LOG(logINFO) << "Setting Z Axis Title to " << title.toAscii().constData();
+    std::lock_guard<std::mutex> lock(mPlots);
+    LOG(logINFO) << "Setting Z Axis Title to " << title.toLatin1().constData();
     zTitle2d = title;
 }
 
@@ -314,6 +307,7 @@ void qDrawPlot::SetXYRangeChanged(bool disable, double *xy, bool *isXY) {
 }
 
 void qDrawPlot::SetZRange(double *z, bool *isZ) {
+    std::lock_guard<std::mutex> lock(mPlots);
     std::copy(z, z + 2, zRange);
     std::copy(isZ, isZ + 2, isZRange);
 }
@@ -347,6 +341,7 @@ double qDrawPlot::GetYMaximum() {
 }
 
 void qDrawPlot::SetDataCallBack(bool enable) {
+    std::lock_guard<std::mutex> lock(mPlots);
     LOG(logINFO) << "Setting data call back to " << std::boolalpha << enable
                  << std::noboolalpha;
     try {
@@ -365,6 +360,7 @@ void qDrawPlot::SetDataCallBack(bool enable) {
 }
 
 void qDrawPlot::SetBinary(bool enable, int from, int to) {
+    std::lock_guard<std::mutex> lock(mPlots);
     LOG(logINFO) << (enable ? "Enabling" : "Disabling")
                  << " Binary output from " << from << " to " << to;
     binaryFrom = from;
@@ -373,6 +369,7 @@ void qDrawPlot::SetBinary(bool enable, int from, int to) {
 }
 
 void qDrawPlot::SetPersistency(int val) {
+    std::lock_guard<std::mutex> lock(mPlots);
     LOG(logINFO) << "Setting Persistency to " << val;
     persistency = val;
 }
@@ -454,24 +451,28 @@ void qDrawPlot::ResetAccumulate() {
 }
 
 void qDrawPlot::DisplayStatistics(bool enable) {
+    std::lock_guard<std::mutex> lock(mPlots);
     LOG(logINFO) << (enable ? "Enabling" : "Disabling")
                  << " Statistics Display";
     displayStatistics = enable;
 }
 
 void qDrawPlot::SetNumDiscardBits(int value) {
+    std::lock_guard<std::mutex> lock(mPlots);
     LOG(logINFO) << "Setting number of bits to discard: " << value;
     numDiscardBits = value;
 }
 
 void qDrawPlot::EnableGainPlot(bool enable) {
+    std::lock_guard<std::mutex> lock(mPlots);
     LOG(logINFO) << (enable ? "Enabling" : "Disabling") << " Gain Plot";
     hasGainData = enable;
 }
 
 void qDrawPlot::SetSaveFileName(QString val) {
+    std::lock_guard<std::mutex> lock(mPlots);
     LOG(logDEBUG) << "Setting Clone/Save File Name to "
-                  << val.toAscii().constData();
+                  << val.toLatin1().constData();
     fileSaveName = val;
 }
 
@@ -486,14 +487,6 @@ void qDrawPlot::ClonePlot() {
     if (is1d) {
         LOG(logDEBUG) << "Cloning 1D Image";
         cloneplot1D = new SlsQt1DPlot();
-        cloneplot1D->setFont(
-            QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-        cloneplot1D->SetTitleFont(
-            QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-        cloneplot1D->SetXFont(
-            QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-        cloneplot1D->SetYFont(
-            QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
         cloneplot1D->SetTitle(plot1d->title().text());
         cloneplot1D->SetXTitle(xTitle1d);
         cloneplot1D->SetYTitle(yTitle1d);
@@ -503,6 +496,7 @@ void qDrawPlot::ClonePlot() {
             h->SetLineColor(iHist);
             h->setStyleLinesorDots(isLines);
             h->setSymbolMarkers(isMarkers);
+            h->setItemAttribute(QwtPlotItem::Legend, false);
             cloneplotHists1D.append(h);
             h->Attach(cloneplot1D);
         }
@@ -512,32 +506,14 @@ void qDrawPlot::ClonePlot() {
             h->setStyleLinesorDots(isLines);
             h->setSymbolMarkers(isMarkers);
             h->setItemAttribute(QwtPlotItem::Legend, false);
-            clonegainplot1D = new SlsQt1DPlot();
-            clonegainplot1D->SetTitleFont(
-                QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-            clonegainplot1D->SetYFont(
-                QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-            clonegainplot1D->SetTitle("");
-            clonegainplot1D->SetYTitle("Gain");
-            // set ticks to just 3
-            QList<double> majorTicks({0, 1, 2, 3});
-            QwtScaleDiv div(0, 3, QList<double>(), QList<double>(), majorTicks);
-            clonegainplot1D->setAxisScaleDiv(QwtPlot::yLeft, div);
+            clonegainplot1D = new SlsQt1DPlot(NULL, true);
             h->Attach(clonegainplot1D);
+            connect(cloneplot1D, SIGNAL(PlotZoomedSignal(const QRectF &)),
+                    clonegainplot1D, SLOT(SetZoomX(const QRectF &)));
         }
     } else {
         LOG(logDEBUG) << "Cloning 2D Image";
         cloneplot2D = new SlsQt2DPlot();
-        cloneplot2D->setFont(
-            QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-        cloneplot2D->SetTitleFont(
-            QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-        cloneplot2D->SetXFont(
-            QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-        cloneplot2D->SetYFont(
-            QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-        cloneplot2D->SetZFont(
-            QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
         cloneplot2D->setTitle(plot2d->title().text());
         cloneplot2D->SetXTitle(xTitle2d);
         cloneplot2D->SetYTitle(yTitle2d);
@@ -547,23 +523,11 @@ void qDrawPlot::ClonePlot() {
         cloneplot2D->SetZRange(isZRange[0], isZRange[1], zRange[0], zRange[1]);
 
         if (isGainDataExtracted) {
-            clonegainplot2D = new SlsQt2DPlot();
-            clonegainplot2D->SetTitleFont(
-                QFont("Sans Serif", qDefs::Q_FONT_SIZE, QFont::Normal));
-            clonegainplot2D->SetTitle("Gain");
-            clonegainplot2D->SetZTitle("");
-            clonegainplot2D->enableAxis(QwtPlot::yLeft, false);
-            clonegainplot2D->enableAxis(QwtPlot::xBottom, false);
-            // set ticks to just 3
-            QList<double> majorTicks({0, 1, 2, 3});
-            QwtScaleDiv div(0, 3, QList<double>(), QList<double>(), majorTicks);
-            clonegainplot2D->setAxisScaleDiv(QwtPlot::yRight, div);
-
-            clonegainplot2D->enableAxis(0, false);
-            clonegainplot2D->enableAxis(1, false);
-            clonegainplot2D->enableAxis(2, false);
+            clonegainplot2D = new SlsQt2DPlot(NULL, true);
             clonegainplot2D->SetData(nPixelsX, -0.5, nPixelsX - 0.5, nPixelsY,
                                      -0.5, nPixelsY - 0.5, gainData);
+            connect(cloneplot2D, SIGNAL(PlotZoomedSignal(const QRectF &)),
+                    clonegainplot2D, SLOT(SetZoom(const QRectF &)));
         }
     }
 
@@ -575,6 +539,7 @@ void qDrawPlot::ClonePlot() {
 }
 
 void qDrawPlot::SavePlot() {
+    std::lock_guard<std::mutex> lock(mPlots);
     // render image
     QImage savedImage(size().width(), size().height(), QImage::Format_RGB32);
     QPainter painter(&savedImage);
@@ -603,6 +568,12 @@ void qDrawPlot::SavePlot() {
                 "qDrawPlot::SavePlot");
         }
     }
+}
+
+void qDrawPlot::SetGapPixels(bool enable) {
+    LOG(logDEBUG) << "Gap pixels enabled";
+    std::lock_guard<std::mutex> lock(mPlots);
+    isGapPixels = enable;
 }
 
 void qDrawPlot::GetStatistics(double &min, double &max, double &sum) {
@@ -638,6 +609,7 @@ void qDrawPlot::StartAcquisition() {
     currentFrame = 0;
     boxPlot->setTitle("Old Plot");
     det->clearAcquiringFlag(); // (from previous exit) or if running
+    isRxRoiDisplayed = false;
 
     // ensure data streaming in receiver (if plot enabled)
     if (isPlot) {
@@ -705,7 +677,7 @@ void qDrawPlot::AcquisitionFinished(double currentProgress,
                                     int detectorStatus) {
     progress = currentProgress;
     std::string status =
-        sls::ToString(static_cast<slsDetectorDefs::runStatus>(detectorStatus));
+        ToString(static_cast<slsDetectorDefs::runStatus>(detectorStatus));
 
     if (detectorStatus == slsDetectorDefs::ERROR) {
         qDefs::Message(qDefs::WARNING,
@@ -738,6 +710,7 @@ void qDrawPlot::GetData(detectorData *data, uint64_t frameIndex,
                   << "  \t dynamic range: " << data->dynamicRange << std::endl
                   << "  \t file index: " << data->fileIndex << std::endl
                   << "  \t complete image: " << data->completeImage << std::endl
+                  << "  \t rx Roi: " << ToString(data->rxRoi) << std::endl
                   << "  ]";
 
     progress = data->progressIndex;
@@ -745,6 +718,22 @@ void qDrawPlot::GetData(detectorData *data, uint64_t frameIndex,
     currentFrame = frameIndex;
     LOG(logDEBUG) << "[ Progress:" << progress << "%, Frame:" << currentFrame
                   << " ]";
+    if (!isRxRoiDisplayed) {
+        rxRoi.xmin = data->rxRoi[0];
+        rxRoi.xmax = data->rxRoi[1];
+        rxRoi.ymin = data->rxRoi[2];
+        rxRoi.ymax = data->rxRoi[3];
+        // only for 2d anyway
+        if (isGapPixels) {
+            rxRoi.xmin += ((rxRoi.xmin / 1024) * 6 + (rxRoi.xmin / 256) * 2);
+            rxRoi.xmax += ((rxRoi.xmax / 1024) * 6 + (rxRoi.xmax / 256) * 2);
+            rxRoi.ymin += ((rxRoi.ymin / 512) * 34 + (rxRoi.ymin / 256) * 2);
+            rxRoi.ymax += ((rxRoi.ymax / 512) * 34 + (rxRoi.ymax / 256) * 2);
+            LOG(logINFO) << "Rx_roi recalculated with gap pixels: "
+                         << ToString(rxRoi);
+        }
+        LOG(logDEBUG) << "Rx_roi: " << ToString(rxRoi);
+    }
 
     // 1d check if npixelX has changed (m3 for different counters enabled)
     if (is1d && static_cast<int>(nPixelsX) != data->nx) {
@@ -805,6 +794,11 @@ void qDrawPlot::GetData(detectorData *data, uint64_t frameIndex,
         toDoublePixelData(rawData, data->data, nPixels, data->databytes,
                           data->dynamicRange);
         isGainDataExtracted = false;
+    }
+
+    // gotthard25um rearranging
+    if (gotthard25) {
+        rearrangeGotthard25data(rawData);
     }
 
     // title and frame index titles
@@ -978,6 +972,31 @@ void qDrawPlot::Update1dPlot() {
         xyRangeChanged = false;
     }
     plot1d->DisableZoom(disableZoom);
+    if (!isRxRoiDisplayed) {
+        isRxRoiDisplayed = true;
+        if (rxRoi.completeRoi()) {
+            plot1d->DisableRoiBox();
+            if (isGainDataExtracted) {
+                gainplot1d->DisableRoiBox();
+            }
+            lblRxRoiEnabled->hide();
+        } else {
+            plot1d->EnableRoiBox(std::array<int, 4>{
+                rxRoi.xmin, rxRoi.xmax, (int)plot1d->GetYMinimum(),
+                (int)plot1d->GetYMaximum()});
+            if (isGainDataExtracted) {
+                gainplot1d->EnableRoiBox(
+                    std::array<int, 4>{rxRoi.xmin, rxRoi.xmax, 0, 3});
+            }
+            lblRxRoiEnabled->show();
+        }
+    }
+    // ymin and ymax could change (so replot roi every time)
+    if (!rxRoi.completeRoi()) {
+        plot1d->EnableRoiBox(std::array<int, 4>{rxRoi.xmin, rxRoi.xmax,
+                                                (int)plot1d->GetYMinimum(),
+                                                (int)plot1d->GetYMaximum()});
+    }
 }
 
 void qDrawPlot::Update2dPlot() {
@@ -1006,17 +1025,35 @@ void qDrawPlot::Update2dPlot() {
     }
     plot2d->DisableZoom(disableZoom);
     plot2d->SetZRange(isZRange[0], isZRange[1], zRange[0], zRange[1]);
+    if (!isRxRoiDisplayed) {
+        isRxRoiDisplayed = true;
+        if (rxRoi.completeRoi()) {
+            plot2d->DisableRoiBox();
+            if (isGainDataExtracted) {
+                gainplot2d->DisableRoiBox();
+            }
+            lblRxRoiEnabled->hide();
+        } else {
+            plot2d->EnableRoiBox(rxRoi.getIntArray());
+            if (isGainDataExtracted) {
+                gainplot2d->EnableRoiBox(rxRoi.getIntArray());
+            }
+            lblRxRoiEnabled->show();
+        }
+    }
 }
 
 void qDrawPlot::Update1dXYRange() {
     if (!isXYRange[qDefs::XMIN] && !isXYRange[qDefs::XMAX]) {
         plot1d->EnableXAutoScaling();
+        gainplot1d->EnableXAutoScaling();
     } else {
         double xmin = (isXYRange[qDefs::XMIN] ? xyRange[qDefs::XMIN]
                                               : plot1d->GetXMinimum());
         double xmax = (isXYRange[qDefs::XMAX] ? xyRange[qDefs::XMAX]
                                               : plot1d->GetXMaximum());
         plot1d->SetXMinMax(xmin, xmax);
+        gainplot1d->SetXMinMax(xmin, xmax);
     }
 
     if (!isXYRange[qDefs::YMIN] && !isXYRange[qDefs::YMAX]) {
@@ -1029,29 +1066,35 @@ void qDrawPlot::Update1dXYRange() {
         plot1d->SetYMinMax(ymin, ymax);
     }
     plot1d->Update();
+    gainplot1d->Update();
 }
 
 void qDrawPlot::Update2dXYRange() {
     if (!isXYRange[qDefs::XMIN] && !isXYRange[qDefs::XMAX]) {
         plot2d->EnableXAutoScaling();
+        gainplot2d->EnableXAutoScaling();
     } else {
         double xmin = (isXYRange[qDefs::XMIN] ? xyRange[qDefs::XMIN]
                                               : plot2d->GetXMinimum());
         double xmax = (isXYRange[qDefs::XMAX] ? xyRange[qDefs::XMAX]
                                               : plot2d->GetXMaximum());
         plot2d->SetXMinMax(xmin, xmax);
+        gainplot2d->SetXMinMax(xmin, xmax);
     }
 
     if (!isXYRange[qDefs::YMIN] && !isXYRange[qDefs::YMAX]) {
         plot2d->EnableYAutoScaling();
+        gainplot2d->EnableYAutoScaling();
     } else {
         double ymin = (isXYRange[qDefs::YMIN] ? xyRange[qDefs::YMIN]
                                               : plot2d->GetYMinimum());
         double ymax = (isXYRange[qDefs::YMAX] ? xyRange[qDefs::YMAX]
                                               : plot2d->GetYMaximum());
         plot2d->SetYMinMax(ymin, ymax);
+        gainplot2d->SetYMinMax(ymin, ymax);
     }
     plot2d->Update();
+    gainplot2d->Update();
 }
 
 void qDrawPlot::toDoublePixelData(double *dest, char *source, int size,
@@ -1064,6 +1107,8 @@ void qDrawPlot::toDoublePixelData(double *dest, char *source, int size,
     // mythen3 / gotthard2 debugging
     int discardBits = numDiscardBits;
 
+    uint16_t temp = 0;
+    uint8_t *src = (uint8_t *)source;
     switch (dr) {
 
     case 4:
@@ -1080,6 +1125,19 @@ void qDrawPlot::toDoublePixelData(double *dest, char *source, int size,
         for (ichan = 0; ichan < databytes; ++ichan) {
             dest[ichan] = *((u_int8_t *)source);
             ++source;
+        }
+        break;
+
+    case 12:
+        for (ichan = 0; ichan < size; ++ichan) {
+            temp = (*src++ & 0xFF);
+            temp |= ((*src & 0xF) << 8u);
+            dest[ichan] = (double)temp;
+            ++ichan;
+
+            temp = ((*src++ & 0xF0) >> 4u);
+            temp |= ((*src++ & 0xFF) << 4u);
+            dest[ichan] = (double)temp;
         }
         break;
 
@@ -1130,6 +1188,18 @@ void qDrawPlot::toDoublePixelData(double *dest, char *source, int size,
     }
 }
 
+void qDrawPlot::rearrangeGotthard25data(double *data) {
+    const int nChans = NUM_GOTTHARD25_CHANS;
+    double temp[nChans * 2] = {0.0};
+    for (int i = 0; i != nChans; ++i) {
+        // master module
+        temp[i * 2] = data[i];
+        // slave module
+        temp[i * 2 + 1] = data[nChans + i];
+    }
+    memcpy(data, temp, nChans * 2 * sizeof(double));
+}
+
 void qDrawPlot::UpdatePlot() {
     std::lock_guard<std::mutex> lock(mPlots);
     LOG(logDEBUG) << "Update Plot";
@@ -1164,3 +1234,5 @@ void qDrawPlot::UpdatePlot() {
 
     LOG(logDEBUG) << "End of Update Plot";
 }
+
+} // namespace sls

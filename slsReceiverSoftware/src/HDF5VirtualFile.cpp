@@ -24,7 +24,7 @@ void HDF5VirtualFile::CloseFile() {
             fd_ = nullptr;
         }
     } catch (const Exception &error) {
-        LOG(logERROR) << "Could not close virtual HDF5 handles of index";
+        LOG(sls::logERROR) << "Could not close virtual HDF5 handles of index";
         error.printErrorStack();
     }
 }
@@ -123,7 +123,7 @@ void HDF5VirtualFile::CreateVirtualFile(
                    << (modulePos * numUnitsPerReadout + i) << "_f" << hyperSlab
                    << '_' << fileIndex << ".h5";
                 std::string srcFileName = os.str();
-                LOG(logDEBUG1) << srcFileName;
+                LOG(sls::logDEBUG1) << srcFileName;
 
                 // find relative path
                 std::string relative_srcFileName = srcFileName;
@@ -194,6 +194,6 @@ void HDF5VirtualFile::CreateVirtualFile(
             "Could not create/overwrite virtual HDF5 handles");
     }
     if (!silentMode) {
-        LOG(logINFO) << "Virtual File: " << fileName_;
+        LOG(sls::logINFO) << "Virtual File: " << fileName_;
     }
 }

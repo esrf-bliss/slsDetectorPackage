@@ -43,7 +43,7 @@ class Receiver : private virtual slsDetectorDefs {
      * get get Receiver Version
      \returns id
      */
-    int64_t getReceiverVersion();
+    std::string getReceiverVersion();
 
     /**
      * Call back for start acquisition

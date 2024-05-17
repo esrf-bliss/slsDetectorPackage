@@ -10,6 +10,8 @@
  *@short functions indices to call on server (detector/receiver)
  */
 
+#define UNRECOGNIZED_FNUM_ENUM "Unrecognized Function enum"
+
 enum detFuncs {
     F_EXEC_COMMAND = 0,
     F_GET_DETECTOR_TYPE,
@@ -107,11 +109,10 @@ enum detFuncs {
     F_TEMP_EVENT,
     F_AUTO_COMP_DISABLE,
     F_STORAGE_CELL_START,
-    F_CHECK_VERSION,
+    F_INITIAL_CHECKS,
     F_SOFTWARE_TRIGGER,
     F_LED,
     F_DIGITAL_IO_DELAY,
-    F_COPY_DET_SERVER,
     F_REBOOT_CONTROLLER,
     F_SET_ADC_ENABLE_MASK,
     F_GET_ADC_ENABLE_MASK,
@@ -253,16 +254,38 @@ enum detFuncs {
     F_SET_UDP_FIRST_DEST,
     F_GET_READOUT_SPEED,
     F_SET_READOUT_SPEED,
+    F_GET_KERNEL_VERSION,
+    F_UPDATE_KERNEL,
+    F_UPDATE_DETECTOR_SERVER,
+    F_GET_UPDATE_MODE,
+    F_SET_UPDATE_MODE,
+    F_SET_MASTER,
+    F_GET_TOP,
+    F_SET_TOP,
+    F_GET_POLARITY,
+    F_SET_POLARITY,
+    F_GET_INTERPOLATION,
+    F_SET_INTERPOLATION,
+    F_GET_PUMP_PROBE,
+    F_SET_PUMP_PROBE,
+    F_GET_ANALOG_PULSING,
+    F_SET_ANALOG_PULSING,
+    F_GET_DIGITAL_PULSING,
+    F_SET_DIGITAL_PULSING,
+    F_GET_MODULE,
+    F_GET_SYNCHRONIZATION,
+    F_SET_SYNCHRONIZATION,
+    F_GET_HARDWARE_VERSION,
 
     NUM_DET_FUNCTIONS,
-    RECEIVER_ENUM_START = 256, /**< detector function should not exceed this
+    RECEIVER_ENUM_START = 512, /**< detector function should not exceed this
                                   (detector server should not compile anyway) */
 
     F_EXEC_RECEIVER_COMMAND,
     F_LOCK_RECEIVER,
     F_GET_LAST_RECEIVER_CLIENT_IP,
     F_GET_RECEIVER_VERSION,
-    F_RECEIVER_SET_ROI,
+    F_RECEIVER_SET_DETECTOR_ROI,
     F_RECEIVER_SET_NUM_FRAMES,
     F_SET_RECEIVER_NUM_TRIGGERS,
     F_SET_RECEIVER_NUM_BURSTS,
@@ -319,7 +342,6 @@ enum detFuncs {
     F_RECEIVER_REAL_UDP_SOCK_BUF_SIZE,
     F_SET_RECEIVER_FRAMES_PER_FILE,
     F_GET_RECEIVER_FRAMES_PER_FILE,
-    F_RECEIVER_CHECK_VERSION,
     F_SET_RECEIVER_DISCARD_POLICY,
     F_GET_RECEIVER_DISCARD_POLICY,
     F_SET_RECEIVER_PADDING,
@@ -356,6 +378,11 @@ enum detFuncs {
     F_SET_RECEIVER_STREAMING_HWM,
     F_RECEIVER_SET_ALL_THRESHOLD,
     F_RECEIVER_SET_DATASTREAM,
+    F_GET_RECEIVER_ARPING,
+    F_SET_RECEIVER_ARPING,
+    F_RECEIVER_GET_RECEIVER_ROI,
+    F_RECEIVER_SET_RECEIVER_ROI,
+    F_RECEIVER_SET_RECEIVER_ROI_METADATA,
 
     NUM_REC_FUNCTIONS
 };
@@ -463,11 +490,10 @@ const char* getFunctionNameFromEnum(enum detFuncs func) {
 	case F_TEMP_EVENT:                      return "F_TEMP_EVENT";
     case F_AUTO_COMP_DISABLE:               return "F_AUTO_COMP_DISABLE";
     case F_STORAGE_CELL_START:              return "F_STORAGE_CELL_START";
-    case F_CHECK_VERSION:              		return "F_CHECK_VERSION";
+    case F_INITIAL_CHECKS:              	return "F_INITIAL_CHECKS";
     case F_SOFTWARE_TRIGGER:              	return "F_SOFTWARE_TRIGGER";
     case F_LED:              				return "F_LED";
 	case F_DIGITAL_IO_DELAY:              	return "F_DIGITAL_IO_DELAY";
-    case F_COPY_DET_SERVER:              	return "F_COPY_DET_SERVER";
     case F_REBOOT_CONTROLLER:              	return "F_REBOOT_CONTROLLER";
 	case F_SET_ADC_ENABLE_MASK:          	return "F_SET_ADC_ENABLE_MASK";
 	case F_GET_ADC_ENABLE_MASK:          	return "F_GET_ADC_ENABLE_MASK";
@@ -608,14 +634,37 @@ const char* getFunctionNameFromEnum(enum detFuncs func) {
     case F_SET_UDP_FIRST_DEST:              return "F_SET_UDP_FIRST_DEST";
     case F_GET_READOUT_SPEED:               return "F_GET_READOUT_SPEED";
     case F_SET_READOUT_SPEED:               return "F_SET_READOUT_SPEED";
+    case F_GET_KERNEL_VERSION:              return "F_GET_KERNEL_VERSION";
+    case F_UPDATE_DETECTOR_SERVER:          return "F_UPDATE_DETECTOR_SERVER";
+    case F_GET_UPDATE_MODE:                 return "F_GET_UPDATE_MODE";
+    case F_SET_UPDATE_MODE:                 return "F_SET_UPDATE_MODE";
+    case F_SET_MASTER:                      return "F_SET_MASTER";
+    case F_GET_TOP:                         return "F_GET_TOP";
+    case F_SET_TOP:                         return "F_SET_TOP";
+    case F_GET_POLARITY:                    return "F_GET_POLARITY";
+    case F_SET_POLARITY:                    return "F_SET_POLARITY";
+    case F_GET_INTERPOLATION:               return "F_GET_INTERPOLATION";
+    case F_SET_INTERPOLATION:               return "F_SET_INTERPOLATION";
+    case F_GET_PUMP_PROBE:                  return "F_GET_PUMP_PROBE";
+    case F_SET_PUMP_PROBE:                  return "F_SET_PUMP_PROBE";
+    case F_GET_ANALOG_PULSING:              return "F_GET_ANALOG_PULSING";
+    case F_SET_ANALOG_PULSING:              return "F_SET_ANALOG_PULSING";
+    case F_GET_DIGITAL_PULSING:             return "F_GET_DIGITAL_PULSING";
+    case F_SET_DIGITAL_PULSING:             return "F_SET_DIGITAL_PULSING";
+    case F_GET_MODULE:                      return "F_GET_MODULE";
+    case F_GET_SYNCHRONIZATION:             return "F_GET_SYNCHRONIZATION";
+    case F_SET_SYNCHRONIZATION:             return "F_SET_SYNCHRONIZATION";
+    case F_GET_HARDWARE_VERSION:            return "F_GET_HARDWARE_VERSION";
+
     case NUM_DET_FUNCTIONS:              	return "NUM_DET_FUNCTIONS";
     case RECEIVER_ENUM_START:				return "RECEIVER_ENUM_START";
+
 
 	case F_EXEC_RECEIVER_COMMAND:			return "F_EXEC_RECEIVER_COMMAND";
 	case F_LOCK_RECEIVER: 					return "F_LOCK_RECEIVER";
 	case F_GET_LAST_RECEIVER_CLIENT_IP: 	return "F_GET_LAST_RECEIVER_CLIENT_IP";
 	case F_GET_RECEIVER_VERSION: 			return "F_GET_RECEIVER_VERSION";
-	case F_RECEIVER_SET_ROI: 				return "F_RECEIVER_SET_ROI";
+	case F_RECEIVER_SET_DETECTOR_ROI: 		return "F_RECEIVER_SET_DETECTOR_ROI";
 	case F_RECEIVER_SET_NUM_FRAMES:			return "F_RECEIVER_SET_NUM_FRAMES";
 	case F_SET_RECEIVER_NUM_TRIGGERS:		return "F_SET_RECEIVER_NUM_TRIGGERS";
 	case F_SET_RECEIVER_NUM_BURSTS:			return "F_SET_RECEIVER_NUM_BURSTS";
@@ -672,7 +721,6 @@ const char* getFunctionNameFromEnum(enum detFuncs func) {
     case F_RECEIVER_REAL_UDP_SOCK_BUF_SIZE: return "F_RECEIVER_REAL_UDP_SOCK_BUF_SIZE";
     case F_SET_RECEIVER_FRAMES_PER_FILE:	return "F_SET_RECEIVER_FRAMES_PER_FILE";
     case F_GET_RECEIVER_FRAMES_PER_FILE:	return "F_GET_RECEIVER_FRAMES_PER_FILE";
-    case F_RECEIVER_CHECK_VERSION:			return "F_RECEIVER_CHECK_VERSION";
     case F_SET_RECEIVER_DISCARD_POLICY:		return "F_SET_RECEIVER_DISCARD_POLICY";
     case F_GET_RECEIVER_DISCARD_POLICY:		return "F_GET_RECEIVER_DISCARD_POLICY";
     case F_SET_RECEIVER_PADDING:			return "F_SET_RECEIVER_PADDING";
@@ -709,6 +757,11 @@ const char* getFunctionNameFromEnum(enum detFuncs func) {
     case F_SET_RECEIVER_STREAMING_HWM:      return "F_SET_RECEIVER_STREAMING_HWM";
     case F_RECEIVER_SET_ALL_THRESHOLD:      return "F_RECEIVER_SET_ALL_THRESHOLD";
     case F_RECEIVER_SET_DATASTREAM:         return "F_RECEIVER_SET_DATASTREAM";
+    case F_GET_RECEIVER_ARPING:             return "F_GET_RECEIVER_ARPING";
+    case F_SET_RECEIVER_ARPING:             return "F_SET_RECEIVER_ARPING";
+    case F_RECEIVER_GET_RECEIVER_ROI:       return "F_RECEIVER_GET_RECEIVER_ROI";
+    case F_RECEIVER_SET_RECEIVER_ROI:       return "F_RECEIVER_SET_RECEIVER_ROI";
+    case F_RECEIVER_SET_RECEIVER_ROI_METADATA: return "F_RECEIVER_SET_RECEIVER_ROI_METADATA";
 
     case NUM_REC_FUNCTIONS: 				return "NUM_REC_FUNCTIONS";
 	default:								return "Unknown Function";

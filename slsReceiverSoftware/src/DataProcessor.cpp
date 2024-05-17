@@ -46,7 +46,7 @@ DataProcessor::DataProcessor(int index, detectorType detectorType, Fifo *fifo,
       firstStreamerFrame_(false), hdf5Lib_(hdf5Lib),
       framesPerFile_(framesperfile) {
 
-    LOG(logDEBUG) << "DataProcessor " << index << " created";
+    LOG(sls::logDEBUG) << "DataProcessor " << index << " created";
 
     memset((void *)&timerbegin_, 0, sizeof(timespec));
 }
@@ -91,7 +91,7 @@ void DataProcessor::RecordFirstIndex(uint64_t fnum) {
     startedFlag_ = true;
     firstIndex_ = fnum;
 
-    LOG(logDEBUG1) << index << " First Index:" << firstIndex_;
+    LOG(sls::logDEBUG1) << index << " First Index:" << firstIndex_;
 }
 
 void DataProcessor::SetGeneralData(GeneralData *generalData) {
@@ -101,7 +101,7 @@ void DataProcessor::SetGeneralData(GeneralData *generalData) {
         frameAssembler_ = sls::FrameAssembler::CreateDefaultFrameAssembler(
             generalData_->myDetectorType, generalData_->tgEnable,
             generalData_->numUDPInterfaces, generalData_->dynamicRange);
-        LOG(logINFO) << index << ": Default FrameAssembler created";
+        LOG(sls::logINFO) << index << ": Default FrameAssembler created";
     } catch (...) {
         throw sls::RuntimeError("Could not create FrameAssembler #" +
                                 std::to_string(index));
@@ -297,7 +297,7 @@ void DataProcessor::UpdateMasterFile(bool silentMode) {
 void DataProcessor::ThreadExecution() {
     FifoFrame *frame;
     fifo_->GetNewFrame(frame);
-    LOG(logDEBUG5) << "DataProcessor " << index << ", " << std::hex << "pop 0x"
+    LOG(sls::logDEBUG5) << "DataProcessor " << index << ", " << std::hex << "pop 0x"
                    << (void *)frame << " "
                    << "[data: 0x" << (void *)frame->recvFrame.data << "]"
                    << std::dec;
@@ -313,7 +313,7 @@ void DataProcessor::ThreadExecution() {
 
     auto &numBytes = frame->recvFrame.numBytes;
     numBytes = rc;
-    LOG(logDEBUG1) << "DataProcessor " << index << ", Numbytes:" << numBytes;
+    LOG(sls::logDEBUG1) << "DataProcessor " << index << ", Numbytes:" << numBytes;
 
     uint64_t fnum = 0;
     try {
@@ -377,7 +377,7 @@ int DataProcessor::AssembleAnImage(FifoFrame *frame) {
 }
 
 void DataProcessor::StopProcessing(FifoFrame *frame) {
-    LOG(logDEBUG1) << "DataProcessing " << index << ": Dummy";
+    LOG(sls::logDEBUG1) << "DataProcessing " << index << ": Dummy";
     frame->end = true;
 
     // stream or free
@@ -388,7 +388,7 @@ void DataProcessor::StopProcessing(FifoFrame *frame) {
 
     CloseFiles();
     StopRunning();
-    LOG(logDEBUG1) << index << ": Processing Completed";
+    LOG(sls::logDEBUG1) << index << ": Processing Completed";
 }
 
 uint64_t DataProcessor::ProcessAnImage(FifoFrame *frame) {
@@ -400,7 +400,7 @@ uint64_t DataProcessor::ProcessAnImage(FifoFrame *frame) {
     numFramesCaught_++;
     uint32_t nump = header.packetNumber;
 
-    LOG(logDEBUG1) << "DataProcessing " << index << ": fnum:" << fnum;
+    LOG(sls::logDEBUG1) << "DataProcessing " << index << ": fnum:" << fnum;
 
     if (!startedFlag_) {
         RecordFirstIndex(fnum);
@@ -471,7 +471,7 @@ bool DataProcessor::CheckTimer() {
     struct timespec end;
     clock_gettime(CLOCK_REALTIME, &end);
 
-    LOG(logDEBUG1) << index << " Timer elapsed time:"
+    LOG(sls::logDEBUG1) << index << " Timer elapsed time:"
                    << ((end.tv_sec - timerbegin_.tv_sec) +
                        (end.tv_nsec - timerbegin_.tv_nsec) / 1000000000.0)
                    << " seconds";
@@ -509,13 +509,13 @@ void DataProcessor::registerCallBackRawDataModifyReady(
 }
 
 void DataProcessor::PadMissingPackets(FifoFrame *frame) {
-    LOG(logDEBUG) << index << ": Padding Missing Packets";
+    LOG(sls::logDEBUG) << index << ": Padding Missing Packets";
 
     uint32_t pperFrame = generalData_->packetsPerFrame;
     auto *header = &frame->recvFrame.header;
     uint32_t nmissing = pperFrame - header->detHeader.packetNumber;
     sls_bitset pmask = header->packetsMask;
-    LOG(logDEBUG1) << "bitmask: " << pmask.to_string();
+    LOG(sls::logDEBUG1) << "bitmask: " << pmask.to_string();
 
     uint32_t dsize = generalData_->dataSize;
     if (detectorType_ == GOTTHARD2 && index != 0) {
@@ -535,7 +535,7 @@ void DataProcessor::PadMissingPackets(FifoFrame *frame) {
         if (nmissing == 0u)
             break;
 
-        LOG(logDEBUG) << "padding for " << index << " for pnum: " << pnum
+        LOG(sls::logDEBUG) << "padding for " << index << " for pnum: " << pnum
                       << std::endl;
 
         // missing packet
@@ -575,7 +575,7 @@ void DataProcessor::RearrangeDbitData(FifoFrame *frame) {
 
     // no digital data
     if (ctbDigitalDataBytes == 0) {
-        LOG(logWARNING)
+        LOG(sls::logWARNING)
             << "No digital data for call back, yet dbitlist is not empty.";
         return;
     }
@@ -621,7 +621,7 @@ void DataProcessor::RearrangeDbitData(FifoFrame *frame) {
 
 // TODO: Include packet fifo statistics
 void DataProcessor::PrintFifoStatistics() {
-    LOG(logDEBUG1) << "numFramesStatistic:" << numFramesStatistic_
+    LOG(sls::logDEBUG1) << "numFramesStatistic:" << numFramesStatistic_
                    << " numPacketsStatistic:" << numPacketsStatistic_
                    << " packetsperframe:" << generalData_->packetsPerFrame;
 
@@ -632,7 +632,7 @@ void DataProcessor::PrintFifoStatistics() {
     numPacketsStatistic_ = 0;
     numFramesStatistic_ = 0;
 
-    const auto color = loss ? logINFORED : logINFOGREEN;
+    const auto color = loss ? sls::logINFORED : sls::logINFOGREEN;
     LOG(color) << "DataProcessor " << index << ":  Packet_Loss:" << loss << " ("
                << lossPercent << "%)"
                << "  Used_Fifo_Max_Level:" << fifo_->GetMaxLevelForFifoStream()

@@ -66,10 +66,8 @@ Receiver::Receiver(int argc, char *argv[]) : tcpipInterface(nullptr) {
             break;
 
         case 'v':
-            std::cout << "SLS Receiver Version: " << GITBRANCH << " (0x"
-                      << std::hex << APIRECEIVER << ")" << std::endl;
-            LOG(logINFOBLUE)
-                << "Exiting [ Tid: " << syscall(SYS_gettid) << " ]";
+            std::cout << "SLS Receiver Version: " << APIRECEIVER << std::endl;
+            LOG(logINFOBLUE) << "Exiting [ Tid: " << syscall(SYS_gettid) << " ]";
             exit(EXIT_SUCCESS);
 
         case 'h':
@@ -93,7 +91,7 @@ Receiver::Receiver(int argc, char *argv[]) : tcpipInterface(nullptr) {
     // set effective id if provided
     if (userid != static_cast<uid_t>(-1)) {
         if (geteuid() == userid) {
-            LOG(logINFO) << "Process already has the same Effective UID "
+            LOG(sls::logINFO) << "Process already has the same Effective UID "
                          << userid;
         } else {
             if (seteuid(userid) != 0) {
@@ -107,7 +105,7 @@ Receiver::Receiver(int argc, char *argv[]) : tcpipInterface(nullptr) {
                     << geteuid();
                 throw sls::RuntimeError(oss.str());
             }
-            LOG(logINFO) << "Process Effective UID changed to " << userid;
+            LOG(sls::logINFO) << "Process Effective UID changed to " << userid;
         }
     }
 
@@ -120,7 +118,7 @@ Receiver::Receiver(int tcpip_port_no) {
     tcpipInterface = sls::make_unique<ClientInterface>(tcpip_port_no);
 }
 
-int64_t Receiver::getReceiverVersion() {
+std::string Receiver::getReceiverVersion() {
     return tcpipInterface->getReceiverVersion();
 }
 

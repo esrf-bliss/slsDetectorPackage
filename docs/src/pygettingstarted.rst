@@ -6,7 +6,7 @@ Getting Started
 Which Python?  
 --------------------
 
-We require at lest Python 3.6 and strongly recommended that you don't use the system
+We require at least Python 3.6 and strongly recommended that you don't use the system
 Python installation. The examples in this documentation uses `conda
 <https://docs.conda.io/en/latest/miniconda.html>`_ since it provides good support
 also for non Python packages but there are also other alternatives like, pyenv. 
@@ -14,27 +14,34 @@ also for non Python packages but there are also other alternatives like, pyenv.
 Using something like conda also allows you to quickly switch beteen different Python 
 environments. 
 
-.. warning ::
+---------------------
+Building from Source 
+---------------------
 
-    If you use conda avoid also installing packages with pip. 
+If you are not installing slsdet binaries from conda, but instead building from 
+source, please refer to  :ref:`the installation section<Installation>` for details.
+
+Don't forget to compile with the option SLS_USE_PYTHON=ON to enable the Python 
+bindings or if you use the cmk.sh script -p.
+
+.. note ::
+
+    Ensure that the sls det python lib compiled is for the expected python version.
+    For example, build/bin/_slsdet.cpython-39-x86_64-linux-gnu.so for Python v3.9.x
+
 
 ---------------------
 PYTHONPATH 
 ---------------------
 
-If you install slsdet using conda everything is set up and you can
+If you install slsdet binaries using conda everything is set up and you can
 directly start using the Python bindings. However, if you build 
-from source you need to tell Python where to find slsdet. This
-is be done by adding your build/bin directory to PYTHONPATH. 
+from source you need to tell Python where to find slsdet to use it. This
+can be done by adding your build/bin directory to PYTHONPATH. 
 
 .. code-block:: bash
 
     export PYTHONPATH = /path/to/your/build/bin:$PYTHONPATH
-
-.. note ::
-
-    Don't forget to compile with the option SLS_USE_PYTHON=ON to enable
-    the Python bindings or if you use the cmk.sh script -p.
 
 --------------------------------------
 Which detector class should I use? 
@@ -136,7 +143,7 @@ can use dir()
     '__str__', '__subclasshook__', '_adc_register', '_frozen', 
     '_register', 'acquire', 'adcclk', 'adcphase', 'adcpipeline', 
     'adcreg', 'asamples', 'auto_comp_disable', 'clearAcquiringFlag', 
-    'clearBit', 'clearROI', 'client_version', 'config', 'copyDetectorServer', 
+    'clearBit', 'clearROI', 'client_version', 'config',  
     'counters', 'daclist', 'dacvalues', 'dbitclk', 'dbitphase' ...
 
 Since the list for Detector is rather long it's an good idea to filter it. 
@@ -146,9 +153,11 @@ their name.
 :: 
 
     >>> [item for item in dir(d) if 'time' in item]
-    ['exptime', 'getExptime', 'getExptimeForAllGates', 'getExptimeLeft', 
-    'getSubExptime', 'patwaittime0', 'patwaittime1', 'patwaittime2', 
-    'setExptime', 'setSubExptime', 'subdeadtime', 'subexptime']
+    ['compdisabletime', 'exptime', 'exptimel', 'frametime', 'getExptime', 
+    'getExptimeForAllGates', 'getExptimeLeft', 'getSubExptime', 'patwaittime', 
+    'patwaittime0', 'patwaittime1', 'patwaittime2', 'runtime', 'setExptime', 
+    'setSubExptime', 'subdeadtime', 'subexptime']
+
 
 The above method works on any Python object but for convenience we also 
 included two functions to find names. View prints the names one per line
@@ -160,6 +169,7 @@ while find returns a list of names.
 
     >>> view('exptime')
     exptime
+    exptimel
     getExptime
     getExptimeForAllGates
     getExptimeLeft
@@ -167,6 +177,7 @@ while find returns a list of names.
     setExptime
     setSubExptime
     subexptime
+
 
     >>> find('exptime')
     ['exptime', 'getExptime', 'getExptimeForAllGates', 'getExptimeLeft', 
@@ -185,19 +196,39 @@ To access the documentation of a function directly from the Python prompt use he
     Help on property:
 
         Period between frames, accepts either a value in seconds or datetime.timedelta
-
+        
         Note
         -----
-        :getter: always returns in seconds. To get in datetime.delta, use getPeriod
-
-        Examples
+        :getter: always returns in seconds. To get in DurationWrapper, use getPeriod
+        
+        Example
         -----------
+        >>> # setting directly in seconds
         >>> d.period = 1.05
-        >>> d.period = datetime.timedelta(minutes = 3, seconds = 1.23)
+        >>>
+        >>> # setting directly in seconds
+        >>> d.period = 5e-07
+        >>> 
+        >>> # using timedelta (up to microseconds precision)
+        >>> from datatime import timedelta
+        >>> d.period = timedelta(seconds = 1, microseconds = 3)
+        >>> 
+        >>> # using DurationWrapper to set in seconds
+        >>> from slsdet import DurationWrapper
+        >>> d.period = DurationWrapper(1.2)
+        >>> 
+        >>> # using DurationWrapper to set in ns
+        >>> t = DurationWrapper()
+        >>> t.set_count(500)
+        >>> d.period = t
+        >>>
+        >>> # to get in seconds
         >>> d.period
         181.23
-        >>> d.getPeriod()
-        [datetime.timedelta(seconds=181, microseconds=230000)]
+        >>> 
+        >>> d.getExptime()
+        [sls::DurationWrapper(total_seconds: 181.23 count: 181230000000)]
+
 
 
 ----------------------
@@ -217,11 +248,12 @@ The enums can be found in slsdet.enums
 
     import slsdet
     >>> [e for e in dir(slsdet.enums) if not e.startswith('_')]
-    ['burstMode', 'clockIndex', 'dacIndex', 
-    'detectorSettings', 'detectorType', 'dimension', 'externalSignalFlag', 
-    'fileFormat', 'frameDiscardPolicy', 
-    'readoutMode', 'runStatus', 'speedLevel', 'timingMode', 
-    'timingSourceType']
+    ['M3_GainCaps', 'burstMode', 'clockIndex', 'cls', 'dacIndex', 'detectorSettings', 
+    'detectorType', 'dimension', 'externalSignalFlag', 'fileFormat', 
+    'frameDiscardPolicy', 'gainMode', 'name', 'polarity', 'portPosition', 
+    'readoutMode', 'runStatus', 'speedLevel', 'streamingInterface', 'timingMode', 
+    'timingSourceType', 'vetoAlgorithm']
+
 
     # Even though importing using * is not recommended one could
     # get all the enums like this: 

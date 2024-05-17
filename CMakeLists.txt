@@ -2,7 +2,7 @@
 # Copyright (C) 2021 Contributors to the SLS Detector Package
 cmake_minimum_required(VERSION 3.12)
 project(slsDetectorPackage)
-set(PROJECT_VERSION 6.0.0)
+set(PROJECT_VERSION 7.0.2)
 
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
@@ -11,11 +11,8 @@ add_compile_definitions(NO_WARN_X86_INTRINSICS)
 
 cmake_policy(SET CMP0074 NEW)
 include(cmake/project_version.cmake)
-
-#functions to add compiler flags
 include(cmake/SlsAddFlag.cmake)
-
-# Include additional modules that are used unconditionally
+include(cmake/SlsFindZeroMQ.cmake)
 include(GNUInstallDirs)
 
 # If conda build, always set lib dir to 'lib'
@@ -39,7 +36,7 @@ endif()
 # Set targets export name (used by slsDetectorPackage and dependencies)
 if(SLS_MASTER_PROJECT)
   set(TARGETS_EXPORT_NAME "${PROJECT_NAME_LOWER}-targets")
-  #set(namespace "${PROJECT_NAME}::")
+  set(namespace "sls::")
 endif()
 
 option(SLS_USE_HDF5 "HDF5 File format" OFF)
@@ -54,6 +51,7 @@ option(SLS_USE_TESTS "TESTS" OFF)
 option(SLS_USE_INTEGRATION_TESTS "Integration Tests" OFF)
 option(SLS_USE_SANITIZER "Sanitizers for debugging" OFF)
 option(SLS_USE_PYTHON "Python bindings" OFF)
+option(SLS_INSTALL_PYTHONEXT "Install the python extension in the install tree under CMAKE_INSTALL_PREFIX/python/" OFF)
 option(SLS_USE_CTBGUI "ctb GUI" OFF)
 option(SLS_BUILD_DOCS "docs" OFF)
 option(SLS_BUILD_EXAMPLES "examples" OFF)
@@ -61,6 +59,34 @@ option(SLS_TUNE_LOCAL "tune to local machine" OFF)
 option(SLS_DEVEL_HEADERS "install headers for devel" OFF)
 option(SLS_USE_MOENCH "compile zmq and post processing for Moench" OFF)
 
+#Convenience option to switch off defaults when building Moench binaries only
+option(SLS_BUILD_ONLY_MOENCH "compile only Moench" OFF)
+if(SLS_BUILD_ONLY_MOENCH)
+    message(STATUS "Build MOENCH binaries only!")
+    set(SLS_BUILD_SHARED_LIBRARIES OFF CACHE BOOL "Disabled for MOENCH_ONLY" FORCE)
+    set(SLS_USE_TEXTCLIENT OFF CACHE BOOL "Disabled for MOENCH_ONLY" FORCE)
+    set(SLS_USE_DETECTOR OFF CACHE BOOL "Disabled for MOENCH_ONLY" FORCE)
+    set(SLS_USE_RECEIVER OFF CACHE BOOL "Disabled for MOENCH_ONLY" FORCE)
+    set(SLS_USE_RECEIVER_BINARIES OFF CACHE BOOL "Disabled for MOENCH_ONLY" FORCE)
+    set(SLS_USE_MOENCH ON CACHE BOOL "Enable" FORCE)
+endif()
+
+
+option(SLS_EXT_BUILD "external build of part of the project" OFF)
+if(SLS_EXT_BUILD)
+    message(STATUS "External build using already installed libraries")
+    set(SLS_BUILD_SHARED_LIBRARIES OFF CACHE BOOL "Should already exist" FORCE)
+    set(SLS_USE_TEXTCLIENT OFF CACHE BOOL "Should already exist" FORCE)
+    set(SLS_USE_DETECTOR OFF CACHE BOOL "Should already exist" FORCE)
+    set(SLS_USE_RECEIVER OFF CACHE BOOL "Should already exist" FORCE)
+    set(SLS_USE_RECEIVER_BINARIES OFF CACHE BOOL "Should already exist" FORCE)
+    set(SLS_MASTER_PROJECT OFF CACHE BOOL "No master proj in case of extbuild" FORCE) 
+endif()
+
+#Maybe have an option guarding this?
+set(SLS_INTERNAL_RAPIDJSON_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libs/rapidjson)
+
+set(SLS_INTERNAL_QWT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libs/qwt-6.1.5)
 
 set(ClangFormat_EXCLUDE_PATTERNS    "build/" 
                                     "libs/" 
@@ -72,12 +98,6 @@ set(ClangFormat_EXCLUDE_PATTERNS    "build/"
                                     ${CMAKE_BINARY_DIR})
 find_package(ClangFormat)
 
-#Enable LTO if available
-include(CheckIPOSupported)
-check_ipo_supported(RESULT SLS_LTO_AVAILABLE)
-message(STATUS "SLS_LTO_AVAILABLE:" ${SLS_LTO_AVAILABLE})
-
-
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 
@@ -87,63 +107,78 @@ if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 
-#Add two fake libraries to manage options
-add_library(slsProjectOptions INTERFACE)
-add_library(slsProjectWarnings INTERFACE)
-#target_compile_features(slsProjectOptions INTERFACE cxx_std_17)
-target_compile_options(slsProjectWarnings INTERFACE 
-                                            -Wall
-                                            -Wextra
-                                            -Wno-unused-parameter
-                                            # -Wold-style-cast
-                                            -Wnon-virtual-dtor
-                                            -Woverloaded-virtual
-                                            -Wdouble-promotion
-                                            -Wformat=2
-                                            -Wredundant-decls
-                                            # -Wconversion
-                                            -Wvla
-                                            -Wdouble-promotion
-                                            -Werror=return-type
-                                 )
-
-#Settings for C code
-add_library(slsProjectCSettings INTERFACE)
-target_compile_options(slsProjectCSettings INTERFACE 
-                                            -std=gnu99 #fixed
-                                            -Wall
-                                            -Wextra
-                                            -Wno-unused-parameter
-                                            -Wdouble-promotion
-                                            -Wformat=2
-                                            -Wredundant-decls
-                                            -Wdouble-promotion
-                                            -Werror=return-type
-                                )
-
-
-#Testing for minimum version for compilers
-if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 3.2)
-        message(FATAL_ERROR "Clang version must be at least 3.2!")
-    endif()
-elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 4.8)
-            message(FATAL_ERROR "GCC version must be at least 4.8!")
-    endif()
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5)
-            target_compile_options(slsProjectWarnings INTERFACE 
-                                             -Wno-missing-field-initializers)
-    endif()
+#Enable LTO if available
+include(CheckIPOSupported)
+check_ipo_supported(RESULT SLS_LTO_AVAILABLE)
+if((CMAKE_BUILD_TYPE STREQUAL "Release") AND SLS_LTO_AVAILABLE)
+    message(STATUS "Building with link time optimization")
+else()
+    message(STATUS "Building without link time optimization")
 endif()
 
-# Add or disable warnings depending on if the compiler supports them 
-# The function checks internally and sets HAS_warning-name
-sls_enable_cxx_warning("-Wnull-dereference")
-sls_enable_cxx_warning("-Wduplicated-cond")
-sls_disable_cxx_warning("-Wclass-memaccess")
-sls_disable_c_warning("-Wstringop-truncation")
-sls_disable_c_warning("-Wformat-nonliteral")
+
+if(SLS_EXT_BUILD)
+    # Find ourself in case of external build
+    find_package(slsDetectorPackage ${PROJECT_VERSION} REQUIRED)
+endif()
+
+
+
+# slsProjectOptions and slsProjectWarnings are used
+# to control options for the libraries
+if(NOT TARGET slsProjectOptions)
+    add_library(slsProjectOptions INTERFACE)
+    #target_compile_features(slsProjectOptions INTERFACE cxx_std_17)
+endif()
+
+if (NOT TARGET slsProjectWarnings)
+    add_library(slsProjectWarnings INTERFACE)
+    target_compile_options(slsProjectWarnings INTERFACE 
+        -Wall
+        -Wextra
+        -Wno-unused-parameter
+        # -Wold-style-cast
+        -Wnon-virtual-dtor
+        -Woverloaded-virtual
+        -Wdouble-promotion
+        -Wformat=2
+        -Wredundant-decls
+        # -Wconversion
+        -Wvla
+        -Wdouble-promotion
+        -Werror=return-type
+    )
+    # Add or disable warnings depending on if the compiler supports them 
+    # The function checks internally and sets HAS_warning-name
+    sls_enable_cxx_warning("-Wnull-dereference")
+    sls_enable_cxx_warning("-Wduplicated-cond")
+    sls_disable_cxx_warning("-Wclass-memaccess")
+
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5 AND "${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+            target_compile_options(slsProjectWarnings INTERFACE 
+                                                -Wno-missing-field-initializers)
+    endif()
+
+
+endif()
+
+
+if (NOT TARGET slsProjectCSettings)
+    #Settings for C code
+    add_library(slsProjectCSettings INTERFACE)
+    target_compile_options(slsProjectCSettings INTERFACE 
+                                                -std=gnu99 #fixed
+                                                -Wall
+                                                -Wextra
+                                                -Wno-unused-parameter
+                                                -Wdouble-promotion
+                                                -Wformat=2
+                                                -Wredundant-decls
+                                                -Wdouble-promotion
+                                                -Werror=return-type
+                                    )
+    sls_disable_c_warning("-Wstringop-truncation")
+endif()
 
 
 if(SLS_USE_SANITIZER)
@@ -158,55 +193,22 @@ if(SLS_TUNE_LOCAL)
 endif()
 
 
-#rapidjson
-add_library(rapidjson INTERFACE)
-target_include_directories(rapidjson INTERFACE
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/rapidjson>  
-)
-
-# Install fake the libraries
-install(TARGETS slsProjectOptions slsProjectWarnings rapidjson
+#if(SLS_MASTER_PROJECT)
+install(TARGETS slsProjectOptions slsProjectWarnings 
     EXPORT "${TARGETS_EXPORT_NAME}"
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
+#endif()
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_INSTALL_RPATH $ORIGIN)
-# set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
 
 
-set(ZeroMQ_HINT "" CACHE STRING "Hint where ZeroMQ could be found")
-#Adapted from: https://github.com/zeromq/cppzmq/
-if (NOT TARGET libzmq)
-    if(ZeroMQ_HINT)
-        message(STATUS "Looking for ZeroMQ in: ${ZeroMQ_HINT}")
-        find_package(ZeroMQ 4 
-            NO_DEFAULT_PATH
-            HINTS ${ZeroMQ_DIR}
-        )
-    else()
-        find_package(ZeroMQ 4 QUIET)
-    endif()
-    
-  # libzmq autotools install: fallback to pkg-config
-  if(NOT ZeroMQ_FOUND)
-    message(STATUS "CMake libzmq package not found, trying again with pkg-config (normal install of zeromq)")
-    list (APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/libzmq-pkg-config)
-    find_package(ZeroMQ 4 REQUIRED)
-  endif()
+custom_find_zmq()
 
-  # TODO "REQUIRED" above should already cause a fatal failure if not found, but this doesn't seem to work
-  if(NOT ZeroMQ_FOUND)
-    message(FATAL_ERROR "ZeroMQ was not found, neither as a CMake package nor via pkg-config")
-  endif()
-
-  if (ZeroMQ_FOUND AND NOT TARGET libzmq)
-    message(FATAL_ERROR "ZeroMQ version not supported!")
-  endif()
-endif()
 
 if (SLS_USE_TESTS)
     enable_testing()
@@ -214,8 +216,9 @@ if (SLS_USE_TESTS)
 endif(SLS_USE_TESTS)
 
 
-# Common functionallity to detector and receiver
-add_subdirectory(slsSupportLib)
+if(NOT SLS_EXT_BUILD)
+    add_subdirectory(slsSupportLib)
+endif()
 
 if (SLS_USE_DETECTOR OR SLS_USE_TEXTCLIENT)
     add_subdirectory(slsDetectorSoftware)
@@ -226,6 +229,7 @@ if (SLS_USE_RECEIVER)
 endif (SLS_USE_RECEIVER)
 
 if (SLS_USE_GUI)   
+    add_subdirectory(libs/qwt)  
     add_subdirectory(slsDetectorGui)
 endif (SLS_USE_GUI)
 
@@ -239,7 +243,7 @@ endif (SLS_USE_INTEGRATION_TESTS)
 
 if (SLS_USE_PYTHON)
     find_package (Python 3.6 COMPONENTS Interpreter Development)
-    add_subdirectory(libs/pybind11)
+    add_subdirectory(libs/pybind  ${CMAKE_BINARY_DIR}/bin/)
     add_subdirectory(python)
 endif(SLS_USE_PYTHON)
 
@@ -260,6 +264,7 @@ if(SLS_BUILD_DOCS)
 endif(SLS_BUILD_DOCS)
 
 if(SLS_USE_MOENCH)
+    add_subdirectory(slsDetectorCalibration/tiffio)
     add_subdirectory(slsDetectorCalibration/moenchExecutables)
 endif(SLS_USE_MOENCH)
 

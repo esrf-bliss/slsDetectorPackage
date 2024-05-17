@@ -39,7 +39,7 @@ void BinaryMasterFile::CreateMasterFile(const std::string filePath,
             "Could not create/overwrite binary master file " + fileName_);
     }
     if (!silentMode) {
-        LOG(logINFO) << "Master File: " << fileName_;
+        LOG(sls::logINFO) << "Master File: " << fileName_;
     }
     attr->WriteMasterBinaryAttributes(fd_);
     CloseFile();
@@ -55,6 +55,6 @@ void BinaryMasterFile::UpdateMasterFile(MasterAttributes *attr,
     attr->WriteFinalBinaryAttributes(fd_);
     CloseFile();
     if (!silentMode) {
-        LOG(logINFO) << "Updated Master File";
+        LOG(sls::logINFO) << "Updated Master File";
     }
 }

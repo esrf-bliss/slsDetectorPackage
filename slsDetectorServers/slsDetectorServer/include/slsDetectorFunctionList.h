@@ -12,9 +12,10 @@
 #endif
 
 #if defined(MYTHEN3D) || defined(GOTTHARD2D)
-#include "programFpgaNios.h"
-#elif defined(CHIPTESTBOARDD) || defined(JUNGFRAUD) || defined(MOENCHD)
-#include "programFpgaBlackfin.h"
+#include "programViaNios.h"
+#elif defined(CHIPTESTBOARDD) || defined(JUNGFRAUD) || defined(MOENCHD) ||     \
+    defined(GOTTHARDD)
+#include "programViaBlackfin.h"
 #endif
 
 #if defined(MYTHEN3D) || defined(GOTTHARD2D)
@@ -60,9 +61,6 @@ typedef struct udpStruct_s {
 int isInitCheckDone();
 int getInitResult(char **mess);
 void basictests();
-#if defined(MYTHEN3D) || defined(GOTTHARD2D)
-int checkKernelVersion();
-#endif
 #if defined(GOTTHARDD) || defined(JUNGFRAUD) || defined(CHIPTESTBOARDD) ||     \
     defined(MOENCHD) || defined(MYTHEN3D) || defined(GOTTHARD2D)
 int checkType();
@@ -77,42 +75,49 @@ int getTestImageMode();
 #endif
 
 // Ids
-u_int64_t getServerVersion();
-u_int64_t getClientServerAPIVersion();
+void getServerVersion(char *version);
 u_int64_t getFirmwareVersion();
 u_int64_t getFirmwareAPIVersion();
-#if defined(JUNGFRAUD) || defined(CHIPTESTBOARDD) || defined(MOENCHD) ||       \
-    defined(MYTHEN3D) || defined(GOTTHARD2D)
+#ifndef EIGERD
+void getHardwareVersion(char *version);
 u_int16_t getHardwareVersionNumber();
 #endif
 #if defined(JUNGFRAUD) || defined(CHIPTESTBOARDD) || defined(MOENCHD)
 u_int16_t getHardwareSerialNumber();
 #endif
+#if defined(JUNGFRAUD) || defined(GOTTHARD2D) || defined(MYTHEN3D) ||          \
+    defined(GOTTHARDD)
+int isHardwareVersion_1_0();
+#endif
 #ifdef JUNGFRAUD
-int isHardwareVersion2();
 int getChipVersion();
 void setChipVersion(int version);
 #endif
 #ifndef EIGERD
 u_int32_t getDetectorNumber();
 #endif
-#if defined(GOTTHARD2D) || defined(EIGERD) || defined(MYTHEN3D)
+
+#if defined(GOTTHARD2D) || defined(EIGERD) || defined(MYTHEN3D) ||             \
+    defined(JUNGFRAUD)
 int getModuleId(int *ret, char *mess);
-#endif
-#if defined(GOTTHARD2D) || defined(MYTHEN3D)
+int updateModuleId();
+#ifndef EIGERD
 void setModuleId(int modid);
 #endif
+#endif
+
 u_int64_t getDetectorMAC();
 u_int32_t getDetectorIP();
-#ifdef GOTTHARDD
-u_int32_t getBoardRevision();
-#endif
 
 // initialization
 void initControlServer();
 void initStopServer();
 #ifdef EIGERD
-void getModuleConfiguration();
+int updateModuleConfiguration();
+int getModuleConfiguration(int *m, int *t, int *n);
+#ifdef VIRTUAL
+void checkVirtual9MFlag();
+#endif
 #endif
 
 // set up detector
@@ -138,6 +143,10 @@ void setADIFDefaults();
 #endif
 #if defined(GOTTHARD2D) || defined(EIGERD) || defined(JUNGFRAUD)
 int readConfigFile();
+#endif
+#if defined(GOTTHARDD) || defined(GOTTHARD2D) || defined(EIGERD) ||            \
+    defined(MYTHEN3D)
+int checkCommandLineConfiguration();
 #endif
 #ifdef EIGERD
 void resetToHardwareSettings();
@@ -175,6 +184,7 @@ void setMasterSlaveConfiguration();
 
 // parameters - dr, roi
 int setDynamicRange(int dr);
+int getDynamicRange(int *retval);
 #ifdef GOTTHARDD
 int setROI(ROI arg);
 ROI getROI();
@@ -197,7 +207,7 @@ int setExternalSampling(int val);
 #endif
 
 // parameters - readout
-#if defined(EIGERD) || defined(MYTHEN3D)
+#if defined(EIGERD) || defined(MYTHEN3D) || defined(GOTTHARD2D)
 int setParallelMode(int mode);
 int getParallelMode();
 #endif
@@ -215,7 +225,8 @@ int getReadoutMode();
 int selectStoragecellStart(int pos);
 int getMaxStoragecellStart();
 #endif
-#if defined(JUNGFRAUD) || defined(EIGERD)
+#if defined(JUNGFRAUD) || defined(EIGERD) || defined(MOENCHD) ||               \
+    defined(CHIPTESTBOARDD)
 int setNextFrameNumber(uint64_t value);
 int getNextFrameNumber(uint64_t *value);
 #endif
@@ -270,6 +281,7 @@ int getNumDigitalSamples();
 #endif
 #ifdef MYTHEN3D
 void setCounterMask(uint32_t arg);
+void setCounterMaskWithUpdateFlag(uint32_t arg, int updateMaskFlag);
 uint32_t getCounterMask();
 void updatePacketizing();
 #endif
@@ -297,8 +309,15 @@ int64_t getMeasurementTime();
 #endif
 
 // parameters - module, settings
+#if defined(MYTHEN3D) || defined(EIGERD)
+void getModule(sls_detector_module *myMod);
+#endif
 #if (!defined(CHIPTESTBOARDD)) && (!defined(MOENCHD)) && (!defined(GOTTHARD2D))
 int setModule(sls_detector_module myMod, char *mess);
+#endif
+
+#ifdef EIGERD
+int setTrimbits(int *chanregs, char *mess);
 #endif
 #ifdef MYTHEN3D
 int setTrimbits(int *trimbits);
@@ -329,9 +348,12 @@ void setThresholdEnergy(int counterIndex, int eV);
 int setOnChipDAC(enum ONCHIP_DACINDEX ind, int chipIndex, int val);
 int getOnChipDAC(enum ONCHIP_DACINDEX ind, int chipIndex);
 #endif
-void setDAC(enum DACINDEX ind, int val, int mV);
 #ifdef MYTHEN3D
+void setDAC(enum DACINDEX ind, int val, int mV, int counterEnableCheck);
 void setGeneralDAC(enum DACINDEX ind, int val, int mV);
+void setVthDac(int index, int enable);
+#else
+void setDAC(enum DACINDEX ind, int val, int mV);
 #endif
 int getDAC(enum DACINDEX ind, int mV);
 int getMaxDacSteps();
@@ -356,26 +378,47 @@ void setPower(enum DACINDEX ind, int val);
 void powerOff();
 #endif
 
-#if !defined(MOENCHD) && !defined(MYTHEN3D) && !defined(GOTTHARD2D)
+#if defined(MYTHEN3D) || defined(GOTTHARD2D)
+int getADC(enum ADCINDEX ind, int *value);
+#elif !defined(MOENCHD)
 int getADC(enum ADCINDEX ind);
 #endif
 
 int setHighVoltage(int val);
 
 // parameters - timing, extsig
-#if defined(MYTHEN3D) || defined(EIGERD) || defined(GOTTHARDD)
-int isMaster();
+#if defined(EIGERD) || defined(GOTTHARD2D) || defined(JUNGFRAUD)
+int setMaster(enum MASTERINDEX m);
 #endif
+#ifdef EIGERD
+int setTop(enum TOPINDEX t);
+int isTop(int *retval);
+#endif
+#if defined(MYTHEN3D) || defined(EIGERD) || defined(GOTTHARDD) ||              \
+    defined(GOTTHARD2D) || defined(JUNGFRAUD)
+int isMaster(int *retval);
+#endif
+
+#ifdef JUNGFRAUD
+int getSynchronization();
+void setSynchronization(int enable);
+#endif
+
 #ifdef GOTTHARD2D
 void updatingRegisters();
+int updateClockDivs();
 #endif
 void setTiming(enum timingMode arg);
 enum timingMode getTiming();
 #ifdef MYTHEN3D
 void setInitialExtSignals();
-int setGainCaps(int caps);
-int getGainCaps();
 int setChipStatusRegister(int csr);
+int setGainCaps(int caps);
+int setInterpolation(int enable);
+int setPumpProbe(int enable);
+int setDigitalPulsing(int enable);
+int setAnalogPulsing(int enable);
+int setNegativePolarity(int enable);
 int setDACS(int *dacs);
 #endif
 #if defined(GOTTHARDD) || defined(MYTHEN3D)
@@ -389,16 +432,19 @@ void calcChecksum(mac_conf *mac, int sourceip, int destip);
 #endif
 #if defined(JUNGFRAUD) || defined(GOTTHARD2D)
 void setNumberofUDPInterfaces(int val);
-int getNumberofUDPInterfaces();
 #endif
+int getNumberofUDPInterfaces();
 
-#if defined(JUNGFRAUD) || defined(EIGERD)
+#if defined(JUNGFRAUD) || defined(EIGERD) || defined(MYTHEN3D) ||              \
+    defined(GOTTHARD2D)
 int getNumberofDestinations(int *retval);
 int setNumberofDestinations(int value);
 #endif
-#ifdef JUNGFRAUD
+#if defined(JUNGFRAUD) || defined(MYTHEN3D) || defined(GOTTHARD2D)
 int getFirstUDPDestination();
 void setFirstUDPDestination(int value);
+#endif
+#ifdef JUNGFRAUD
 void selectPrimaryInterface(int val);
 int getPrimaryInterface();
 void setupHeader(int iRxEntry, enum interfaceType type, uint32_t destip,
@@ -525,7 +571,7 @@ int setDataStream(enum portPosition port, int enable);
 int setPhase(enum CLKINDEX ind, int val, int degrees);
 
 #elif MYTHEN3D
-int checkDetectorType();
+int checkDetectorType(char *mess);
 int powerChip(int on);
 int setPhase(enum CLKINDEX ind, int val, int degrees);
 int getPhase(enum CLKINDEX ind, int degrees);
@@ -536,10 +582,12 @@ int getFrequency(enum CLKINDEX ind);
 int getVCOFrequency(enum CLKINDEX ind);
 int getMaxClockDivider();
 int setClockDivider(enum CLKINDEX ind, int val);
+int setClockDividerWithTimeUpdateOption(enum CLKINDEX ind, int val,
+                                        int timeUpdate);
 int getClockDivider(enum CLKINDEX ind);
 
 #elif GOTTHARD2D
-int checkDetectorType();
+int checkDetectorType(char *mess);
 int powerChip(int on);
 void setDBITPipeline(int val);
 int getDBITPipeline();
@@ -582,8 +630,11 @@ int getVetoStream();
 enum vetoAlgorithm getVetoAlgorithm(enum streamingInterface interface);
 void setVetoAlgorithm(enum vetoAlgorithm alg,
                       enum streamingInterface interface);
-void setBadChannels(int nch, int *channels);
-int *getBadChannels(int *nch);
+#endif
+
+#if defined(GOTTHARD2D) || defined(MYTHEN3D)
+int setBadChannels(int numChannels, int *channelList);
+int *getBadChannels(int *numChannels);
 #endif
 
 #if defined(JUNGFRAUD) || defined(EIGERD)
@@ -602,9 +653,6 @@ int setTransmissionDelayRight(int value);
 #endif
 
 // aquisition
-#ifdef EIGERD
-int prepareAcquisition();
-#endif
 int startStateMachine();
 #ifdef VIRTUAL
 void *start_timer(void *arg);
@@ -613,14 +661,21 @@ int stopStateMachine();
 #ifdef MYTHEN3D
 int softwareTrigger();
 #endif
-#ifdef EIGERD
+#if defined(EIGERD) || defined(JUNGFRAUD)
 int softwareTrigger(int block);
 #endif
 #if defined(EIGERD) || defined(MYTHEN3D)
 int startReadOut();
 #endif
 enum runStatus getRunStatus();
-void readFrame(int *ret, char *mess);
+#if defined(CHIPTESTBOARDD) || defined(MOENCHD)
+void readFrames(int *ret, char *mess);
+#endif
+#ifdef EIGERD
+void waitForAcquisitionEnd(int *ret, char *mess);
+#else
+void waitForAcquisitionEnd();
+#endif
 #if defined(CHIPTESTBOARDD) || defined(MOENCHD)
 void readandSendUDPFrames(int *ret, char *mess);
 void unsetFifoReadStrobes();
@@ -640,9 +695,6 @@ u_int32_t runState(enum TLogLevel lev);
 #endif
 
 // common
-#if defined(EIGERD) || defined(MYTHEN3D)
-int copyModule(sls_detector_module *destMod, sls_detector_module *srcMod);
-#endif
 int calculateDataBytes();
 int getTotalNumberOfChannels();
 #if defined(MOENCHD) || defined(CHIPTESTBOARDD)
