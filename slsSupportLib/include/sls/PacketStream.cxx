@@ -89,7 +89,7 @@ void PacketStream<PC, SD, FP>::addPacketBlock(BlockPtr block, uint64_t frame) {
     {
         block->setRecvFrameNumber(frame);
         std::lock_guard<std::mutex> l(mutex);
-        if (first_frame == uint64_t(-1))
+        if (!isValid(first_frame))
             first_frame = frame;
         if (valid_packets > 0)
             ++frames_caught;
@@ -98,7 +98,7 @@ void PacketStream<PC, SD, FP>::addPacketBlock(BlockPtr block, uint64_t frame) {
         if (frame > last_frame)
             last_frame = frame;
     }
-    // insert nullptr if frame packet block can be discarded
+    // insert empty (invalid) data if frame packet block can be discarded
     if (!full_frame && FP::canDiscardFrame(valid_packets))
         block->discard();
     packet_cont->putReadyPacketBlock(std::move(block));
@@ -168,6 +168,10 @@ class PacketStream<PC, SD, FP>::WriterThread {
         return ps.stream_data.getPacketNumber(idx);
     }
 
+    uint32_t getPacketIndex(uint32_t nb) {
+        return ps.stream_data.getPacketIndex(nb);
+    }
+
     void incFrameCounter() { ++curr_frame; }
 
     std::pair<uint32_t, uint32_t> incPacketCounters() {
@@ -189,6 +193,7 @@ class PacketStream<PC, SD, FP>::WriterThread {
     }
 
     bool setMissingFramesUntil(uint64_t frame) {
+        assert(frame >= curr_frame);
         while (curr_frame != frame) {
             block = std::move(ps.getEmptyBlock(curr_frame));
             if (!block)
@@ -201,6 +206,7 @@ class PacketStream<PC, SD, FP>::WriterThread {
     }
 
     void setInvalidPacketsUntil(uint32_t good_packet) {
+        assert(getPacketIndex(good_packet) >= getPacketIndex(curr_packet));
         for (; curr_packet != good_packet; incPacketCounters())
             block->setValid(curr_packet, false);
     }
@@ -209,6 +215,8 @@ class PacketStream<PC, SD, FP>::WriterThread {
         for (; curr_idx != ps.FramePackets; incPacketCounters())
             block->setValid(curr_packet, false);
     }
+
+    void decPacketCounters() { --curr_idx; }
 
     void addPacketDelayStat(Packet &packet, uint32_t index) {
         Clock::time_point t = Clock::now();
@@ -224,23 +232,31 @@ class PacketStream<PC, SD, FP>::WriterThread {
 
         uint64_t packet_frame = packet.frame();
         uint32_t packet_number = packet.number();
+        uint32_t packet_idx = getPacketIndex(packet_number);
 
         bool skip_trace_unexpected = true;
-        auto trace_unexpected = [&](auto msg) {
-            if (skip_trace_unexpected)
+        auto trace_unexpected = [&](auto msg, bool force = false) {
+            if (skip_trace_unexpected && !force)
                 return;
             LOG(logERROR) << "[" << ps.socket->getPortNumber() << "] "
                           << "unexpected " << msg << ": "
                           << "packet_frame=" << packet_frame << ", "
                           << "packet_number=" << packet_number << ", "
+                          << "packet_idx=" << packet_idx << ", "
                           << "curr_frame=" << long(curr_frame) << ", "
                           << "curr_packet=" << curr_packet << ", "
                           << "curr_idx=" << curr_idx;
         };
+        auto force_trace_unexpected = [&](auto msg) {
+            trace_unexpected(msg, true);
+        };
 
         // moveToGood manages dst valid flag, src must be invalidated
-        if (packet_frame != curr_frame) {
-            trace_unexpected("new frame");
+        if (packet_frame < curr_frame) {
+            force_trace_unexpected("older frame");
+            decPacketCounters();
+        } else if (packet_frame > curr_frame) {
+            trace_unexpected("newer frame");
             BlockPtr new_block = ps.getEmptyBlock(packet_frame);
             if (new_block)
                 new_block->moveToGood(packet);
@@ -258,8 +274,12 @@ class PacketStream<PC, SD, FP>::WriterThread {
             block = std::move(new_block);
             incPacketCounters();
             setInvalidPacketsUntil(packet_number);
-        } else if (packet_number != curr_packet) {
-            trace_unexpected("bad frame");
+        } else if (packet_idx < curr_idx) {
+            force_trace_unexpected("older packet");
+            block->moveToGood(packet);
+            decPacketCounters();
+        } else if (packet_idx > curr_idx) {
+            trace_unexpected("newer packet");
             block->moveToGood(packet);
             setInvalidPacketsUntil(packet_number);
         } else {

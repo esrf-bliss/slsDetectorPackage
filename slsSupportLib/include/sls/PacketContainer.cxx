@@ -46,19 +46,18 @@ sls::PacketBlockPtr<P> PacketContainer<P>::getFreePacketBlock(uint64_t frame) {
         --pending_packets;
         free_cond.notify_one();
     };
-    using LayoutPtr = typename Block::LayoutPtr;
-    auto allocator = [&]() -> LayoutPtr {
+    auto allocator = [&]() {
         std::unique_lock<std::mutex> l(free_mutex);
         while (!stopped && !free_map[idx])
             free_cond.wait(l);
-        if (stopped)
-            return nullptr;
         BlockLayout *layout = nullptr;
-        std::swap(layout, free_map[idx]);
-        ++pending_packets;
-        return {layout, releaser};
+        if (free_map[idx]) {
+            std::swap(layout, free_map[idx]);
+            ++pending_packets;
+        }
+        return layout;
     };
-    auto layout = allocator();
+    typename Block::LayoutPtr layout{allocator(), releaser};
     return layout ? std::make_unique<Block>(std::move(layout)) : nullptr;
 }
 
@@ -77,7 +76,7 @@ sls::PacketBlockPtr<P> PacketContainer<P>::getReadyPacketBlock(uint64_t frame) {
     std::unique_lock<std::mutex> l(block_mutex);
     WaitingCountHelper h(*this, l);
     typename ReadyBlockMap::iterator it;
-    bool any = (frame == uint64_t(-1));
+    bool any = !isValid(frame);
     while (!stopped) {
         if (!ready_block_map.empty()) {
             it = ready_block_map.begin();
@@ -103,9 +102,12 @@ sls::PacketBlockPtr<P> PacketContainer<P>::getReadyPacketBlock(uint64_t frame) {
 template <class P>
 void PacketContainer<P>::putReadyPacketBlock(BlockPtr block) {
     using FramePacketBlock = typename ReadyBlockMap::value_type;
+    auto frame = block->getFrameNumber();
+    assert(isValid(frame));
     std::lock_guard<std::mutex> l(block_mutex);
-    ready_block_map.emplace(
-        FramePacketBlock(block->getFrameNumber(), std::move(block)));
+    auto [pos, inserted] =
+        ready_block_map.emplace(FramePacketBlock(frame, std::move(block)));
+    assert(inserted);
     block_cond.notify_all();
 }
 
@@ -122,6 +124,7 @@ template <class P> void PacketContainer<P>::releaseReadyPacketBlocks() {
     ReadyBlockMap old_map = std::move(ready_block_map);
     assert(ready_block_map.empty());
     l.unlock();
+    // automatic variable old_map safely destroyed before return
 }
 
 template <class P> void PacketContainer<P>::waitUsedPacketBlocks() {
@@ -136,7 +139,6 @@ template <class P> void PacketContainer<P>::waitUsedPacketBlocks() {
     }
     auto missing = getPendingPackets();
     if (missing > 0) {
-        std::lock_guard<std::mutex> l(free_mutex);
         std::ostringstream error;
         error << "PacketContainer: Missing " << missing << " free frames "
               << "after " << ToSeconds(wait_reader_timeout).count() << " sec";
