@@ -1762,27 +1762,24 @@ void Implementation::setPacketBlockAllocators(
 }
 
 sls::AnyPacketBlockList Implementation::GetFramePacketBlocks(uint64_t frame) {
+    auto is_not_valid = [](auto &&f) { return f == uint64_t(-1); };
+
     if (!passiveMode)
         throw sls::RuntimeError("GetFramePacketBlocks: not in passiveMode");
+    else if (is_not_valid(frame))
+        throw sls::RuntimeError("GetFramePacketBlocks: frame not specified");
 
     if (status != RUNNING)
         return {};
 
-    // find the minimum frame number if first available was requested
-    auto is_not_valid = [](auto &&f) { return f == uint64_t(-1); };
-
-    if (is_not_valid(frame)) {
-        for (auto &f : fifo) {
-            uint64_t iface_frame = f->GetNextFrameNumber();
-            if (is_not_valid(iface_frame))
-                return {};
-            else if (is_not_valid(frame))
-                frame = iface_frame;
-            else if (iface_frame != frame)
-                throw sls::RuntimeError("Expected frame " +
-                                        std::to_string(frame) + ", got " +
-                                        std::to_string(iface_frame));
-        }
+    // check that the next frame is the requested one
+    for (auto &f : fifo) {
+        uint64_t iface_frame = f->GetNextFrameNumber();
+        if (is_not_valid(iface_frame))
+            return {};
+        else if (iface_frame != frame)
+            throw sls::RuntimeError("Expected frame " + std::to_string(frame) +
+                                    ", got " + std::to_string(iface_frame));
     }
 
     sls::AnyPacketBlockList blocks;
@@ -1791,7 +1788,9 @@ sls::AnyPacketBlockList Implementation::GetFramePacketBlocks(uint64_t frame) {
         blocks.emplace_back(f->GetFramePackets(frame));
         std::visit(
             [&](auto &b) {
-                if (b && b->getValidPacketMask().any())
+                if (!b)
+                    throw sls::RuntimeError("GetFramePacketBlocks: null block");
+                if (b->getValidPacketMask().any())
                     ++valid_ports;
             },
             blocks.back());
@@ -1801,12 +1800,7 @@ sls::AnyPacketBlockList Implementation::GetFramePacketBlocks(uint64_t frame) {
     if (((fd == DISCARD_PARTIAL_FRAMES) && (valid_ports != listener.size())) ||
         ((fd == DISCARD_EMPTY_FRAMES) && !valid_ports))
         for (auto &b : blocks)
-            std::visit(
-                [](auto &b) {
-                    if (b)
-                        b->discard();
-                },
-                b);
+            std::visit([](auto &b) { b->discard(); }, b);
 
     return blocks;
 }
