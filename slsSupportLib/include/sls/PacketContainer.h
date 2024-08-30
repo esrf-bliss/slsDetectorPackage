@@ -71,7 +71,7 @@ template <class P> class PacketContainer {
     using BlockLayout = typename Block::Layout;
 
     uint64_t getNextReadyFrameNumber();
-    BlockPtr getReadyPacketBlock(uint64_t frame = uint64_t(-1));
+    BlockPtr getReadyPacketBlock(uint64_t frame);
 
     unsigned int getPendingPackets();
 
@@ -89,6 +89,8 @@ template <class P> class PacketContainer {
   private:
     using FreeBlockMap = std::vector<BlockLayout *>;
     using ReadyBlockMap = std::map<uint64_t, BlockPtr>;
+
+    bool isValid(uint64_t frame) { return frame != uint64_t(-1); }
 
     unsigned int getBufferIdx(uint64_t frame) {
         return (frame - 1) % num_frames;
