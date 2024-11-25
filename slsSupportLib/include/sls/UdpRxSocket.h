@@ -14,10 +14,9 @@ class UdpRxSocket {
     const ssize_t packet_size_;
     int sockfd_{-1};
     int portno{0};
-
   public:
     UdpRxSocket(int port, ssize_t packet_size, const char *hostname = nullptr,
-                int kernel_buffer_size = 0);
+                int kernel_buffer_size = 0, int timeout = 10);
     ~UdpRxSocket();
     bool ReceivePacket(char *dst) noexcept;
     int getBufferSize() const;

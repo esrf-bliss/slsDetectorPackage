@@ -718,6 +718,16 @@ typedef struct {
 } sls_detector_module;
 #endif
 
+/**
+    @short  structure for frame timestamp
+*/
+#ifdef __cplusplus
+namespace sls {
+using FrameTimestamp =
+    std::pair<uint64_t, std::chrono::steady_clock::time_point>;
+} // namespace sls
+#endif
+
 #ifdef __cplusplus
 
 // TODO! discuss this

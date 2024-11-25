@@ -1692,6 +1692,10 @@ sls::AnyPacketBlockList ClientInterface::GetFramePacketBlocks(uint64_t frame) {
     return impl()->GetFramePacketBlocks(frame);
 }
 
+sls::FrameTimestamp ClientInterface::GetLastFrameTimestamp() {
+    return impl()->GetLastFrameTimestamp();
+}
+
 void ClientInterface::clearAllBuffers() { impl()->clearAllBuffers(); }
 
 int ClientInterface::set_all_threshold(Interface &socket) {
