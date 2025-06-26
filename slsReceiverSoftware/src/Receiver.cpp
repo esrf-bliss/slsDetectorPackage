@@ -173,6 +173,10 @@ AnyPacketBlockList Receiver::GetFramePacketBlocks(uint64_t frame) {
     return tcpipInterface->GetFramePacketBlocks(frame);
 }
 
+sls::FrameTimestamp Receiver::GetLastFrameTimestamp() {
+    return tcpipInterface->GetLastFrameTimestamp();
+}
+
 void Receiver::clearAllBuffers() { tcpipInterface->clearAllBuffers(); }
 
 void Receiver::setRoundRobin(int nb_rr_recvs, int rr_idx) {

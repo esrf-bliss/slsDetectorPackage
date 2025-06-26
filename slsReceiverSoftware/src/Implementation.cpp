@@ -1833,6 +1833,13 @@ sls::AnyPacketBlockList Implementation::GetFramePacketBlocks(uint64_t frame) {
     return blocks;
 }
 
+sls::FrameTimestamp Implementation::GetLastFrameTimestamp() {
+    for (int i = 0; i < numUDPInterfaces; ++i)
+        if (HasValidThread(listener, i))
+            return listener[i]->GetLastFrameTimestamp();
+    return {0, {}};
+}
+
 void Implementation::clearAllBuffers() {
     for (const auto &f : fifo)
         f->ClearAllBuffers();

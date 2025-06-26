@@ -76,6 +76,8 @@ template <class PC, class SD, class FP> class PacketStream {
 
     void threadFunction();
 
+    static sls::FrameTimestamp getLastFrameTimestamp();
+
     void stop();
 
     int getNumPacketsCaught();
@@ -105,6 +107,20 @@ template <class PC, class SD, class FP> class PacketStream {
   private:
     struct WriterThread;
 
+    struct FrameTimestampData {
+        std::mutex mutex;
+        sls::FrameTimestamp ts;
+        FrameTimestampData() : ts({0, {}}) {}
+    };
+    using FrameTimestampMap = std::map<int, FrameTimestampData>;
+
+    static std::mutex frame_ts_map_mutex;
+    static FrameTimestampMap frame_ts_map;
+
+    void initFrameTimestamp();
+    void updateFrameTimestamp(uint64_t frame);
+    void cleanUpFrameTimestamp();
+
     BlockPtr getEmptyBlock(uint64_t frame) {
         return packet_cont->getFreePacketBlock(calcRecvFrameNumber(frame));
     }
@@ -132,6 +148,7 @@ template <class PC, class SD, class FP> class PacketStream {
     XYStat packet_delay_stat{1e6};
     XStat packet_push_stat{1e6};
     std::unique_ptr<WriterThread> thread;
+    typename FrameTimestampMap::iterator frame_ts_it;
 };
 
 // UGLY
