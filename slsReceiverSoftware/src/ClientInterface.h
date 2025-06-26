@@ -61,6 +61,7 @@ class ClientInterface : private virtual slsDetectorDefs {
     void setPacketBlockAllocators(const PacketBlockAllocList &packet_allocs);
     MPFrameAssemblerPtr CreateFrameAssembler(AssemblerType asm_type);
     sls::AnyPacketBlockList GetFramePacketBlocks(uint64_t frame = uint64_t(-1));
+    sls::FrameTimestamp GetLastFrameTimestamp();
     void clearAllBuffers();
 
   private:

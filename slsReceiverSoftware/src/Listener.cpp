@@ -67,6 +67,13 @@ uint64_t Listener::GetLastFrameIndexCaught() const {
                       *packetStream);
 }
 
+sls::FrameTimestamp Listener::GetLastFrameTimestamp() const {
+    if (!packetStream)
+        return {0, {}};
+    return std::visit([&](auto &ps) { return ps.getLastFrameTimestamp(); },
+                      *packetStream);
+};
+
 uint64_t Listener::GetNumMissingPacket(bool stoppedFlag, uint64_t numPackets) {
     uint64_t numPacketsCaught = GetPacketsCaught();
     if (!stoppedFlag) {

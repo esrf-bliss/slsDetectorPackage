@@ -169,6 +169,10 @@ AnyPacketBlockList Receiver::GetFramePacketBlocks(uint64_t frame) {
     return tcpipInterface->GetFramePacketBlocks(frame);
 }
 
+sls::FrameTimestamp Receiver::GetLastFrameTimestamp() {
+    return tcpipInterface->GetLastFrameTimestamp();
+}
+
 void Receiver::clearAllBuffers() { tcpipInterface->clearAllBuffers(); }
 
 } // namespace sls
