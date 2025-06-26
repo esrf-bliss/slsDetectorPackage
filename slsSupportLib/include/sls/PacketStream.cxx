@@ -13,12 +13,20 @@
  */
 
 template <class PC, class SD, class FP>
+std::mutex PacketStream<PC, SD, FP>::frame_ts_map_mutex;
+
+template <class PC, class SD, class FP>
+typename PacketStream<PC, SD, FP>::FrameTimestampMap
+    PacketStream<PC, SD, FP>::frame_ts_map;
+
+template <class PC, class SD, class FP>
 PacketStream<PC, SD, FP>::PacketStream(UdpRxSocketPtr s, int rr_nb, int rr_idx,
                                        AnyCPUAffinity cpu_affinity,
                                        AnyPacketContainerPtr any_pc)
     : socket(s), rr_nb_recvs(rr_nb), rr_recv_idx(rr_idx),
       any_cpu_affinity(cpu_affinity),
       packet_cont(PacketContainerPtrFromAny<Packet>(any_pc)) {
+    initFrameTimestamp();
     packet_cont->prepare();
     thread = std::make_unique<WriterThread>(*this);
 }
@@ -28,6 +36,44 @@ PacketStream<PC, SD, FP>::~PacketStream() {
     stop();
     thread.reset();
     packet_cont->cleanUp();
+    cleanUpFrameTimestamp();
+}
+
+template <class PC, class SD, class FP>
+void PacketStream<PC, SD, FP>::initFrameTimestamp() {
+    std::lock_guard<std::mutex> l(frame_ts_map_mutex);
+    auto [it, inserted] = frame_ts_map.emplace(
+        std::piecewise_construct_t{}, std::make_tuple(socket->getPortNumber()),
+        std::make_tuple());
+    assert(inserted);
+    frame_ts_it = it;
+}
+
+template <class PC, class SD, class FP>
+void PacketStream<PC, SD, FP>::updateFrameTimestamp(uint64_t frame) {
+    FrameTimestampData &frame_ts = frame_ts_it->second;
+    std::lock_guard<std::mutex> l(frame_ts.mutex);
+    frame_ts.ts = std::make_pair(frame, std::chrono::steady_clock::now());
+}
+
+template <class PC, class SD, class FP>
+sls::FrameTimestamp PacketStream<PC, SD, FP>::getLastFrameTimestamp() {
+    sls::FrameTimestamp ts{0, {}};
+    auto check_latest = [&ts](auto &frame_ts) {
+        std::lock_guard<std::mutex> l(frame_ts.mutex);
+        if (frame_ts.ts > ts)
+            ts = frame_ts.ts;
+    };
+    std::unique_lock<std::mutex> l(frame_ts_map_mutex);
+    for (auto &[port, frame_ts] : frame_ts_map)
+        check_latest(frame_ts);
+    return ts;
+}
+
+template <class PC, class SD, class FP>
+void PacketStream<PC, SD, FP>::cleanUpFrameTimestamp() {
+    std::lock_guard<std::mutex> l(frame_ts_map_mutex);
+    frame_ts_map.erase(frame_ts_it);
 }
 
 template <class PC, class SD, class FP>
@@ -208,9 +254,9 @@ class PacketStream<PC, SD, FP>::WriterThread {
         return true;
     }
 
-    void setInvalidPacketsUntil(uint32_t good_packet) {
-        assert(getPacketIndex(good_packet) >= getPacketIndex(curr_packet));
-        for (; curr_packet != good_packet; incPacketCounters())
+    void setInvalidPacketsUntilIdx(uint32_t good_idx) {
+        assert(good_idx >= curr_idx);
+        for (; curr_idx != good_idx; incPacketCounters())
             block->setValid(curr_packet, false);
     }
 
@@ -231,12 +277,22 @@ class PacketStream<PC, SD, FP>::WriterThread {
         ps.packet_delay_stat.add(packet_idx, sec);
     }
 
-    bool addPacket(Packet &packet) {
-        addPacketDelayStat(packet, curr_idx);
-
-        uint64_t packet_frame = packet.frame();
-        uint32_t packet_number = packet.number();
-        uint32_t packet_idx = getPacketIndex(packet_number);
+    template <bool valid> bool addPacket(Packet &packet) {
+        uint64_t packet_frame;
+        uint32_t packet_number, packet_idx;
+        if constexpr (valid) {
+            addPacketDelayStat(packet, curr_idx);
+            packet_frame = packet.frame();
+            packet_number = packet.number();
+            packet_idx = getPacketIndex(packet_number);
+            ps.updateFrameTimestamp(packet_frame);
+        } else {
+            // refer to last packet from frame received by other PacketStreams
+            auto [last_frame, last_ts] = ps.getLastFrameTimestamp();
+            packet_frame = last_frame;
+            packet_idx = ps.FramePackets - 1;
+            packet_number = getPacketNumber(packet_idx);
+        }
 
         bool skip_trace_unexpected = true;
         auto trace_unexpected = [&](auto msg, bool force = false) {
@@ -244,6 +300,7 @@ class PacketStream<PC, SD, FP>::WriterThread {
                 return;
             LOG(logERROR) << "[" << ps.socket->getPortNumber() << "] "
                           << "unexpected " << msg << ": "
+                          << "valid=" << valid << ", "
                           << "packet_frame=" << packet_frame << ", "
                           << "packet_number=" << packet_number << ", "
                           << "packet_idx=" << packet_idx << ", "
@@ -259,11 +316,14 @@ class PacketStream<PC, SD, FP>::WriterThread {
         if (packet_frame < curr_frame) {
             force_trace_unexpected("older frame");
             decPacketCounters();
+            return true;
         } else if (packet_frame > curr_frame) {
             trace_unexpected("newer frame");
             BlockPtr new_block = ps.getEmptyBlock(packet_frame);
-            if (new_block)
-                new_block->moveToGood(packet);
+            if constexpr (valid) {
+                if (new_block)
+                    new_block->moveToGood(packet);
+            }
             // Finish current block if it's got some data
             if (curr_idx > 0) {
                 setInvalidRemainingPackets();
@@ -277,22 +337,41 @@ class PacketStream<PC, SD, FP>::WriterThread {
             // initialize new block
             block = std::move(new_block);
             incPacketCounters();
-            setInvalidPacketsUntil(packet_number);
+            setInvalidPacketsUntilIdx(packet_idx);
         } else if (packet_idx < curr_idx) {
             force_trace_unexpected("older packet");
-            block->moveToGood(packet);
+            if constexpr (valid)
+                block->moveToGood(packet);
             decPacketCounters();
+            return true;
         } else if (packet_idx > curr_idx) {
             trace_unexpected("newer packet");
-            block->moveToGood(packet);
-            setInvalidPacketsUntil(packet_number);
-        } else {
-            block->setValid(curr_packet, true);
+            if constexpr (valid)
+                block->moveToGood(packet);
+            setInvalidPacketsUntilIdx(packet_idx);
         }
+
+        block->setValid(curr_packet, valid);
 
         if (curr_idx == (ps.FramePackets - 1))
             finishPacketBlock();
         return true;
+    }
+
+    bool isTooDelayed(int timeout = 10) {
+        using namespace std::chrono;
+        auto [last_frame, last_ts] = ps.getLastFrameTimestamp();
+        if (last_frame < curr_frame)
+            return false;
+        auto elapsed =
+            duration_cast<seconds>(steady_clock::now() - last_ts).count();
+        bool delayed = (elapsed > timeout);
+        if (delayed)
+            LOG(logERROR) << "[" << ps.socket->getPortNumber() << "] "
+                          << "is too delayed: "
+                          << "last_frame=" << last_frame << ", "
+                          << "elapsed=" << elapsed << " sec";
+        return delayed;
     }
 
     bool processOnePacket() {
@@ -301,13 +380,28 @@ class PacketStream<PC, SD, FP>::WriterThread {
 
         Packet packet = getNextPacket();
         char *b = static_cast<char *>(packet.networkBuffer());
-        int ret = ps.socket->ReceiveDataOnly(b);
-        if (ps.wasStopped() || (ret < 0))
-            return false;
+        while (true) {
+            int ret = ps.socket->ReceiveDataOnly(b);
+            if (ps.wasStopped() || (ret < 0))
+                return false;
+            else if (ret > 0) {
+                int expected = sizeof(typename Packet::Data::NetworkPacket);
+                if (ret != expected) {
+                    LOG(logERROR) << "[" << ps.socket->getPortNumber() << "] "
+                                  << "invalid packet size: " << ret << ", "
+                                  << "expected " << expected;
+                }
+                break;
+            }
+            LOG(logERROR) << "[" << ps.socket->getPortNumber() << "] "
+                          << "got no packet data";
+            if (isTooDelayed())
+                return addPacket<false>(packet);
+        }
 
         packet.initSoftHeader();
 
-        return addPacket(packet);
+        return addPacket<true>(packet);
     }
 
     PacketStream &ps;

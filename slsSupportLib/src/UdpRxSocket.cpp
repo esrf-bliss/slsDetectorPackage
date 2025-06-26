@@ -16,7 +16,7 @@
 namespace sls {
 
 UdpRxSocket::UdpRxSocket(int port, ssize_t packet_size, const char *hostname,
-                         int kernel_buffer_size)
+                         int kernel_buffer_size, int timeout)
     : packet_size_(packet_size), portno(port) {
     struct addrinfo hints;
     memset(&hints, 0, sizeof(hints));
@@ -54,6 +54,16 @@ UdpRxSocket::UdpRxSocket(int port, ssize_t packet_size, const char *hostname,
             }
         }
     }
+
+    if (timeout > 0) {
+        struct timeval t;
+        t.tv_sec = timeout;
+        t.tv_usec = 0;
+        if (::setsockopt(sockfd_, SOL_SOCKET, SO_RCVTIMEO, &t,
+                         sizeof(struct timeval)) < 0) {
+            LOG(logERROR) << "setsockopt SO_RCVTIMEO " << timeout;
+        }
+    }
 }
 
 UdpRxSocket::~UdpRxSocket() { Shutdown(); }
@@ -67,6 +77,8 @@ bool UdpRxSocket::ReceivePacket(char *dst) noexcept {
 
 ssize_t UdpRxSocket::ReceiveDataOnly(char *dst) noexcept {
     auto r = recvfrom(sockfd_, dst, packet_size_, 0, nullptr, nullptr);
+    if ((r == -1) && ((errno == EAGAIN) || (errno == EWOULDBLOCK)))
+        return 0;
     constexpr ssize_t eiger_header_packet = 40; // only detector that has this
     if (r == eiger_header_packet) {
         LOG(logWARNING) << "Got header pkg";
