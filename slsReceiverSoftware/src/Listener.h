@@ -87,6 +87,12 @@ class Listener : private virtual slsDetectorDefs, public ThreadObject {
      */
     uint64_t GetLastFrameIndexCaught() const;
 
+    /**
+     * Get Last Frame Timestamp
+     * @return last frame timestamp
+     */
+    sls::FrameTimestamp GetLastFrameTimestamp() const;
+
     /** Get  number of missing packets */
     uint64_t GetNumMissingPacket(bool stoppedFlag, uint64_t numPackets);
 

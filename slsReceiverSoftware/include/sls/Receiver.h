@@ -122,6 +122,11 @@ class Receiver : private virtual slsDetectorDefs {
     AnyPacketBlockList GetFramePacketBlocks(uint64_t frame = uint64_t(-1));
 
     /**
+     * Get the last received frame timestamp
+     */
+    sls::FrameTimestamp GetLastFrameTimestamp();
+
+    /**
      * Clear the PacketStream buffers
      */
     void clearAllBuffers();
